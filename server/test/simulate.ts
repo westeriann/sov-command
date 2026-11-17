@@ -11,7 +11,7 @@ const { seed, nations, provinces } = loadNationDefs(resolve('../client/public/wo
 const w = new World(openDb(':memory:'), seed, nations, {
   speed: 24, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 1000, autopilotAfterMs: DAY, releaseAfterMs: 14 * DAY,
 }, provinces);
-const all = () => [...w.nations.values()].map((n) => n.econ);
+const all = () => [...w.nations.values()].filter((n) => !n.annexedBy).map((n) => n.econ);
 
 function report(label: string) {
   const e = all();

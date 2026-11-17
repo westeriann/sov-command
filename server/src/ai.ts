@@ -149,7 +149,7 @@ export class AiBrain {
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
 
     // rare wars of choice against clearly weaker neighbours (about one somewhere per game year)
-    if (!enemies.length && aggressive && this.random() < (p === 'expansionist' ? 0.006 : 0.003)) {
+    if (!enemies.length && aggressive && this.random() < (p === 'expansionist' ? 0.012 : 0.006)) {
       const targets = (w.defs.get(me)?.neighbours ?? [])
         .map((id) => w.nations.get(id))
         .filter((t): t is NationState => !!t && !t.annexedBy && !w.diplomacy.has('alliance', me, t.id))
@@ -157,7 +157,7 @@ export class AiBrain {
         .filter((t) => {
           const near = new Set([...(w.defs.get(me)?.neighbours ?? []), ...(w.defs.get(t.id)?.neighbours ?? [])]);
           const allies = w.diplomacy.partners('alliance', t.id).filter((id) => near.has(id));
-          return [t.id, ...allies].reduce((s, id) => s + (w.publicView(w.nations.get(id)!).army ?? 0), 0) < units.length * 0.6;
+          return [t.id, ...allies].reduce((s, id) => s + (w.publicView(w.nations.get(id)!).army ?? 0), 0) < units.length * 0.7;
         })
         .filter((t) => !(t.controller === 'human' && Date.now() - (t.claimedAt ?? 0) < 2 * 3_600_000));
       if (targets.length) orders.push({ kind: 'war', target: targets[Math.floor(this.random() * targets.length)].id });
