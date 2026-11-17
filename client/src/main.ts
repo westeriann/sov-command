@@ -115,6 +115,7 @@ async function start() {
     missile: (province) => conn.send({ t: 'order', order: { kind: 'missile', province } }),
     nuke: (province) => conn.send({ t: 'order', order: { kind: 'nuke', province } }),
     embargo: (target, on) => conn.send({ t: 'order', order: { kind: 'embargo', target, on } }),
+    order: (order) => conn.send({ t: 'order', order }),
     selection: () => forces?.selected.size ?? 0,
     preview: (p) => forces?.preview(p) ?? null,
   });
@@ -146,6 +147,7 @@ async function start() {
     propose: (target, deal) => conn.send({ t: 'order', order: { kind: 'propose', target, deal } }),
     answer: (from, deal, accept) => conn.send({ t: 'order', order: { kind: 'answer', from, deal, accept } }),
     cancel: (target, pact) => conn.send({ t: 'order', order: { kind: 'cancel', target, pact } }),
+    order: (order) => conn.send({ t: 'order', order }),
     goToNation: (id) => {
       const n = pol.nations.get(id);
       const p = n && pol.provinces.get(n.capital);

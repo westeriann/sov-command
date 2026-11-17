@@ -1,6 +1,6 @@
 // Treaties and proposals between nations. Pure bookkeeping: the World applies
 // the effects (call to arms, ceded land, trade growth) when deals are made.
-import { PROPOSAL_DAYS, pair, type DealKind, type Pact, type Proposal, type Treaty } from '../../shared/diplomacy.ts';
+import { PROPOSAL_DAYS, pair, type Bloc, type DealKind, type Pact, type Proposal, type Resolution, type Treaty } from '../../shared/diplomacy.ts';
 
 export interface DiplomacyState {
   treaties: Treaty[];
@@ -9,6 +9,10 @@ export interface DiplomacyState {
   embargoes?: { from: number; to: number }[];
   unrest?: Record<number, number>;
   formerOwner?: Record<number, number>;
+  blocs?: Bloc[];
+  council?: Resolution[];
+  overlords?: Record<number, number>;
+  nextId?: number;
 }
 
 export class Diplomacy {
@@ -18,6 +22,10 @@ export class Diplomacy {
   embargoes: { from: number; to: number }[] = [];
   unrest = new Map<number, number>(); // province -> 0..100
   formerOwner = new Map<number, number>(); // province -> nation it was taken from
+  blocs: Bloc[] = [];
+  council: Resolution[] = [];
+  overlords = new Map<number, number>(); // vassal -> overlord
+  nextId = 1;
 
   constructor(state: DiplomacyState | null) {
     if (!state) return;
@@ -27,12 +35,17 @@ export class Diplomacy {
     this.embargoes = state.embargoes ?? [];
     this.unrest = new Map(Object.entries(state.unrest ?? {}).map(([p, n]) => [Number(p), n]));
     this.formerOwner = new Map(Object.entries(state.formerOwner ?? {}).map(([p, n]) => [Number(p), n]));
+    this.blocs = state.blocs ?? [];
+    this.council = state.council ?? [];
+    this.overlords = new Map(Object.entries(state.overlords ?? {}).map(([v, o]) => [Number(v), o]));
+    this.nextId = state.nextId ?? 1;
   }
 
   serialize(): DiplomacyState {
     return {
       treaties: this.treaties, proposals: this.proposals, owners: Object.fromEntries(this.owners), embargoes: this.embargoes,
       unrest: Object.fromEntries(this.unrest), formerOwner: Object.fromEntries(this.formerOwner),
+      blocs: this.blocs, council: this.council, overlords: Object.fromEntries(this.overlords), nextId: this.nextId,
     };
   }
 
@@ -75,6 +88,9 @@ export class Diplomacy {
   forget(n: number) {
     this.treaties = this.treaties.filter((t) => t.a !== n && t.b !== n);
     this.embargoes = this.embargoes.filter((e) => e.from !== n && e.to !== n);
+    this.leaveBloc(n);
+    this.overlords.delete(n);
+    for (const [v, o] of [...this.overlords]) if (o === n) this.overlords.delete(v);
     this.proposals = this.proposals.filter((p) => p.from !== n && p.to !== n);
   }
 
@@ -83,6 +99,41 @@ export class Diplomacy {
     const before = this.proposals.length;
     this.proposals = this.proposals.filter((p) => day - p.day <= PROPOSAL_DAYS);
     return this.proposals.length < before;
+  }
+
+  blocOf(n: number) {
+    return this.blocs.find((b) => b.members.includes(n));
+  }
+
+  leaveBloc(n: number) {
+    const b = this.blocOf(n);
+    if (!b) return undefined;
+    b.members = b.members.filter((x) => x !== n);
+    if (!b.members.length) this.blocs = this.blocs.filter((x) => x !== b);
+    else if (b.leader === n) b.leader = b.members[0];
+    return b;
+  }
+
+  vassalsOf(n: number) {
+    return [...this.overlords].filter(([, o]) => o === n).map(([v]) => v);
+  }
+
+  /** Allied in any way: an alliance treaty, the same bloc, or vassal and overlord. */
+  allied(a: number, b: number) {
+    if (a === b) return false;
+    if (this.has('alliance', a, b) || this.overlords.get(a) === b || this.overlords.get(b) === a) return true;
+    const bloc = this.blocOf(a);
+    return !!bloc && bloc.members.includes(b);
+  }
+
+  /** Everyone bound to defend this nation. */
+  allies(n: number) {
+    const out = new Set(this.partners('alliance', n));
+    for (const m of this.blocOf(n)?.members ?? []) if (m !== n) out.add(m);
+    for (const v of this.vassalsOf(n)) out.add(v);
+    const o = this.overlords.get(n);
+    if (o !== undefined) out.add(o);
+    return [...out];
   }
 
   embargoed(from: number, to: number) {

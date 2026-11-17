@@ -27,7 +27,7 @@ export class Game {
   economy = new Map<number, EconomyPublic>();
   market: MarketSnapshot | null = null;
   units: UnitView[] = [];
-  war: WarState = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {} };
+  war: WarState = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {}, blocs: [], council: [], vassals: {} };
 
   treaty(kind: 'alliance' | 'trade', a: number | undefined, b: number | undefined) {
     return !!a && !!b && this.war.treaties.some((t) => t.kind === kind && ((t.a === a && t.b === b) || (t.a === b && t.b === a)));
@@ -64,7 +64,7 @@ export class Game {
     this.clock = null;
     this.economy.clear();
     this.units = [];
-    this.war = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {} };
+    this.war = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {}, blocs: [], council: [], vassals: {} };
     this.market = null;
     this.emit('me', 'mine', 'nations', 'events', 'chat', 'online', 'economy');
   }

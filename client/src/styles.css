@@ -396,3 +396,11 @@ table.league .link i { width: 9px; height: 9px; border-radius: 2px; }
 .build-list .claim span { font-size: 10px; color: var(--muted); font-weight: 400; }
 .hint.down { color: #ff8a7c; }
 @media (prefers-reduced-motion: reduce) { .unit-marker.nosupply { animation: none; } }
+
+/* diplomacy additions */
+.text-input, .council-form select { flex: 1; min-width: 0; padding: 7px 9px; border-radius: 3px; border: 1px solid var(--edge-soft); background: rgba(9, 18, 26, 0.8); color: inherit; font: inherit; font-size: 12px; }
+.council-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0 6px; }
+.council-form .claim { grid-column: 1 / -1; }
+.reports { margin: 6px 0 12px; padding-left: 18px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.covert { margin: 8px 0; font-size: 12px; }
+.covert summary { cursor: pointer; color: var(--cyan); padding: 4px 0; }

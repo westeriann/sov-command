@@ -6,7 +6,7 @@
 
 import type { Budget, EconomyPrivate, EconomyPublic, MarketSnapshot } from './economy';
 import type { MilitaryPrivate, Mission, UnitType, UnitView, War } from './military';
-import type { Deal, DealKind, Pact, Proposal, Treaty } from './diplomacy';
+import type { Bloc, Deal, DealKind, Pact, Proposal, Resolution, ResolutionKind, SpyMission, Treaty } from './diplomacy';
 import type { Government, ResearchPrivate, TechId } from './research';
 import type { BuildingState, BuildingType } from './buildings';
 
@@ -55,6 +55,8 @@ export interface NationPrivate extends NationPublic {
   mil?: MilitaryPrivate;
   diplo?: { incoming: Proposal[]; outgoing: Proposal[] };
   research?: ResearchPrivate;
+  reports?: string[]; // intelligence reports, newest first
+  spyOps?: number; // operations under way
 }
 
 /** Front lines and wars are public knowledge. */
@@ -68,6 +70,9 @@ export interface WarState {
   nuked: number[]; // provinces struck by nuclear weapons
   embargoes: { from: number; to: number }[];
   unrest: Record<number, number>; // province id -> unrest 0..100 in recently conquered land
+  blocs: Bloc[];
+  council: Resolution[]; // open resolutions and the most recent results
+  vassals: Record<number, number>; // vassal -> overlord
 }
 
 /** Daily economy broadcast: world market plus every nation's public figures. */
@@ -126,6 +131,12 @@ export type Order =
   | { kind: 'missile'; province: number }
   | { kind: 'warhead' }
   | { kind: 'embargo'; target: number; on: boolean }
+  | { kind: 'bloc_create'; name: string }
+  | { kind: 'bloc_leave' }
+  | { kind: 'resolution'; resolution: ResolutionKind; target: number; target2?: number }
+  | { kind: 'vote'; id: number; yes: boolean }
+  | { kind: 'spy'; target: number; mission: SpyMission }
+  | { kind: 'release'; target: number } // free a vassal
   | { kind: 'nuke'; province: number }
   | { kind: 'government'; government: Government };
 

@@ -2,6 +2,7 @@ import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO } from '../../shared/research';
 import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
 import { MISSILE_COST } from '../../shared/military';
+import { SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal, type Pact } from '../../shared/diplomacy';
 import { FOCI, LIMITS, type Focus, type NationPublic } from '../../shared/protocol';
 import type { Change, Game } from './game';
@@ -44,6 +45,7 @@ export interface HudActions {
   missile(province: number): void;
   nuke(province: number): void;
   embargo(target: number, on: boolean): void;
+  order(o: import('../../shared/protocol').Order): void;
   selection(): number; // how many of your units are selected
   preview(province: number): { days: number } | null;
 }
@@ -343,6 +345,9 @@ export class Hud {
       else if (a === 'build') this.actions.build(Number(act.dataset.province), act.dataset.building as BuildingType);
       else if (a === 'missile') this.actions.missile(Number(act.dataset.province));
       else if (a === 'embargo') this.actions.embargo(Number(act.dataset.nation), act.dataset.on === '1');
+      else if (a === 'spy') this.actions.order({ kind: 'spy', target: Number(act.dataset.nation), mission: act.dataset.mission as SpyMission });
+      else if (a === 'invite') this.actions.order({ kind: 'propose', target: Number(act.dataset.nation), deal: { kind: 'bloc' } });
+      else if (a === 'puppet') this.actions.propose(Number(act.dataset.nation), { kind: 'peace', terms: 'puppet' });
       else if (a === 'nuke') {
         if (act.dataset.confirm === '1') this.actions.nuke(Number(act.dataset.province));
         else { act.dataset.confirm = '1'; act.textContent = 'Confirm: launch a nuclear strike'; }
@@ -655,6 +660,16 @@ export class Hud {
     return `<button type="button" class="claim primary" data-act="movehere" data-province="${p.id}">Move ${n} selected unit${n > 1 ? "s" : ""} here · ${r.days.toFixed(1)} days (~${secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`})</button>`;
   }
 
+  /** Spy operations against another nation. */
+  private covertHtml(target: number) {
+    const mine = this.game.mine;
+    if (!mine) return '';
+    const busy = (mine.spyOps ?? 0) >= 3;
+    return `<details class="covert"><summary>Covert operations · $2bn · 5 days${busy ? ' (3 under way)' : ''}</summary>
+      <div class="actions-row">${(Object.keys(SPY_MISSIONS) as SpyMission[]).map((m) => `<button type="button" class="claim" data-act="spy" data-nation="${target}" data-mission="${m}" title="${SPY_MISSIONS[m].text}" ${busy ? 'disabled' : ''}>${SPY_MISSIONS[m].name}</button>`).join('')}</div>
+      <p class="hint">Results arrive as intelligence reports in Diplomacy. Agents may be caught.</p></details>`;
+  }
+
   /** Buildings here; build buttons in your own provinces. */
   private buildingsHtml(p: Province) {
     const g = this.game, list = g.war.buildings[p.id] ?? [];
@@ -697,7 +712,9 @@ export class Hud {
         ${white ? `<p class="hint">They offer ${white.kind === 'peace' && white.terms === 'cede' ? `peace if you cede the ${lose} province${lose === 1 ? '' : 's'} they hold` : 'white peace'}. Answer in the Diplomacy window.</p>` : ''}
         ${sent ? '<p class="hint">Your peace proposal awaits their answer.</p>' : `<div class="actions-row">
           <button type="button" class="claim" data-act="peace" data-nation="${n.id}">Offer white peace</button>
-          ${held ? `<button type="button" class="claim primary" data-act="cede" data-nation="${n.id}">Demand the ${held} province${held > 1 ? 's' : ''} we hold</button>` : ''}</div>`}`;
+          ${held ? `<button type="button" class="claim primary" data-act="cede" data-nation="${n.id}">Demand the ${held} province${held > 1 ? 's' : ''} we hold</button>
+          <button type="button" class="claim" data-act="puppet" data-nation="${n.id}">Demand vassalage</button>` : ''}</div>`}
+        ${this.covertHtml(n.id)}`;
     }
     const pact = (kind: 'alliance' | 'trade', label: string, max: number) => {
       const name = kind === 'alliance' ? 'alliance' : 'trade agreement';
@@ -714,6 +731,15 @@ export class Hud {
       <div class="actions-row">${g.war.embargoes.some((e) => e.from === mine.id && e.to === n.id)
         ? `<button type="button" class="claim" data-act="embargo" data-nation="${n.id}" data-on="0">Lift embargo</button>`
         : `<button type="button" class="claim" data-act="embargo" data-nation="${n.id}" data-on="1" title="Close your markets to them; costs them trade in proportion to your economy">Impose embargo</button>`}</div>
+      ${(() => {
+        const myBloc = g.war.blocs.find((b) => b.leader === mine.id);
+        const theirs = g.war.blocs.find((b) => b.members.includes(n.id));
+        const lord = g.war.vassals[n.id];
+        return `${theirs ? `<p class="hint">Member of ${esc(theirs.name)}.</p>` : ''}
+          ${lord !== undefined ? `<p class="hint">Vassal of the ${esc(this.pol.nations.get(lord)?.name ?? '?')}.</p>` : ''}
+          ${myBloc && !theirs ? `<div class="actions-row"><button type="button" class="claim" data-act="invite" data-nation="${n.id}">Invite to ${esc(myBloc.name)}</button></div>` : ''}`;
+      })()}
+      ${this.covertHtml(n.id)}
       ${allied ? '' : `<button type="button" class="claim danger" data-act="war" data-nation="${n.id}">Declare war</button>`}`;
   }
 

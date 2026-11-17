@@ -63,7 +63,7 @@ export class ResearchPanel {
           <div><span>Researching</span><b>${cur ? esc(cur.name) : '—'}</b><em>${cur ? `${Math.round((r.progress / TIER_COST[cur.tier]) * 100)}% · ~${Math.ceil((TIER_COST[cur.tier] - r.progress) / Math.max(0.1, r.rate))} days (${time((TIER_COST[cur.tier] - r.progress) / Math.max(0.1, r.rate))})` : 'choose a technology below'}</em></div>
           <div><span>Research rate</span><b>${r.rate}</b><em>points a day · raise the research budget in Economy</em></div>
           <div><span>Technologies</span><b>${r.done.length} / ${TECHS.length}</b><em>bonuses are permanent</em></div>
-          <div><span>Government</span><b>${esc(gov.name)}</b><em>${reforming ? `reform under way · ${r.reformUntil! - day} days left` : cooldown ? `next reform in ${cooldown} days` : 'reform possible'}</em></div>
+          <div><span>Government</span><b>${esc(gov.name)}</b><em>${reforming ? `reform under way · ${r.reformUntil! - day} days left` : cooldown ? `next reform in ${cooldown} days` : 'reform possible'}${r.nextElection !== undefined && r.government === 'democracy' ? ` · election in ${Math.max(0, r.nextElection - day)} days` : ''}${(r.oppositionUntil ?? -1) > day ? ` · opposition parliament for ${r.oppositionUntil! - day} days` : ''}</em></div>
         </div>
         <div class="tech-grid">
           ${BRANCHES.map((b) => `<section><span class="label">${BRANCH_NAMES[b].toUpperCase()}</span>

@@ -62,6 +62,8 @@ export class Military {
   wars: War[] = [];
   /** Set by the World: whether two nations are allied (allies may cross each other's land). */
   allied: (a: number, b: number) => boolean = () => false;
+  /** Set by the World: nations whose forces this nation can see through intelligence. */
+  intelOn: (nation: number) => number[] = () => [];
   /** Set by the World: a nation's bonus from technology and government (0.1 = +10%). */
   bonus: (nation: number, kind: 'landAttack' | 'landDefense' | 'naval' | 'air' | 'build') => number = () => 0;
   occupied = new Map<number, number>();
@@ -228,7 +230,9 @@ export class Military {
       for (const q of this.provinces.get(p)?.adj ?? []) seen.add(q);
     };
     for (const prov of this.provinces.values()) if (prov.kind === 'land' && this.controller(prov.id) === nation) add(prov.id);
+    const watched = new Set(this.intelOn(nation));
     for (const u of this.units.values()) {
+      if (watched.has(u.nation)) seen.add(u.province);
       if (u.nation !== nation) continue;
       add(u.province);
       if (u.next) add(u.next);

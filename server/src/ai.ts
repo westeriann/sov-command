@@ -10,7 +10,7 @@ import { BUDGET_KEYS, normalizeBudget, type Budget } from '../../shared/economy.
 import { FOCI, LIMITS, PERSONALITIES, type Focus, type Order, type Personality, type Policy } from '../../shared/protocol.ts';
 import { UNIT_SPECS, distanceKm, domainOf, type UnitType } from '../../shared/military.ts';
 import type { NationState, World } from './world.ts';
-import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal } from '../../shared/diplomacy.ts';
+import { MAX_ALLIANCES, MAX_BLOC, MAX_TRADE_DEALS, SPY_COST, type Deal, type Resolution, type SpyMission } from '../../shared/diplomacy.ts';
 import { TECHS, prerequisite, type Branch, type TechId } from '../../shared/research.ts';
 import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
 import { MISSILE_COST, WARHEAD_COST } from '../../shared/military.ts';
@@ -154,11 +154,14 @@ export class AiBrain {
       const days = this.warDays(me, foe);
       const gain = 1 - w.controlOf(foe), loss = 1 - control;
       if (w.diplomacy.pending(me, foe, 'peace')) continue;
-      if (gain > 0.08 && gain > loss + 0.05 && days > 20) orders.push({ kind: 'propose', target: foe, deal: { kind: 'peace', terms: 'cede' } });
+      const aggressive = n.personality === 'expansionist' || n.personality === 'opportunist';
+      if (gain > 0.35 && aggressive && days > 30) orders.push({ kind: 'propose', target: foe, deal: { kind: 'peace', terms: 'puppet' } });
+      else if (gain > 0.08 && gain > loss + 0.05 && days > 20) orders.push({ kind: 'propose', target: foe, deal: { kind: 'peace', terms: 'cede' } });
       else if ((loss >= gain && days > 30) || days > 150 || control < 0.7) orders.push({ kind: 'peace', target: foe });
     }
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
     orders.push(...this.strategicOrders(n, enemies.length > 0));
+    orders.push(...this.covertOrders(n, enemies));
     for (const foe of enemies) if (!w.diplomacy.embargoed(me, foe) && this.random() < 0.3) orders.push({ kind: 'embargo', target: foe, on: true });
     for (const e of w.diplomacy.embargoes) if (e.from === me && !enemies.includes(e.to) && this.random() < 0.1) orders.push({ kind: 'embargo', target: e.to, on: false });
 
@@ -267,19 +270,20 @@ export class AiBrain {
     if (!them || w.dealProblem(from, me, deal)) return false;
     const friendly = them.policy.focus === 'diplomacy' ? 0.2 : 0;
     if (deal.kind === 'trade') return TRADE_WILL[p] + friendly >= 0.5;
-    if (deal.kind === 'alliance') {
+    if (deal.kind === 'alliance' || deal.kind === 'bloc') {
       const m = w.military;
       const myEnemies = m.enemiesOf(me), theirEnemies = m.enemiesOf(from);
       const shared = myEnemies.some((e) => theirEnemies.includes(e)) ? 0.35 : 0;
       const trades = w.diplomacy.has('trade', me, from) ? 0.1 : 0;
       const strong = (w.publicView(them).army ?? 0) >= m.unitsOf(me).length * 0.5 ? 0.1 : 0;
       const neighbour = w.defs.get(me)?.neighbours.includes(from) ? 0.05 : 0;
-      return ALLY_WILL[p] + friendly + shared + trades + strong + neighbour >= 0.5;
+      return ALLY_WILL[p] + friendly + shared + trades + strong + neighbour + (deal.kind === 'bloc' ? 0.1 : 0) >= 0.5;
     }
     // peace: weigh what each side holds of the other's people
     const days = this.warDays(me, from);
     const loss = 1 - w.controlOf(me), gain = 1 - w.controlOf(from);
     if (deal.terms === 'white') return loss >= gain - 0.02 || days > 120 || (days > 40 && gain < 0.1);
+    if (deal.terms === 'puppet') return w.controlOf(me) < 0.45 || (loss > gain + 0.25 && days > 60) || days > 300;
     return w.controlOf(me) < 0.6 || (loss > gain + 0.1 && days > 30) || days > 240;
   }
 
@@ -309,6 +313,53 @@ export class AiBrain {
     const open = TECHS.filter((t) => !n.tech.done.includes(t.id) && (!prerequisite(t) || n.tech.done.includes(prerequisite(t)!.id)));
     open.sort((a, b) => a.tier * 4 + order.indexOf(a.branch) - (b.tier * 4 + order.indexOf(b.branch)));
     return open[0]?.id;
+  }
+
+  /** How this government votes in the world council (undefined: abstain). */
+  vote(n: NationState, r: Resolution): boolean | undefined {
+    const w = this.world, d = w.diplomacy, m = w.military, me = n.id;
+    if (r.target === me || r.target2 === me) return false;
+    const friend = (x: number) => d.allied(me, x) || d.has('trade', me, x);
+    if (r.kind === 'ceasefire') {
+      if (m.atWar(me, r.target) || (r.target2 !== undefined && m.atWar(me, r.target2))) return false;
+      return n.personality === 'expansionist' ? undefined : true;
+    }
+    if (friend(r.target)) return false;
+    if (m.atWar(me, r.target) || d.allied(me, r.by)) return true;
+    // aggressors draw condemnation: nations that started a war now under way
+    const aggressor = m.wars.some((x) => x.a === r.target);
+    if (aggressor) return n.personality !== 'expansionist';
+    return n.personality === 'idealist' ? false : undefined;
+  }
+
+  /** Blocs, council motions and spies. */
+  private covertOrders(n: NationState, enemies: number[]): Order[] {
+    const w = this.world, d = w.diplomacy, me = n.id, orders: Order[] = [];
+    const bloc = d.blocOf(me);
+    // big, outward-looking powers found blocs and invite their friends
+    if (!bloc && (n.personality === 'expansionist' || n.personality === 'turtle') && n.econ.gdp > 1500 && this.random() < 0.01) {
+      orders.push({ kind: 'bloc_create', name: `${w.defs.get(me)!.short} ${['Pact', 'Union', 'Accord', 'League', 'Compact'][me % 5]}` });
+    } else if (bloc?.leader === me && bloc.members.length < MAX_BLOC && this.random() < 0.08) {
+      const pick = d.allies(me).concat(d.partners('trade', me)).find((x) => !d.blocOf(x) && !d.pending(me, x, 'bloc'));
+      if (pick !== undefined) orders.push({ kind: 'propose', target: pick, deal: { kind: 'bloc' } });
+    }
+    // condemn those who attacked our friends
+    if (this.random() < 0.03) {
+      const villain = w.military.wars.find((x) => d.allied(me, x.b) && !d.allied(me, x.a))?.a;
+      if (villain !== undefined) orders.push({ kind: 'resolution', resolution: this.random() < 0.5 ? 'condemn' : 'sanction', target: villain });
+    }
+    // spies: scout and sabotage enemies; steal from the advanced in peacetime
+    if (n.mil.funds > SPY_COST * 4 && (n.spyOps?.length ?? 0) < 2) {
+      const r = this.random();
+      if (enemies.length && r < 0.3) {
+        const mission: SpyMission = r < 0.15 ? 'recon' : 'sabotage';
+        orders.push({ kind: 'spy', target: enemies[0], mission });
+      } else if (!enemies.length && r < 0.04) {
+        const ahead = [...w.nations.values()].filter((x) => !x.annexedBy && x.id !== me && (w.publicView(x).techs ?? 0) > n.tech.done.length);
+        if (ahead.length) orders.push({ kind: 'spy', target: ahead[Math.floor(this.random() * ahead.length)].id, mission: 'steal' });
+      }
+    }
+    return orders;
   }
 
   /** Construction and the nuclear question. */

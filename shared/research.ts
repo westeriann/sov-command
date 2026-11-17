@@ -79,6 +79,8 @@ export interface ResearchPrivate {
   government: Government;
   reformUntil?: number; // game day the current reform ends
   reformedAt?: number; // game day of the last reform
+  nextElection?: number; // game day (democracies)
+  oppositionUntil?: number; // game day: lost an election, no wars of choice until then
 }
 
 /** Sum effects of a government and a set of techs. */

@@ -137,3 +137,62 @@ test('conquered provinces are restless; unrest fades, faster with a garrison', (
   (w as unknown as { unrestDay: () => void }).unrestDay();
   assert.equal(w.military.provinces.get(5)!.owner, 2, 'province 5 returned to its former owner');
 });
+
+test('blocs: members defend each other; leaders invite; leaving works', () => {
+  const w = setup();
+  assert.equal(w.submit(2, { kind: 'bloc_create', name: 'Northern Accord' }, 'human').ok, true);
+  w.submit(2, { kind: 'propose', target: 3, deal: { kind: 'bloc' } }, 'human');
+  w.submit(3, { kind: 'answer', from: 2, deal: 'bloc', accept: true }, 'human');
+  assert.deepEqual(w.diplomacy.blocOf(3)?.members, [2, 3]);
+  assert.equal(w.diplomacy.allied(2, 3), true, 'bloc members are allies');
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  assert.equal(w.military.atWar(3, 1), true, 'the bloc answers an attack on one of its members');
+  assert.equal(w.submit(3, { kind: 'bloc_leave' }, 'human').ok, true);
+  assert.equal(w.diplomacy.allied(2, 3), false);
+});
+
+test('world council: votes over 7 days decide sanctions and ceasefires', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  assert.equal(w.submit(3, { kind: 'resolution', resolution: 'ceasefire', target: 1, target2: 2 }, 'human').ok, true);
+  const r = w.diplomacy.council[0];
+  assert.equal(w.submit(2, { kind: 'vote', id: r.id, yes: true }, 'human').ok, true);
+  w.submit(1, { kind: 'vote', id: r.id, yes: false }, 'human');
+  w.tick(Date.now() + 86_400_000 / 8640 * 8);
+  assert.equal(r.result, 'passed', '2 to 1');
+  assert.equal(w.military.atWar(1, 2), false, 'the ceasefire ends the war');
+});
+
+test('puppet states: the loser becomes a vassal that pays tribute and cannot start wars', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  w.submit(1, { kind: 'propose', target: 2, deal: { kind: 'peace', terms: 'puppet' } }, 'human');
+  w.submit(2, { kind: 'answer', from: 1, deal: 'peace', accept: true }, 'human');
+  assert.equal(w.warState().vassals[2], 1);
+  assert.equal(w.diplomacy.allied(1, 2), true);
+  assert.equal(w.submit(2, { kind: 'war', target: 3 }, 'human').ok, false, 'vassals cannot start wars');
+  const t = w.nations.get(1)!.econ.treasury;
+  (w as unknown as { politicsDay: (d: number) => void }).politicsDay(w.market.day);
+  assert.ok(w.nations.get(1)!.econ.treasury > t, 'tribute flows to the overlord');
+  assert.equal(w.submit(2, { kind: 'war', target: 1 }, 'human').ok, true, 'but it may fight for independence');
+  assert.equal(w.warState().vassals[2], undefined);
+});
+
+test('spies: operations take days and report back; elections can bind a democracy', () => {
+  const w = setup();
+  const a = w.nations.get(1)!, b = w.nations.get(2)!;
+  a.mil.funds = 50;
+  b.tech.done.push('automation');
+  assert.equal(w.submit(1, { kind: 'spy', target: 2, mission: 'steal' }, 'human').ok, true);
+  (w as unknown as { rand: () => number }).rand = () => 0.2; // success, not caught
+  (w as unknown as { spyDay: (d: number) => void }).spyDay(w.market.day + 5);
+  assert.ok((a.tech.partial.automation ?? 0) > 0, 'stolen research');
+  assert.match(w.privateView(a).reports![0], /stole research/);
+  // a democracy that loses an election cannot start a war for six months
+  a.gov = { government: 'democracy', nextElection: w.market.day };
+  a.econ.stability = 20;
+  (w as unknown as { rand: () => number }).rand = () => 0.99;
+  (w as unknown as { politicsDay: (d: number) => void }).politicsDay(w.market.day);
+  assert.ok((a.gov.oppositionUntil ?? 0) > w.market.day);
+  assert.equal(w.submit(1, { kind: 'war', target: 2 }, 'human').ok, false);
+});

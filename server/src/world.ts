@@ -27,11 +27,12 @@ import { Diplomacy } from './diplomacy.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, type BuildingType } from '../../shared/buildings.ts';
 import { GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, UNITS_PER_GENERAL, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import {
-  GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
+  GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
   type Effects, type Government, type ResearchPrivate, type TechId,
 } from '../../shared/research.ts';
 import {
-  MAX_ALLIANCES, MAX_TRADE_DEALS, dealText, type Deal,
+  MAX_ALLIANCES, MAX_BLOC, MAX_OPEN_RESOLUTIONS, MAX_SPY_OPS, MAX_TRADE_DEALS, RESOLUTION_TEXT, SPY_COST, SPY_DAYS, SPY_MISSIONS,
+  TRIBUTE_SHARE, VOTE_DAYS, dealText, type Deal, type ResolutionKind, type SpyMission,
 } from '../../shared/diplomacy.ts';
 
 /** New players cannot be attacked by the AI for this long after claiming a nation. */
@@ -64,8 +65,11 @@ export interface NationState {
   econ: NationEcon;
   mil: NationMil;
   annexedBy?: number; // conquered: the nation no longer exists
+  reports?: string[]; // intelligence reports for the player
+  spyOps?: { target: number; mission: SpyMission; day: number }[];
+  intel?: Record<number, number>; // nation -> game day our view of its forces lasts until
   tech: { current?: TechId; partial: Partial<Record<TechId, number>>; done: TechId[] };
-  gov: { government: Government; reformUntil?: number; reformedAt?: number };
+  gov: { government: Government; reformUntil?: number; reformedAt?: number; nextElection?: number; oppositionUntil?: number };
 }
 
 export interface WorldOptions {
@@ -244,7 +248,8 @@ export class World {
     for (const p of this.nuked) { const prov = byId.get(p); if (prov) prov.pop *= 0.7; }
     const storedMil = getMeta(db, 'military');
     this.military = new Military(byId, storedMil ? JSON.parse(storedMil) : null, mulberry(seed + 99));
-    this.military.allied = (a, b) => this.diplomacy.has('alliance', a, b);
+    this.military.allied = (a, b) => this.diplomacy.allied(a, b);
+    this.military.intelOn = (nation) => Object.entries(this.nations.get(nation)?.intel ?? {}).filter(([, until]) => until >= this.market.day).map(([id]) => Number(id));
     this.countOwnedPop();
     for (const n of this.nations.values()) {
       n.mil ??= { funds: 0, queue: [] };
@@ -294,6 +299,7 @@ export class World {
     if (!n) return effectsOf('democracy', []);
     e = effectsOf(n.gov.government, n.tech.done, n.gov.reformUntil !== undefined);
     if (n.gov.government === 'democracy' && this.military.enemiesOf(nation).length) e.stability -= 5; // war weariness
+    if ((n.gov.oppositionUntil ?? -1) > this.market.day) { e.growth -= 0.002; e.stability += 3; } // a new government's honeymoon
     this.effectCache.set(nation, e);
     return e;
   }
@@ -309,7 +315,7 @@ export class World {
     return {
       current: n.tech.current, progress: Math.round(n.tech.current ? n.tech.partial[n.tech.current] ?? 0 : 0),
       rate: Math.round(this.researchRate(n) * 10) / 10, done: [...n.tech.done], government: n.gov.government,
-      reformUntil: n.gov.reformUntil, reformedAt: n.gov.reformedAt,
+      reformUntil: n.gov.reformUntil, reformedAt: n.gov.reformedAt, nextElection: n.gov.nextElection, oppositionUntil: n.gov.oppositionUntil,
     };
   }
 
@@ -395,6 +401,7 @@ export class World {
       treaties: this.diplomacy.treaties, owners: Object.fromEntries(this.diplomacy.owners),
       buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked, embargoes: this.diplomacy.embargoes,
       unrest: Object.fromEntries([...this.diplomacy.unrest].map(([p, u]) => [p, Math.round(u)])),
+      blocs: this.diplomacy.blocs, council: this.diplomacy.council, vassals: Object.fromEntries(this.diplomacy.overlords),
     };
   }
 
@@ -443,6 +450,7 @@ export class World {
       econ: privateEcon(n.econ, n.policy.tax, this.market.day), mil: this.milPrivate(n),
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
       research: this.researchView(n),
+      reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
     };
   }
 
@@ -596,7 +604,14 @@ export class World {
         if (!t || t.id === n.id) return fail('bad_request', 'Choose another nation.');
         if (t.annexedBy) return fail('not_allowed', 'That nation no longer exists.');
         if (this.military.atWar(n.id, t.id)) return fail('not_allowed', 'Already at war.');
-        if (this.diplomacy.has('alliance', n.id, t.id)) return fail('not_allowed', 'You are allies. End the alliance first.');
+        const d = this.diplomacy, overlord = d.overlords.get(n.id);
+        if (overlord !== undefined && overlord !== t.id) return fail('not_allowed', 'A vassal cannot start wars. Declare independence first (war on your overlord).');
+        if (d.overlords.get(t.id) === n.id) return fail('not_allowed', 'That is your vassal. Release it first.');
+        if ((n.gov.oppositionUntil ?? -1) > this.market.day) return fail('not_allowed', 'After losing the election, parliament blocks any new war.');
+        if (overlord === t.id) {
+          d.overlords.delete(n.id);
+          this.event('war', n.id, `The ${this.defs.get(n.id)!.name} declares independence from the ${this.defs.get(t.id)!.name}!`);
+        } else if (d.allied(n.id, t.id)) return fail('not_allowed', d.has('alliance', n.id, t.id) ? 'You are allies. End the alliance first.' : 'You are in the same bloc. Leave it first.');
         if (actor === 'ai' && t.controller === 'human' && Date.now() - (t.claimedAt ?? 0) < NEWCOMER_PROTECTION_MS) {
           return fail('not_allowed', 'That leader is new and protected.');
         }
@@ -605,9 +620,14 @@ export class World {
         this.diplomacy.withdraw(t.id, n.id);
         this.diplomacy.cancel('trade', n.id, t.id);
         this.event('war', n.id, `The ${this.defs.get(n.id)!.name} declares war on the ${this.defs.get(t.id)!.name}.`);
-        // defensive alliances: the target's allies join against the aggressor (no further chain)
-        for (const ally of this.diplomacy.partners('alliance', t.id)) {
-          if (ally === n.id || this.diplomacy.has('alliance', ally, n.id) || this.military.atWar(ally, n.id)) continue;
+        // the aggressor's vassals follow it to war
+        for (const v of this.diplomacy.vassalsOf(n.id)) {
+          if (v === t.id || this.military.atWar(v, t.id) || this.diplomacy.allied(v, t.id)) continue;
+          this.military.declareWar(v, t.id, this.market.day);
+        }
+        // defensive alliances, blocs and overlords: the target's allies join against the aggressor (no further chain)
+        for (const ally of this.diplomacy.allies(t.id)) {
+          if (ally === n.id || this.diplomacy.allied(ally, n.id) || this.military.atWar(ally, n.id)) continue;
           this.military.declareWar(ally, n.id, this.market.day);
           this.diplomacy.cancel('trade', ally, n.id);
           this.event('war', ally, `The ${this.defs.get(ally)!.name} honours its alliance and enters the war against the ${this.defs.get(n.id)!.name}.`);
@@ -759,6 +779,75 @@ export class World {
         if (!(n.mil.warheads ?? 0)) return fail('not_allowed', 'You have no nuclear warheads.');
         if (!this.military.provinces.has(p) || !this.military.atWar(n.id, target)) return fail('not_allowed', 'You can only strike nations you are at war with.');
         this.nuke(n, p);
+        return ok;
+      }
+      case 'bloc_create': {
+        const name = String(order.name ?? '').replace(/[^\p{L}\p{N} '\-&.]/gu, '').trim().slice(0, 32);
+        if (name.length < 3) return fail('bad_request', 'Give the bloc a name of at least 3 letters.');
+        if (this.diplomacy.blocOf(n.id)) return fail('not_allowed', 'You are already in a bloc. Leave it first.');
+        if (this.diplomacy.blocs.some((b) => b.name.toLowerCase() === name.toLowerCase())) return fail('not_allowed', 'That name is taken.');
+        this.diplomacy.blocs.push({ id: this.diplomacy.nextId++, name, leader: n.id, members: [n.id], since: this.market.day });
+        this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} founds a new bloc: ${name}.`);
+        this.warChanged();
+        this.touch(n, false);
+        return ok;
+      }
+      case 'bloc_leave': {
+        const b = this.diplomacy.leaveBloc(n.id);
+        if (!b) return fail('not_allowed', 'You are not in a bloc.');
+        this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} leaves ${b.name}.`);
+        this.warChanged();
+        this.touch(n, false);
+        return ok;
+      }
+      case 'resolution': {
+        const kind = order.resolution as ResolutionKind, t = this.nations.get(Number(order.target));
+        const t2 = order.target2 !== undefined ? this.nations.get(Number(order.target2)) : undefined;
+        if (!['sanction', 'condemn', 'ceasefire'].includes(kind) || !t || t.annexedBy) return fail('bad_request', 'Choose a resolution and a nation.');
+        if (kind === 'ceasefire' && (!t2 || !this.military.atWar(t.id, t2.id))) return fail('bad_request', 'A ceasefire needs two nations at war.');
+        const open = this.diplomacy.council.filter((r) => !r.result);
+        if (open.length >= MAX_OPEN_RESOLUTIONS) return fail('not_allowed', 'The council agenda is full. Wait for a vote to close.');
+        if (open.some((r) => r.by === n.id)) return fail('not_allowed', 'You already have a resolution before the council.');
+        const r = { id: this.diplomacy.nextId++, kind, target: t.id, target2: t2?.id, by: n.id, day: this.market.day, yes: [n.id], no: [] as number[] };
+        this.diplomacy.council.push(r);
+        // AI governments cast their votes at once; players have 7 game days
+        for (const x of this.nations.values()) {
+          if (x.id === n.id || x.annexedBy || !(x.controller === 'ai' || x.autopilot)) continue;
+          const v = this.brain.vote(x, r);
+          if (v !== undefined) (v ? r.yes : r.no).push(x.id);
+        }
+        this.event('diplomacy', n.id, `World council: the ${this.defs.get(n.id)!.short} tables ${RESOLUTION_TEXT[kind]} the ${this.defs.get(t.id)!.name}${t2 ? ` and the ${this.defs.get(t2.id)!.name}` : ''}. Voting closes in ${VOTE_DAYS} days.`);
+        this.warChanged();
+        return ok;
+      }
+      case 'vote': {
+        const r = this.diplomacy.council.find((x) => x.id === Number(order.id) && !x.result);
+        if (!r) return fail('not_found', 'That vote has closed.');
+        r.yes = r.yes.filter((x) => x !== n.id);
+        r.no = r.no.filter((x) => x !== n.id);
+        (order.yes ? r.yes : r.no).push(n.id);
+        this.warChanged();
+        return ok;
+      }
+      case 'spy': {
+        const t = this.nations.get(Number(order.target)), mission = order.mission as SpyMission;
+        if (!t || t.id === n.id || t.annexedBy || !SPY_MISSIONS[mission]) return fail('bad_request', 'Choose a nation and a mission.');
+        n.spyOps ??= [];
+        if (n.spyOps.length >= MAX_SPY_OPS) return fail('not_allowed', `At most ${MAX_SPY_OPS} operations at a time.`);
+        if (n.mil.funds < SPY_COST) return fail('no_funds', 'Not enough military funds.');
+        n.mil.funds -= SPY_COST;
+        n.spyOps.push({ target: t.id, mission, day: this.market.day });
+        this.touch(n, false);
+        return ok;
+      }
+      case 'release': {
+        const t = this.nations.get(Number(order.target));
+        if (!t || this.diplomacy.overlords.get(t.id) !== n.id) return fail('not_allowed', 'That nation is not your vassal.');
+        this.diplomacy.overlords.delete(t.id);
+        this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} grants the ${this.defs.get(t.id)!.name} full independence.`);
+        this.warChanged();
+        this.touch(t, false);
+        this.touch(n, false);
         return ok;
       }
       case 'embargo': {
@@ -965,6 +1054,82 @@ export class World {
     this.persist();
   }
 
+  // ---- council and intelligence --------------------------------------------------------
+  private councilDay(day: number) {
+    const d = this.diplomacy;
+    let changed = false;
+    for (const r of d.council) {
+      if (r.result || day - r.day < VOTE_DAYS) continue;
+      changed = true;
+      const members = [...this.nations.values()].filter((n) => !n.annexedBy).length;
+      const pass = r.yes.length > r.no.length && r.yes.length >= members * 0.25;
+      r.result = pass ? 'passed' : 'failed';
+      const T = this.defs.get(r.target)?.name ?? '?';
+      this.event('diplomacy', r.by, `World council: the resolution on the ${T} ${pass ? 'passes' : 'fails'}, ${r.yes.length} to ${r.no.length}.`);
+      if (!pass) continue;
+      const t = this.nations.get(r.target);
+      if (!t || t.annexedBy) continue;
+      if (r.kind === 'condemn') t.econ.stability = Math.max(0, t.econ.stability - 10);
+      if (r.kind === 'sanction') {
+        for (const id of r.yes) if (id !== t.id && !d.embargoed(id, t.id)) { d.embargoes.push({ from: id, to: t.id }); d.cancel('trade', id, t.id); }
+      }
+      if (r.kind === 'ceasefire' && r.target2 !== undefined && this.military.atWar(r.target, r.target2)) {
+        this.military.makePeace(r.target, r.target2, (x) => this.home(x));
+        for (const x of [r.target, r.target2]) { const n = this.nations.get(x); if (n) { this.touch(n); this.pushUnits(n); } }
+      }
+    }
+    // keep the open agenda and the last few results
+    const closed = d.council.filter((r) => r.result);
+    if (closed.length > 6) d.council = [...d.council.filter((r) => !r.result), ...closed.slice(-6)];
+    if (changed) this.warChanged();
+  }
+
+  private report(n: NationState, text: string) {
+    n.reports = [`Day ${this.market.day}: ${text}`, ...(n.reports ?? [])].slice(0, 20);
+  }
+
+  /** Operations finish after a few days: success depends on the target's stability and research. */
+  private spyDay(day: number) {
+    for (const n of this.nations.values()) {
+      if (!n.spyOps?.length) continue;
+      const due = n.spyOps.filter((o) => day - o.day >= SPY_DAYS);
+      if (!due.length) continue;
+      n.spyOps = n.spyOps.filter((o) => day - o.day < SPY_DAYS);
+      for (const op of due) {
+        const t = this.nations.get(op.target);
+        if (!t || t.annexedBy) continue;
+        const T = this.defs.get(t.id)!.name, A = this.defs.get(n.id)!.name;
+        const chance = Math.min(0.85, Math.max(0.25, 0.75 - t.econ.stability / 250 + (n.tech.done.length - t.tech.done.length) * 0.02));
+        const success = this.rand() < chance;
+        if (success) {
+          if (op.mission === 'steal') {
+            const pick = TECHS_LIST.find((x) => t.tech.done.includes(x.id) && !n.tech.done.includes(x.id) && (!prerequisite(x) || n.tech.done.includes(prerequisite(x)!.id)));
+            if (pick) { n.tech.partial[pick.id] = (n.tech.partial[pick.id] ?? 0) + TIER_COST[pick.tier] * 0.4; this.report(n, `Our agents in the ${T} stole research on ${pick.name}.`); }
+            else this.report(n, `Our agents found nothing worth stealing in the ${T}.`);
+          } else if (op.mission === 'sabotage') {
+            const own = [...this.military.buildings.keys()].filter((p) => this.military.provinces.get(p)?.owner === t.id);
+            const hit = own.length ? this.military.destroyBuilding(own[Math.floor(this.rand() * own.length)]) : undefined;
+            if (hit) this.report(n, `Saboteurs destroyed a ${BUILDINGS[hit].name.toLowerCase()} in the ${T}.`);
+            else { t.econ.munitions *= 0.85; this.report(n, `Saboteurs blew up munitions depots in the ${T}.`); }
+            this.warDirty = true;
+          } else if (op.mission === 'recon') {
+            n.intel = { ...(n.intel ?? {}), [t.id]: day + 30 };
+            this.report(n, `Agents in the ${T} report their forces' positions for the next 30 days.`);
+          } else {
+            t.econ.stability = Math.max(0, t.econ.stability - 6);
+            this.report(n, `Agitators spread unrest in the ${T} (−6 stability).`);
+          }
+        } else this.report(n, `Our ${SPY_MISSIONS[op.mission].name.toLowerCase()} operation in the ${T} failed.`);
+        // caught agents make the news
+        if (this.rand() < (success ? 0.15 : 0.4)) {
+          this.diplomacy.cancel('trade', n.id, t.id);
+          this.event('diplomacy', t.id, `Spy scandal: agents of the ${A} are caught in the ${T}.`);
+        }
+        this.touch(n, false);
+      }
+    }
+  }
+
   // ---- strategic warfare -----------------------------------------------------------
   maxGenerals(nation: number) {
     return Math.max(1, Math.floor(this.military.unitsOf(nation).filter((u) => UNIT_SPECS[u.type].domain === 'land').length / UNITS_PER_GENERAL));
@@ -1050,6 +1215,8 @@ export class World {
   // ---- politics and research ---------------------------------------------------------
   /** One game day: research progress, reforms ending, national events, unrest. */
   private politicsDay(day: number) {
+    this.councilDay(day);
+    this.spyDay(day);
     for (const n of this.nations.values()) {
       if (n.annexedBy) continue;
       const name = this.defs.get(n.id)!.name;
@@ -1068,6 +1235,30 @@ export class World {
           this.touch(n, human);
         } else n.tech.partial[cur] = p;
       } else if (n.controller === 'ai' || n.autopilot) n.tech.current = this.brain.pickResearch(n);
+      // vassals pay tribute
+      const lord = this.diplomacy.overlords.get(n.id);
+      if (lord !== undefined) {
+        const pay = n.econ.gdp * TRIBUTE_SHARE / 365;
+        n.econ.treasury -= pay;
+        const o = this.nations.get(lord);
+        if (o) o.econ.treasury += pay;
+      }
+      // elections in democracies, every two game years
+      if (n.gov.government === 'democracy' && !n.gov.reformUntil) {
+        n.gov.nextElection ??= day + 365 + (n.id * 37) % 365;
+        if (day >= n.gov.nextElection) {
+          n.gov.nextElection = day + 730;
+          const win = Math.min(0.95, Math.max(0.1, (n.econ.stability - 35) / 40));
+          if (this.rand() < win) {
+            if (human) this.event('politics', n.id, `${name}: the government wins re-election.`);
+          } else {
+            n.gov.oppositionUntil = day + 180;
+            this.effectCache.delete(n.id);
+            this.event('politics', n.id, `${name}: the government loses the election. For six months parliament will block any new war.`);
+          }
+          this.touch(n, human);
+        }
+      }
       if (n.gov.reformUntil !== undefined && day >= n.gov.reformUntil) {
         n.gov.reformUntil = undefined;
         this.effectCache.delete(n.id);
@@ -1119,6 +1310,14 @@ export class World {
     if (!na || !nb || na.annexedBy || nb.annexedBy) return 'That nation no longer exists.';
     const d = this.diplomacy, name = this.defs.get(b)!.short;
     if (deal.kind === 'peace') return this.military.atWar(a, b) ? null : `You are not at war with the ${name}.`;
+    if (deal.kind === 'bloc') {
+      const bloc = d.blocOf(a);
+      if (!bloc || bloc.leader !== a) return 'Only a bloc leader can invite members.';
+      if (bloc.members.length >= MAX_BLOC) return `${bloc.name} is full.`;
+      if (d.blocOf(b)) return `The ${name} is already in a bloc.`;
+      if (this.military.atWar(a, b)) return `You are at war with the ${name}.`;
+      return null;
+    }
     if (this.military.atWar(a, b)) return `You are at war with the ${name}. Make peace first.`;
     if (d.has(deal.kind, a, b)) return `You already have that treaty with the ${name}.`;
     const max = deal.kind === 'alliance' ? MAX_ALLIANCES : MAX_TRADE_DEALS;
@@ -1136,10 +1335,23 @@ export class World {
     if (deal.kind === 'peace') {
       const ceded = deal.terms === 'cede' ? this.cede(from.id, to.id) : 0;
       this.military.makePeace(from.id, to.id, (x) => this.home(x));
+      if (deal.terms === 'puppet' && !to.annexedBy) {
+        this.diplomacy.overlords.set(to.id, from.id);
+        this.diplomacy.leaveBloc(to.id);
+        for (const x of this.diplomacy.partners('alliance', to.id)) this.diplomacy.cancel('alliance', to.id, x);
+        this.event('peace', from.id, `The ${B} submits to the ${A} and becomes its vassal.`);
+        this.warChanged();
+        for (const x of [from, to]) { this.touch(x); this.pushUnits(x); }
+        return;
+      }
       this.event('peace', from.id, ceded
         ? `The ${A} and the ${B} make peace. The ${B} cedes ${ceded} province${ceded > 1 ? 's' : ''}.`
         : `The ${A} and the ${B} make peace. Occupied land is returned.`);
       if (to.annexedBy) this.event('peace', from.id, `The ${B} has ceased to exist; its last lands pass to the ${A}.`);
+    } else if (deal.kind === 'bloc') {
+      const bloc = this.diplomacy.blocOf(from.id)!;
+      bloc.members.push(to.id);
+      this.event('diplomacy', from.id, `The ${B} joins ${bloc.name}.`);
     } else {
       this.diplomacy.sign(deal.kind, from.id, to.id, this.market.day);
       this.event('diplomacy', from.id, `The ${A} and the ${B} sign ${deal.kind === 'alliance' ? 'a defensive alliance' : 'a trade agreement'}.`);
@@ -1283,8 +1495,8 @@ function mulberry(seed: number) {
 function cleanDeal(d: unknown): Deal | null {
   const x = d as Deal | undefined;
   if (!x || typeof x !== 'object') return null;
-  if (x.kind === 'alliance' || x.kind === 'trade') return { kind: x.kind };
-  if (x.kind === 'peace') return { kind: 'peace', terms: x.terms === 'cede' ? 'cede' : 'white' };
+  if (x.kind === 'alliance' || x.kind === 'trade' || x.kind === 'bloc') return { kind: x.kind };
+  if (x.kind === 'peace') return { kind: 'peace', terms: x.terms === 'cede' || x.terms === 'puppet' ? x.terms : 'white' };
   return null;
 }
 
