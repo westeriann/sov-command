@@ -66,6 +66,8 @@ export interface WarState {
   owners: Record<number, number>; // province id -> nation, where land changed hands by treaty
   buildings: Record<number, BuildingState[]>; // province id -> buildings (finished and under way)
   nuked: number[]; // provinces struck by nuclear weapons
+  embargoes: { from: number; to: number }[];
+  unrest: Record<number, number>; // province id -> unrest 0..100 in recently conquered land
 }
 
 /** Daily economy broadcast: world market plus every nation's public figures. */
@@ -123,6 +125,7 @@ export type Order =
   | { kind: 'general'; unit: number }
   | { kind: 'missile'; province: number }
   | { kind: 'warhead' }
+  | { kind: 'embargo'; target: number; on: boolean }
   | { kind: 'nuke'; province: number }
   | { kind: 'government'; government: Government };
 

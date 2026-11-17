@@ -104,3 +104,36 @@ test('AI governments answer at once, by personality and situation', () => {
   assert.equal(w.submit(1, { kind: 'peace', target: 2 }, 'human').ok, true);
   assert.equal(w.military.atWar(1, 2), false);
 });
+
+test('embargoes close markets in proportion to the embargoing economies', () => {
+  const w = setup();
+  w.submit(1, { kind: 'propose', target: 2, deal: { kind: 'trade' } }, 'human');
+  w.submit(2, { kind: 'answer', from: 1, deal: 'trade', accept: true }, 'human');
+  assert.equal(w.embargoPressure(2), 0);
+  assert.equal(w.submit(1, { kind: 'embargo', target: 2, on: true }, 'human').ok, true);
+  assert.ok(w.embargoPressure(2) > 0.2, 'a third of the world economy closes its markets');
+  assert.equal(w.diplomacy.has('trade', 1, 2), false, 'the trade agreement ends');
+  assert.equal(w.warState().embargoes.length, 1);
+  assert.equal(w.submit(1, { kind: 'embargo', target: 2, on: false }, 'human').ok, true);
+  assert.equal(w.embargoPressure(2), 0);
+});
+
+test('conquered provinces are restless; unrest fades, faster with a garrison', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  w.military.occupied.set(4, 1);
+  w.military.occupied.set(5, 1);
+  w.submit(1, { kind: 'propose', target: 2, deal: { kind: 'peace', terms: 'cede' } }, 'human');
+  w.submit(2, { kind: 'answer', from: 1, deal: 'peace', accept: true }, 'human');
+  assert.equal(w.warState().unrest[4], 60);
+  assert.ok(w.unrestLoss(1) > 0, 'unrest costs the new owner some control');
+  w.military.spawn(1, 'infantry', 4); // garrison in 4, none in 5
+  (w as unknown as { rand: () => number }).rand = () => 0.99; // no revolts for this test
+  for (let d = 0; d < 20; d++) (w as unknown as { unrestDay: () => void }).unrestDay();
+  const u = w.warState().unrest;
+  assert.ok(u[4] < u[5], 'the garrisoned province calms faster');
+  // with no garrison a revolt hands the province back
+  (w as unknown as { rand: () => number }).rand = () => 0;
+  (w as unknown as { unrestDay: () => void }).unrestDay();
+  assert.equal(w.military.provinces.get(5)!.owner, 2, 'province 5 returned to its former owner');
+});

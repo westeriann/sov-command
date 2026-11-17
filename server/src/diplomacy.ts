@@ -6,22 +6,34 @@ export interface DiplomacyState {
   treaties: Treaty[];
   proposals: Proposal[];
   owners: Record<number, number>; // province -> nation, for land that changed hands by treaty
+  embargoes?: { from: number; to: number }[];
+  unrest?: Record<number, number>;
+  formerOwner?: Record<number, number>;
 }
 
 export class Diplomacy {
   treaties: Treaty[] = [];
   proposals: Proposal[] = [];
   owners = new Map<number, number>();
+  embargoes: { from: number; to: number }[] = [];
+  unrest = new Map<number, number>(); // province -> 0..100
+  formerOwner = new Map<number, number>(); // province -> nation it was taken from
 
   constructor(state: DiplomacyState | null) {
     if (!state) return;
     this.treaties = state.treaties ?? [];
     this.proposals = state.proposals ?? [];
     this.owners = new Map(Object.entries(state.owners ?? {}).map(([p, n]) => [Number(p), n]));
+    this.embargoes = state.embargoes ?? [];
+    this.unrest = new Map(Object.entries(state.unrest ?? {}).map(([p, n]) => [Number(p), n]));
+    this.formerOwner = new Map(Object.entries(state.formerOwner ?? {}).map(([p, n]) => [Number(p), n]));
   }
 
   serialize(): DiplomacyState {
-    return { treaties: this.treaties, proposals: this.proposals, owners: Object.fromEntries(this.owners) };
+    return {
+      treaties: this.treaties, proposals: this.proposals, owners: Object.fromEntries(this.owners), embargoes: this.embargoes,
+      unrest: Object.fromEntries(this.unrest), formerOwner: Object.fromEntries(this.formerOwner),
+    };
   }
 
   has(kind: Pact, a: number, b: number) {
@@ -62,6 +74,7 @@ export class Diplomacy {
   /** Drop everything involving a nation (it was annexed). */
   forget(n: number) {
     this.treaties = this.treaties.filter((t) => t.a !== n && t.b !== n);
+    this.embargoes = this.embargoes.filter((e) => e.from !== n && e.to !== n);
     this.proposals = this.proposals.filter((p) => p.from !== n && p.to !== n);
   }
 
@@ -70,6 +83,10 @@ export class Diplomacy {
     const before = this.proposals.length;
     this.proposals = this.proposals.filter((p) => day - p.day <= PROPOSAL_DAYS);
     return this.proposals.length < before;
+  }
+
+  embargoed(from: number, to: number) {
+    return this.embargoes.some((e) => e.from === from && e.to === to);
   }
 
   incoming(n: number) {

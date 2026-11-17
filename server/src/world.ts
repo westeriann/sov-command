@@ -393,7 +393,8 @@ export class World {
     return {
       wars: this.military.wars, occupied: Object.fromEntries(this.military.occupied), battles: [...this.military.battles],
       treaties: this.diplomacy.treaties, owners: Object.fromEntries(this.diplomacy.owners),
-      buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked,
+      buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked, embargoes: this.diplomacy.embargoes,
+      unrest: Object.fromEntries([...this.diplomacy.unrest].map(([p, u]) => [p, Math.round(u)])),
     };
   }
 
@@ -760,6 +761,24 @@ export class World {
         this.nuke(n, p);
         return ok;
       }
+      case 'embargo': {
+        const t = this.nations.get(Number(order.target));
+        if (!t || t.id === n.id || t.annexedBy) return fail('bad_request', 'Choose another nation.');
+        const d = this.diplomacy, has = d.embargoed(n.id, t.id);
+        if (order.on === has) return fail('not_allowed', has ? 'You already embargo them.' : 'There is no embargo to lift.');
+        if (order.on) {
+          d.embargoes.push({ from: n.id, to: t.id });
+          d.cancel('trade', n.id, t.id);
+          this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} imposes a trade embargo on the ${this.defs.get(t.id)!.name}.`);
+        } else {
+          d.embargoes = d.embargoes.filter((e) => !(e.from === n.id && e.to === t.id));
+          this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} lifts its embargo on the ${this.defs.get(t.id)!.name}.`);
+        }
+        this.warChanged();
+        this.touch(t, false);
+        this.touch(n, false);
+        return ok;
+      }
       case 'cancel': {
         const t = this.nations.get(Number(order.target));
         if (!t || (order.pact !== 'alliance' && order.pact !== 'trade')) return fail('bad_request', 'Unknown treaty.');
@@ -909,11 +928,12 @@ export class World {
       if (this.diplomacy.expire(this.market.day)) this.warChanged();
       this.effectCache.clear();
       this.constructionDay();
+      this.unrestDay();
       const inputs = [...this.nations.values()].filter((n) => !n.annexedBy).map((n) => ({
         econ: n.econ, tax: n.policy.tax, focus: n.policy.focus,
-        control: this.military.controlShare(n.id, this.ownedPop.get(n.id) ?? 0),
+        control: Math.max(0, this.military.controlShare(n.id, this.ownedPop.get(n.id) ?? 0) - this.unrestLoss(n.id)),
         atWar: this.military.enemiesOf(n.id).length > 0,
-        blockade: this.military.blockade(n.id),
+        blockade: Math.min(0.9, this.military.blockade(n.id) + this.embargoPressure(n.id)),
         tradeDeals: this.diplomacy.partners('trade', n.id).length,
         bonusGrowth: this.effects(n.id).growth + Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * FACTORY_GROWTH,
         bonusStability: this.effects(n.id).stability,
@@ -1077,6 +1097,14 @@ export class World {
         else if (r < 0.5) { e.gdp *= 0.993; e.stability -= 3; text = 'floods and storms damage cities and farmland'; }
         else if (r < 0.65) { e.stability -= n.gov.government === 'democracy' ? 7 : 4; text = 'a corruption scandal shakes the government'; }
         else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + 250; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
+        else if (r < 0.88 && e.capacity.food > 0) { e.capacity.food *= 0.94; e.stability -= 2; text = 'a severe drought withers the harvest (food output −6%)'; }
+        else if (r < 0.94) {
+          e.gdp *= 0.995;
+          const coast = [...this.military.provinces.values()].filter((p) => p.owner === n.id && p.adj.some((q) => this.military.provinces.get(q)?.kind === 'sea'));
+          const hit = coast.length ? coast[Math.floor(this.rand() * coast.length)] : undefined;
+          const lost = hit ? this.military.destroyBuilding(hit.id) : undefined;
+          text = coast.length ? `a hurricane batters the coast${hit ? ` at ${hit.name}` : ''}${lost ? `, wrecking the ${BUILDINGS[lost].name.toLowerCase()}` : ''}` : 'a heatwave strains power grids and hospitals';
+        }
         else { e.stability += 4; text = 'a national celebration lifts the public mood (+4 stability)'; }
         e.stability = Math.min(100, Math.max(0, e.stability));
         if (human) { this.event('politics', n.id, `${name}: ${text}.`); this.touch(n, false); }
@@ -1125,21 +1153,81 @@ export class World {
     const m = this.military, lose = this.nations.get(loser)!, win = this.nations.get(winner)!;
     const taken = [...m.occupied].filter(([p, occ]) => occ === winner && m.provinces.get(p)!.owner === loser).map(([p]) => p);
     if (!taken.length) return 0;
-    const pop = taken.reduce((s, p) => s + m.provinces.get(p)!.pop, 0);
-    const f = Math.min(1, pop / Math.max(1, this.ownedPop.get(loser) ?? 0));
-    for (const p of taken) {
-      m.provinces.get(p)!.owner = winner;
+    this.transfer(taken, lose, win);
+    for (const p of taken) { this.diplomacy.unrest.set(p, 60); this.diplomacy.formerOwner.set(p, loser); }
+    if (![...m.provinces.values()].some((p) => p.kind === 'land' && p.owner === loser)) this.annex(lose, win.id);
+    return taken.length;
+  }
+
+  /** Provinces change hands with their people and output. */
+  private transfer(provs: number[], from: NationState, to: NationState) {
+    const m = this.military;
+    const pop = provs.reduce((s, p) => s + m.provinces.get(p)!.pop, 0);
+    const f = Math.min(1, pop / Math.max(1, this.ownedPop.get(from.id) ?? 0));
+    for (const p of provs) {
+      m.provinces.get(p)!.owner = to.id;
       m.occupied.delete(p);
-      this.diplomacy.owners.set(p, winner);
+      this.diplomacy.owners.set(p, to.id);
     }
-    // people and output move with the land
-    const a = lose.econ, b = win.econ;
+    const a = from.econ, b = to.econ;
     b.gdp += a.gdp * f; b.pop += a.pop * f;
     a.gdp *= 1 - f; a.pop *= 1 - f;
     for (const c of COMMODITIES) { b.capacity[c] += a.capacity[c] * f; a.capacity[c] *= 1 - f; }
     this.countOwnedPop();
-    if (![...m.provinces.values()].some((p) => p.kind === 'land' && p.owner === loser)) this.annex(lose, winner);
-    return taken.length;
+  }
+
+  /** Share of a nation's people lost to unrest in conquered provinces (half the unrest counts against control). */
+  unrestLoss(nation: number) {
+    let lost = 0;
+    for (const [p, u] of this.diplomacy.unrest) {
+      const prov = this.military.provinces.get(p);
+      if (prov?.owner === nation) lost += prov.pop * u / 200;
+    }
+    return lost / Math.max(1, this.ownedPop.get(nation) ?? 1);
+  }
+
+  /** How much of the world market is closed to a nation by embargoes (weighted by the embargoing economies). */
+  embargoPressure(nation: number) {
+    const from = this.diplomacy.embargoes.filter((e) => e.to === nation).map((e) => e.from);
+    if (!from.length) return 0;
+    const world = [...this.nations.values()].reduce((s, n) => s + (n.annexedBy ? 0 : n.econ.gdp), 0);
+    const closed = from.reduce((s, id) => s + (this.nations.get(id)?.econ.gdp ?? 0), 0);
+    return Math.min(0.6, 1.5 * closed / Math.max(1, world));
+  }
+
+  /** Conquered land settles down slowly; garrisons and welfare help. Unrest can boil over. */
+  private unrestDay() {
+    const m = this.military;
+    for (const [p, u] of [...this.diplomacy.unrest]) {
+      const prov = m.provinces.get(p)!, owner = prov.owner!;
+      const n = this.nations.get(owner);
+      if (!n || n.annexedBy) { this.diplomacy.unrest.delete(p); continue; }
+      const garrison = m.unitsIn(p).filter((x) => x.nation === owner && UNIT_SPECS[x.type].domain === 'land');
+      const next = u - 0.25 - (garrison.length ? 0.6 : 0) - Math.max(0, n.econ.budget.welfare - 35) * 0.02;
+      if (next <= 0) { this.diplomacy.unrest.delete(p); this.diplomacy.formerOwner.delete(p); continue; }
+      this.diplomacy.unrest.set(p, next);
+      if (this.rand() >= next / 100 / 40) continue;
+      const where = prov.name ?? 'a province';
+      if (garrison.length) {
+        for (const x of garrison) x.strength = Math.max(10, x.strength - 15);
+        this.event('war', owner, `Uprising in ${where}: the ${this.defs.get(owner)!.short} garrison puts it down at a cost.`);
+        this.diplomacy.unrest.set(p, Math.max(0, next - 20));
+        continue;
+      }
+      const back = this.nations.get(this.diplomacy.formerOwner.get(p) ?? -1);
+      if (back && !back.annexedBy && !this.military.atWar(owner, back.id)) {
+        this.transfer([p], n, back);
+        this.diplomacy.unrest.delete(p);
+        this.diplomacy.formerOwner.delete(p);
+        this.event('war', owner, `Revolt in ${where}: the province throws off ${this.defs.get(owner)!.short} rule and returns to the ${this.defs.get(back.id)!.name}.`);
+        this.warChanged();
+        this.touch(n);
+        this.touch(back);
+      } else {
+        n.econ.stability = Math.max(0, n.econ.stability - 3);
+        this.event('war', owner, `Riots in ${where} against ${this.defs.get(owner)!.short} rule.`);
+      }
+    }
   }
 
   /** A nation with no land left ceases to exist. */

@@ -159,6 +159,8 @@ export class AiBrain {
     }
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
     orders.push(...this.strategicOrders(n, enemies.length > 0));
+    for (const foe of enemies) if (!w.diplomacy.embargoed(me, foe) && this.random() < 0.3) orders.push({ kind: 'embargo', target: foe, on: true });
+    for (const e of w.diplomacy.embargoes) if (e.from === me && !enemies.includes(e.to) && this.random() < 0.1) orders.push({ kind: 'embargo', target: e.to, on: false });
 
     // rare wars of choice against clearly weaker neighbours (about one somewhere per game year)
     if (!enemies.length && aggressive && this.random() < (p === 'expansionist' ? 0.012 : 0.006)) {

@@ -114,6 +114,7 @@ async function start() {
     build: (province, building) => conn.send({ t: 'order', order: { kind: 'build', province, building } }),
     missile: (province) => conn.send({ t: 'order', order: { kind: 'missile', province } }),
     nuke: (province) => conn.send({ t: 'order', order: { kind: 'nuke', province } }),
+    embargo: (target, on) => conn.send({ t: 'order', order: { kind: 'embargo', target, on } }),
     selection: () => forces?.selected.size ?? 0,
     preview: (p) => forces?.preview(p) ?? null,
   });

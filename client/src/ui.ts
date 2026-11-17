@@ -43,6 +43,7 @@ export interface HudActions {
   build(province: number, building: BuildingType): void;
   missile(province: number): void;
   nuke(province: number): void;
+  embargo(target: number, on: boolean): void;
   selection(): number; // how many of your units are selected
   preview(province: number): { days: number } | null;
 }
@@ -341,6 +342,7 @@ export class Hud {
       else if (a === 'movehere') this.actions.moveHere(Number(act.dataset.province));
       else if (a === 'build') this.actions.build(Number(act.dataset.province), act.dataset.building as BuildingType);
       else if (a === 'missile') this.actions.missile(Number(act.dataset.province));
+      else if (a === 'embargo') this.actions.embargo(Number(act.dataset.nation), act.dataset.on === '1');
       else if (a === 'nuke') {
         if (act.dataset.confirm === '1') this.actions.nuke(Number(act.dataset.province));
         else { act.dataset.confirm = '1'; act.textContent = 'Confirm: launch a nuclear strike'; }
@@ -631,6 +633,12 @@ export class Hud {
   }
 
   private occupationHtml(p: Province) {
+    const unrest = this.game.war.unrest[p.id];
+    const restless = unrest ? `<div class="controller enemy"><b>Unrest ${unrest}%</b><span class="mono">recently conquered · a garrison and welfare calm it</span></div>` : '';
+    return restless + this.occupationOnly(p);
+  }
+
+  private occupationOnly(p: Province) {
     const occ = this.game.war.occupied[p.id];
     const fighting = this.game.war.battles.includes(p.id);
     if (!occ && !fighting) return '';
@@ -702,6 +710,10 @@ export class Hud {
     const allied = g.treaty('alliance', mine.id, n.id), trading = g.treaty('trade', mine.id, n.id);
     return `${allied || trading ? `<div class="controller you"><b>${[allied && 'Allied', trading && 'Trade agreement'].filter(Boolean).join(' · ')}</b></div>` : ''}
       <div class="actions-row">${pact('trade', 'Propose trade agreement', MAX_TRADE_DEALS)}${pact('alliance', 'Propose alliance', MAX_ALLIANCES)}</div>
+      ${g.war.embargoes.some((e) => e.from === n.id && e.to === mine.id) ? '<p class="hint down">They embargo your trade.</p>' : ''}
+      <div class="actions-row">${g.war.embargoes.some((e) => e.from === mine.id && e.to === n.id)
+        ? `<button type="button" class="claim" data-act="embargo" data-nation="${n.id}" data-on="0">Lift embargo</button>`
+        : `<button type="button" class="claim" data-act="embargo" data-nation="${n.id}" data-on="1" title="Close your markets to them; costs them trade in proportion to your economy">Impose embargo</button>`}</div>
       ${allied ? '' : `<button type="button" class="claim danger" data-act="war" data-nation="${n.id}">Declare war</button>`}`;
   }
 
