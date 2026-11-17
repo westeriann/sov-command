@@ -1,0 +1,118 @@
+# Sovereign Command
+
+Persistent, real-time grand strategy in the browser. Players run nations on a
+generated planet starting in 2026, with army, navy, air force, economy and
+diplomacy. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the plan.
+
+## Status
+
+Stage 1 (map) in progress:
+
+- Planet generator: tectonic plates (continents, mountain chains, island
+  arcs, rifts), climate and 13 terrain types on a sphere
+- Terrain painted with real satellite photos (NASA Blue Marble), with
+  fractal coastlines and fine relief at full resolution
+- About 4,000 land provinces, 600 sea zones and ~145 starting nations, with
+  population and resources (farmland, timber, oil, gas, coal, ore, rare earths)
+- Browser client: 3D globe or flat map, political / satellite / terrain /
+  elevation / temperature modes, sharp vector borders, nation and province
+  names, click a province to inspect it and its nation
+- Rivers and lakes from simulated drainage: water flows downhill to the sea,
+  basins fill into lakes, rivers grow with rainfall; painted into the terrain
+  and drawn as map lines; province borders follow major rivers
+
+Stage 2 (multiplayer server) in progress:
+
+- World server (Node + TypeScript, WebSockets, SQLite): accounts and guest
+  play, a world clock that never pauses, live updates, world chat, dispatches
+- Every nation has a controller, a player or the AI, using the same orders and
+  the same public information; players take over AI nations and step down
+- Absent players get AI "advisers" after a day (configurable) and lose the
+  nation to the AI after two weeks; players can also switch advisers on
+- AI decisions are staggered and capped per tick: 5,000 AI nations cost
+  under 2 ms per tick
+
+Stage 3 (economy) done:
+
+- Every nation has GDP, population, taxes, a budget (military, infrastructure,
+  welfare, research), stockpiles, stability and growth, calibrated to
+  real-world totals on day one ($105T GDP, 8.1bn people)
+- Six goods (food, oil, gas, coal, metals, rare earths) produced from province
+  resources and traded on one world market whose prices respond to supply
+  and demand across all players and AI nations
+- AI governments run their economies with the same orders as players
+- Economy window, live header figures, Wealth map mode
+- npx tsx server/test/simulate.ts 3 fast-forwards three game years
+
+Stage 4 (land forces) done:
+
+- Infantry, mechanized and armored divisions, built over game days from the
+  military budget and reservists; upkeep, reinforcement, munitions
+- Movement in game days from real distances, unit speed, terrain and river
+  crossings (one game day = 10 s); routes and arrival times shown in the client
+- War and peace (both sides must agree), daily battles with terrain and river
+  defense, retreats, occupation that costs the owner output and stability
+- Fog of war on the server; AI recruits, defends, attacks weak points, sues
+  for peace, and starts rare wars (new players protected for 2 real hours)
+
+Stage 5 (navy and air) done:
+
+- Destroyer squadrons, submarine flotillas (hidden unless your ships share
+  their zone) and carrier strike groups move through the 600 sea zones
+- Sea battles, shore support for land battles, and blockades that cut a
+  nation's trade with the world market by up to 70%
+- Troops cross the sea by transport, slowly, and are mauled if enemy
+  warships catch them
+- Fighter and strike wings fly missions within their combat radius:
+  fighters win air superiority, strike wings back ground battles
+- AI builds and uses navies and air forces with the same orders
+
+Stage 6 (diplomacy) done:
+
+- Proposals and answers between any two nations; AI governments answer at
+  once by personality and situation, players answer in the Diplomacy window
+  (proposals lapse after 30 game days)
+- Trade agreements (up to 6): +0.15% GDP growth a year each; war ends them
+- Defensive alliances (up to 4): allies may cross each other's land, and when
+  a nation is attacked its allies join the war against the aggressor
+- Peace terms: white peace, or peace that cedes the provinces the winner
+  holds, with their people and output; a nation that loses all its land is
+  annexed and its player released
+- The map redraws borders as land changes hands
+- Next: stage 7 (politics and research)
+
+## Run it
+
+Needs Node 20+ and Python 3.11+.
+
+```bash
+npm run setup     # Python venv + client and server packages
+npm run world     # photos, planet, map tiles, provinces (~25 min)
+npm run server    # world server on :8787 (keep it running)
+npm run dev       # client; open the printed address
+```
+
+Without the server the client still opens as an offline map preview.
+`npm test` runs the server tests; `npm run check` type-checks everything.
+
+Server settings (environment variables): `PORT`, `WORLD_DIR`, `DB_FILE`,
+`GAME_SPEED` (8640 = a game day every 10 s, a game year every hour), `AI_BUDGET` (AI decisions per tick, 25),
+`AUTOPILOT_AFTER_HOURS` (1), `RELEASE_AFTER_DAYS` (7), `ALLOWED_ORIGINS`.
+
+Options: `npm run world:generate -- --seed 7 --width 16384 --data-width 8192`
+makes a different or more detailed planet (then rerun `npm run world:tiles -- --max-zoom 6`).
+
+## Layout
+
+```
+client/            browser game (Vite + TypeScript + MapLibre GL)
+tools/worldgen/    planet generator (Python)
+server/            world server: accounts, world state, AI, WebSockets
+shared/            protocol and clock shared by client and server
+docs/              design and architecture
+```
+
+## Credits
+
+Terrain photography: NASA Earth Observatory, Blue Marble: Next Generation
+(public domain), served by NASA GIBS.

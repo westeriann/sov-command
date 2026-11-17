@@ -1,0 +1,5 @@
+{
+  "name": "sovereign-command-shared",
+  "private": true,
+  "type": "module"
+}

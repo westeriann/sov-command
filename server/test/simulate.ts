@@ -1,0 +1,47 @@
+// Fast-forward the real world with every nation under AI control and report.
+//   npx tsx test/simulate.ts [years]
+import { resolve } from 'node:path';
+import { COMMODITIES, COMMODITY_INFO } from '../../shared/economy.ts';
+import { DAY } from '../../shared/clock.ts';
+import { openDb } from '../src/db.ts';
+import { loadNationDefs, World } from '../src/world.ts';
+
+const years = Number(process.argv[2] ?? 2);
+const { seed, nations, provinces } = loadNationDefs(resolve('../client/public/world'));
+const w = new World(openDb(':memory:'), seed, nations, {
+  speed: 24, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 1000, autopilotAfterMs: DAY, releaseAfterMs: 14 * DAY,
+}, provinces);
+const all = () => [...w.nations.values()].map((n) => n.econ);
+
+function report(label: string) {
+  const e = all();
+  const gdp = e.reduce((a, x) => a + x.gdp, 0);
+  const pop = e.reduce((a, x) => a + x.pop, 0);
+  const pcs = e.map((x) => (x.gdp * 1e9) / x.pop).sort((a, b) => a - b);
+  const stab = e.map((x) => x.stability).sort((a, b) => a - b);
+  const short = e.filter((x) => x.shortage > 0.05).length;
+  const debt = e.filter((x) => x.treasury < 0).length;
+  const mid = Math.floor(pcs.length / 2);
+  const prices = COMMODITIES.map((c) => `${c} ${(w.market.prices[c] / COMMODITY_INFO[c].basePrice).toFixed(2)}x`).join(', ');
+  console.log(`${label}: GDP $${(gdp / 1000).toFixed(1)}T, pop ${(pop / 1e9).toFixed(2)}bn, per person $${Math.round(pcs[0])} / $${Math.round(pcs[mid])} / $${Math.round(pcs[pcs.length - 1])}`);
+  console.log(`   stability min ${stab[0].toFixed(0)} median ${stab[mid].toFixed(0)} max ${stab[stab.length - 1].toFixed(0)}; ${short} nations short of goods; ${debt} in debt`);
+  console.log(`   prices vs start: ${prices}`);
+  const m = w.military;
+  const by = (d: string) => [...m.units.values()].filter((u) => ['infantry','mechanized','armored'].includes(u.type) === (d === 'land') && (d === 'land' || (d === 'sea') === ['destroyers','submarines','carrier'].includes(u.type))).length;
+  console.log(`   forces: ${by('land')} land, ${by('sea')} naval, ${by('air')} air; ${m.wars.length} wars now; ${m.occupied.size} provinces occupied`);
+  const d = w.diplomacy; console.log(`   diplomacy: ${d.treaties.filter((t) => t.kind === 'alliance').length} alliances, ${d.treaties.filter((t) => t.kind === 'trade').length} trade deals, ${d.owners.size} provinces changed hands, ${[...w.nations.values()].filter((n) => n.annexedBy).length} nations annexed`);
+}
+
+report('day 0');
+const t0 = Date.now();
+const realPerDay = 3_600_000; // at 24x, a game day is a real hour
+let ms = 0;
+for (let y = 1; y <= years; y++) {
+  const start = performance.now();
+  for (let d = 0; d < 365; d++) {
+    for (let k = 0; k < 4; k++) w.tick(t0 + ((y - 1) * 365 + d) * realPerDay + k * (realPerDay / 4) + 1000);
+  }
+  ms += performance.now() - start;
+  report(`year ${y}`);
+}
+console.log(`simulated ${years * 365} game days in ${(ms / 1000).toFixed(1)} s (${(ms / (years * 365)).toFixed(2)} ms per game day, AI included)`);

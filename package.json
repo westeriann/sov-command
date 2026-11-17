@@ -1,0 +1,19 @@
+{
+  "name": "sovereign-command",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Persistent real-time grand strategy on a generated planet, played in the browser.",
+  "scripts": {
+    "setup": "python3 -m venv .venv && .venv/bin/pip install -r tools/worldgen/requirements.txt && npm --prefix client install && npm --prefix server install",
+    "world:samples": ".venv/bin/python tools/worldgen/fetch_samples.py --sheet",
+    "world:generate": ".venv/bin/python tools/worldgen/generate.py",
+    "world:tiles": ".venv/bin/python tools/worldgen/tiles.py",
+    "world": "npm run world:samples && npm run world:generate && npm run world:tiles && npm run world:provinces",
+    "dev": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "world:provinces": ".venv/bin/python tools/worldgen/provinces.py",
+    "server": "npm --prefix server run dev",
+    "test": "npm --prefix server test",
+    "check": "cd client && npx tsc --noEmit && cd ../server && npx tsc --noEmit"
+  }
+}

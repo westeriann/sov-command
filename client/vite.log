@@ -1,0 +1,29 @@
+
+  VITE v8.3.8  ready in 320 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+8:25:08 PM [vite] ws proxy error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+8:25:08 PM [vite] ws proxy socket error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+8:27:48 PM [vite] (client) page reload src/ui.ts
+8:27:48 PM [vite] (client) page reload src/forces.ts
+8:32:17 PM [vite] (client) page reload /home/user/sovereign-command/shared/protocol.ts
+8:32:23 PM [vite] (client) page reload /home/user/sovereign-command/shared/protocol.ts
+8:32:23 PM [vite] (client) page reload /home/user/sovereign-command/shared/military.ts
+8:37:10 PM [vite] (client) page reload src/game.ts
+8:37:10 PM [vite] (client) page reload src/political.ts
+8:37:10 PM [vite] (client) page reload src/map.ts
+8:37:10 PM [vite] (client) page reload src/main.ts
+8:37:30 PM [vite] (client) page reload src/ui.ts
+8:37:38 PM [vite] (client) hmr update /src/styles.css
+8:37:47 PM [vite] (client) hmr update /src/styles.css
+8:48:32 PM [vite] ws proxy error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+8:48:32 PM [vite] ws proxy socket error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
