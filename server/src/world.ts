@@ -553,7 +553,7 @@ export class World {
         const to = Number(order.to);
         if (!ids.length || !this.military.provinces.has(to)) return fail('bad_request', 'Choose units and a land province.');
         const { moved } = this.military.move(n.id, ids, to, this.gameNow());
-        if (!moved) return fail('no_route', 'No route there. Units can only enter your own land and the land of nations you are at war with.');
+        if (!moved) return fail('no_route', 'No route there. Units can only enter your own land, allies’ land, and the land of nations you are at war with.');
         this.pushUnits(n);
         return ok;
       }

@@ -91,7 +91,20 @@ Stage 7 (politics and research) done:
 - National events (booms, strikes, disasters, scandals, breakthroughs,
   celebrations) and unrest: below 25 stability, coups and revolutions
 - AI nations research by personality; R&D window in the client
-- Next: stage 8 (polish: tutorial, sound, balance, load testing)
+
+Stage 8 (polish) done:
+
+- Unit stacks: one marker per nation per province (and per group on the
+  move), with silhouette icons, a count, the other unit types present and
+  overall strength; click a selected stack again to pick out one type
+- Guided tour for new players (Guide in the header brings it back)
+- Interface sound synthesised in the browser: cues for war, peace, battles,
+  research, unrest and diplomacy involving your nation; Sound on/off
+- Balance pass on stability, research pace and AI wars
+- Load test: npx tsx test/load.ts 300 60 (in server/) runs 300 bot players
+  for a minute: median tick 1.2 ms, worst ~130 ms of a 1,000 ms budget,
+  about 3 KB/s per player
+- Next: deployment (a public website and a hosted world server)
 
 ## Run it
 

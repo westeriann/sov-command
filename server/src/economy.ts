@@ -245,7 +245,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
 
     if (e.treasury < 0) e.treasury -= (-e.treasury * 0.04) / 365; // interest on debt
     const stabTarget = Math.min(100, Math.max(0,
-      55 + (e.budget.welfare - 30) * 0.6 - (n.tax - 25) * 0.9 - e.shortage * 80
+      50 + (e.budget.welfare - 30) * 0.6 - (n.tax - 25) * 0.9 - e.shortage * 80
       - Math.max(0, debtRatio - 0.6) * 30 + g * 300 + (n.focus === 'diplomacy' ? 3 : 0)
       - (1 - control) * 50 - (n.atWar ? 5 : 0) + (n.bonusStability ?? 0)));
     e.stability += (stabTarget - e.stability) * 0.03;

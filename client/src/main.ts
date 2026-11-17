@@ -1,5 +1,7 @@
 import { DiplomacyPanel } from './diplomacy-panel';
 import { ResearchPanel } from './research-panel';
+import { Sound, type Cue } from './sound';
+import { Tutorial } from './tutorial';
 import './styles.css';
 import { EconomyPanel } from './economy-panel';
 import { Forces } from './forces';
@@ -42,6 +44,8 @@ async function start() {
   };
   let login: LoginDialog;
 
+  const sound = new Sound();
+  let tutorial: Tutorial | null = null;
   const hud = new Hud(hudRoot, world, pol, game, {
     onMode: (m, opacity) => gameMap.setMode(m, opacity),
     onOpacity: (v) => gameMap.setOverlayOpacity(v),
@@ -69,6 +73,8 @@ async function start() {
       game.reset();
       game.setStatus('offline');
     },
+    guide: () => tutorial?.start(),
+    toggleSound: () => { sound.toggle(); return sound.on; },
     toggleEconomy: () => {
       forces?.close();
       diplomacy?.close();
@@ -124,6 +130,10 @@ async function start() {
   document.addEventListener('forces-closed', () => hud.setOpenPanel(null));
   document.addEventListener('diplomacy-closed', () => hud.setOpenPanel(null));
   document.addEventListener('research-closed', () => hud.setOpenPanel(null));
+  hud.setSound(sound.on);
+  hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.module, .claim, [data-r], [data-d]')) sound.play('click'); });
+  tutorial = new Tutorial(hudRoot);
+  game.on((c) => { if (c.has('me') && game.me) tutorial?.maybeStart(); }); // first visit: after signing in
   research = new ResearchPanel(hudRoot, game, pol, {
     research: (tech) => conn.send({ t: 'order', order: { kind: 'research', tech } }),
     government: (government) => conn.send({ t: 'order', order: { kind: 'government', government } }),
@@ -144,6 +154,7 @@ async function start() {
   await gameMap.ready();
   gameMap.setMode('political', 0.3);
   gameMap.addNationLabels();
+  let lastHeard: unknown = null;
   game.on((c) => {
     if (c.has('nations') || c.has('mine') || c.has('status')) {
       gameMap.setControllers(new Set(game.humanNations().map((n) => n.id)), game.mine?.id ?? null);
@@ -151,6 +162,18 @@ async function start() {
     if (c.has('economy')) {
       gameMap.setWealth(new Map([...game.economy.values()].map((e) => [e.id, e.gdppc])));
     }
+    if (c.has('events') && game.mine && game.events.length) {
+      // cue sounds for news about our own nation
+      const e = game.events[game.events.length - 1];
+      const me = pol.nations.get(game.mine.id);
+      if (me && e !== lastHeard && (e.nation === me.id || e.text.includes(me.name))) {
+        const cue: Partial<Record<string, Cue>> = { war: 'war', peace: 'peace', research: 'research', politics: 'alert', diplomacy: 'notice' };
+        const c2 = cue[e.kind];
+        if (c2) sound.play(c2);
+      }
+      lastHeard = e;
+    }
+    if (c.has('war') && game.mine && game.war.battles.some((p) => game.units.some((u) => u.nation === game.mine!.id && u.province === p))) sound.play('battle');
     if (c.has('war')) {
       const moved = pol.transfer(game.war.owners); // borders changed by treaty
       gameMap.setOccupied(new Map(Object.entries(game.war.occupied).map(([p, n]) => [Number(p), n])), moved);

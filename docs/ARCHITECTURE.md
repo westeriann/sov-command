@@ -109,7 +109,7 @@ containers. A small lobby service lists worlds and assigns players.
 5. **Navy and air**: fleets, sea control, air wings, strikes (done)
 6. **Diplomacy**: trade agreements, defensive alliances, peace terms, annexation (done)
 7. **Politics and research**: government, stability, events, tech tree (done)
-8. **Polish**: tutorial, sound, balance, load testing
+8. **Polish**: tutorial, sound, balance, load testing (done)
 
 ## Open questions
 - Players per world and how long a world runs (endless, or seasons with a winner)
