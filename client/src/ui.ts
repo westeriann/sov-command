@@ -37,6 +37,9 @@ export interface HudActions {
   toggleResearch(): void;
   toggleRankings(): void;
   worlds(): void;
+  account(): void;
+  admin(): void;
+  report(from: string, text: string): Promise<void>;
   rally(province: number | null): void;
   toggleAlerts(): boolean;
   setColorBlind(on: boolean): void;
@@ -380,6 +383,13 @@ export class Hud {
       else if (a === 'signout') this.actions.signOut();
       else if (a === 'guide') this.actions.guide();
       else if (a === 'worlds') this.actions.worlds();
+      else if (a === 'account') this.actions.account();
+      else if (a === 'admin') this.actions.admin();
+      else if (a === 'report') {
+        if (act.dataset.done) return;
+        act.dataset.done = '1';
+        void this.actions.report(act.dataset.from ?? '', act.dataset.text ?? '').then(() => { act.textContent = 'reported'; }, () => { act.textContent = 'failed'; });
+      }
       else if (a === 'rally') this.actions.rally(act.dataset.province ? Number(act.dataset.province) : null);
       else if (a === 'alerts') { const on = this.actions.toggleAlerts(); act.textContent = on ? 'Alerts on' : 'Alerts off'; act.setAttribute('aria-pressed', String(on)); }
       else if (a === 'menu' || a === 'info') document.body.classList.toggle(a === 'menu' ? 'show-left' : 'show-right');
@@ -504,7 +514,7 @@ export class Hud {
       who.textContent = 'OBSERVER · NOT SIGNED IN';
     }
     this.root.querySelector('#account')!.innerHTML = g.me
-      ? `<button type="button" class="link" data-act="signout">Log out</button>`
+      ? `${g.me.admin ? '<button type="button" class="link" data-act="admin">Admin</button>' : ''}${g.me.guest ? '' : '<button type="button" class="link" data-act="account">Account</button>'}<button type="button" class="link" data-act="signout">Log out</button>`
       : `<button type="button" class="link" data-act="signin">Sign in</button>`;
   }
 
@@ -572,7 +582,8 @@ export class Hud {
         ? lines.map((l) => {
             const n = nationName(l.nation);
             const tag = l.channel === 'allies' ? '<em class="tag">ALLIES</em>' : l.channel === 'direct' ? `<em class="tag">TO ${esc(nationName(l.to) ?? '?')}</em>` : '';
-            return `<li class="${l.channel ?? 'world'}"><time>${new Date(l.at).toTimeString().slice(0, 5)}</time><b>${esc(l.from)}${n ? ` · ${esc(n)}` : ''}</b>${tag}<span>${esc(l.text)}</span></li>`;
+            const report = this.game.me && l.from !== this.game.me.name ? `<button type="button" class="link report" data-act="report" data-from="${esc(l.from)}" data-text="${esc(l.text)}" title="Report this message to the moderators">report</button>` : '';
+            return `<li class="${l.channel ?? 'world'}"><time>${new Date(l.at).toTimeString().slice(0, 5)}</time><b>${esc(l.from)}${n ? ` · ${esc(n)}` : ''}</b>${tag}<span>${esc(l.text)} ${report}</span></li>`;
           }).join('')
         : `<li class="empty-row">${this.game.status === 'online' ? 'Nobody has said anything yet.' : 'Sign in to chat with other players.'}</li>`;
       list.scrollTop = list.scrollHeight;

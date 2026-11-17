@@ -124,6 +124,7 @@ export interface Me {
   name: string;
   guest: boolean;
   nation: number | null;
+  admin?: boolean; // may use the moderation tools
 }
 
 export type Order =
@@ -195,5 +196,5 @@ export type ErrorCode =
 
 /** Account endpoints (HTTP JSON). */
 export interface AuthRequest { name: string; password: string }
-export interface AuthResponse { token: string; you: Me }
+export interface AuthResponse { token: string; you: Me; recovery?: string } // recovery: shown once, after registering or recovering
 export interface ApiError { error: string }

@@ -133,3 +133,15 @@ Error: read ECONNRESET
 9:51:37 PM [vite] ws proxy socket error:
 Error: read ECONNRESET
     at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+9:55:37 PM [vite] (client) page reload /home/user/sovereign-command/shared/protocol.ts
+9:57:27 PM [vite] (client) page reload src/map.ts
+9:57:27 PM [vite] (client) page reload src/login.ts
+9:57:27 PM [vite] (client) page reload src/ui.ts
+9:57:27 PM [vite] (client) page reload src/forces.ts
+9:57:27 PM [vite] (client) page reload src/tutorial.ts
+9:57:27 PM [vite] (client) page reload src/main.ts
+9:57:27 PM [vite] (client) hmr update /src/styles.css
+9:57:31 PM [vite] (client) page reload src/main.ts
+9:59:10 PM [vite] (client) page reload src/main.ts
+10:00:42 PM [vite] (client) page reload src/main.ts
+10:01:56 PM [vite] (client) hmr update /src/styles.css

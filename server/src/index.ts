@@ -1,8 +1,9 @@
 // World server entry point. One process runs one world.
 //
 //   PORT=8787 WORLD_DIR=../client/public/world DB_FILE=data/world.db npm run dev
+import { mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { HOUR } from '../../shared/clock.ts';
 import { Accounts } from './auth.ts';
 import { openDb } from './db.ts';
@@ -21,6 +22,8 @@ const config = {
   releaseAfterMs: Number(env('RELEASE_AFTER_DAYS', '7')) * 24 * HOUR,
   seasonMs: Number(env('SEASON_DAYS', '28')) * 24 * HOUR, // real days per season
   allowedOrigins: env('ALLOWED_ORIGINS', '').split(',').map((s) => s.trim()).filter(Boolean),
+  backupHours: Number(env('BACKUP_HOURS', '6')), // 0 turns automatic backups off
+  backupKeep: Number(env('BACKUP_KEEP', '28')),
 };
 
 export function start(cfg = config) {
@@ -36,7 +39,7 @@ export function start(cfg = config) {
   }, provinces);
   const accounts = new Accounts(db);
   let hub: Hub | null = null;
-  const api = apiHandler(accounts, world, () => hub?.onlineCount ?? 0);
+  const api = apiHandler(accounts, world, () => hub?.onlineCount ?? 0, (id, reason) => hub?.kick(id, reason));
   const server = createServer((req, res) => { void api(req, res); });
   hub = new Hub(server, world, accounts, cfg.allowedOrigins);
 
@@ -57,6 +60,13 @@ export function start(cfg = config) {
   };
   timer = setTimeout(loop, 1000);
 
+  // automatic backups: a consistent copy of the database every few hours, oldest pruned
+  const backup = () => backupDb(db, cfg.dbFile, cfg.backupKeep);
+  const backups = cfg.backupHours > 0 && cfg.dbFile !== ':memory:' ? setInterval(backup, cfg.backupHours * HOUR) : undefined;
+  backups?.unref();
+  const firstBackup = backups ? setTimeout(backup, 60_000) : undefined; // one soon after start-up, then on schedule
+  firstBackup?.unref();
+
   const ready = new Promise<number>((res) => server.listen(cfg.port, () => {
     const addr = server.address();
     res(typeof addr === 'object' && addr ? addr.port : cfg.port);
@@ -64,6 +74,8 @@ export function start(cfg = config) {
 
   const stop = () => new Promise<void>((res) => {
     clearTimeout(timer);
+    if (backups) clearInterval(backups);
+    if (firstBackup) clearTimeout(firstBackup);
     world.persistAll();
     hub?.close();
     server.close(() => {
@@ -71,7 +83,24 @@ export function start(cfg = config) {
       res();
     });
   });
-  return { world, accounts, server, ready, stop };
+  return { world, accounts, server, ready, stop, backup };
+}
+
+/** Write a backup next to the database (in backups/) and keep only the newest few. Returns the file written. */
+export function backupDb(db: ReturnType<typeof openDb>, dbFile: string, keep: number) {
+  try {
+    const dir = join(dirname(dbFile), 'backups');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `world-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+    db.exec(`vacuum into '${file.replace(/'/g, "''")}'`);
+    const old = readdirSync(dir).filter((f) => f.startsWith('world-') && f.endsWith('.db')).sort();
+    for (const f of old.slice(0, Math.max(0, old.length - keep))) unlinkSync(join(dir, f));
+    console.log(`backup written: ${file}`);
+    return file;
+  } catch (e) {
+    console.error('backup failed', e);
+    return null;
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('index.ts')) {

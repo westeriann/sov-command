@@ -42,6 +42,15 @@ export function openDb(file: string): DB {
   const cols = (db.prepare('pragma table_info(chat)').all() as { name: string }[]).map((c) => c.name);
   if (!cols.includes('channel')) db.exec("alter table chat add column channel text not null default 'world'");
   if (!cols.includes('to_nation')) db.exec('alter table chat add column to_nation integer');
+  const ucols = (db.prepare('pragma table_info(users)').all() as { name: string }[]).map((c) => c.name);
+  for (const [col, def] of [['banned', 'integer not null default 0'], ['muted', 'integer not null default 0'], ['recovery', 'text'],
+    ['failed', 'integer not null default 0'], ['locked_until', 'integer not null default 0']]) {
+    if (!ucols.includes(col)) db.exec(`alter table users add column ${col} ${def}`);
+  }
+  db.exec(`create table if not exists reports (
+    id integer primary key, at integer not null, reporter integer not null, target text not null, text text not null,
+    reason text not null, handled integer not null default 0
+  )`);
   return db;
 }
 

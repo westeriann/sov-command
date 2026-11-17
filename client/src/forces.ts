@@ -323,7 +323,7 @@ export class Forces {
         </div>
         ${sel.length ? `<section class="selection">
           <span class="label">SELECTED · ${sel.map((u) => UNIT_SPECS[u.type].name).filter((v, i, a) => a.indexOf(v) === i).join(', ')} (${sel.length})</span>
-          <p class="hint">Right-click on the map: troops and ships move there (troops cross the sea by transport); fighters patrol over it and strike wings support battles there, within their combat radius (the ring). To rebase aircraft, use "Move selected here" on one of your provinces. One game day is about ten seconds.</p>
+          <p class="hint">Right-click on the map (long-press on a touch screen): troops and ships move there (troops cross the sea by transport); fighters patrol over it and strike wings support battles there, within their combat radius (the ring). To rebase aircraft, use "Move selected here" on one of your provinces. One game day is about ten seconds.</p>
           ${(() => {
             const gens = sel.filter((u) => u.general);
             const candidate = sel.find((u) => domainOf(u.type) === 'land' && !u.general);
@@ -336,7 +336,7 @@ export class Forces {
             <button type="button" class="claim" data-f="halt">Stop after the current leg</button>
             ${sel.some((u) => u.mission) ? '<button type="button" class="claim" data-f="standdown">Stand down air missions</button>' : ''}
           </div>
-        </section>` : `<p class="hint">Click one of your unit markers on the map to select it (shift-click adds more), then right-click a province to move.</p>`}
+        </section>` : `<p class="hint">Click one of your unit markers on the map to select it (shift-click adds more), then right-click (or long-press) a province to move.</p>`}
         <div class="econ-cols">
           <section>
             <span class="label">RECRUIT</span>

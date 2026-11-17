@@ -42,7 +42,7 @@ function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   });
 }
 
-export function apiHandler(accounts: Accounts, world: World, onlineCount: () => number) {
+export function apiHandler(accounts: Accounts, world: World, onlineCount: () => number, kick: (userId: number, reason: string) => void = () => {}) {
   const hits = new Map<string, { n: number; reset: number }>();
   const limited = (ip: string) => {
     const now = Date.now();
@@ -58,10 +58,15 @@ export function apiHandler(accounts: Accounts, world: World, onlineCount: () => 
     for (const [ip, h] of hits) if (h.reset < now) hits.delete(ip);
   }, 60_000).unref();
 
-  const session = (user: User): AuthResponse => ({
-    token: accounts.createSession(user.id),
-    you: { ...user, nation: world.nationOf(user.id)?.id ?? null },
-  });
+  const session = (user: User): AuthResponse => {
+    const { recovery, ...plain } = user;
+    return {
+      token: accounts.createSession(user.id),
+      you: { ...plain, nation: world.nationOf(user.id)?.id ?? null, admin: accounts.isAdmin(user.name) || undefined },
+      ...(recovery ? { recovery } : {}),
+    };
+  };
+  const bearer = (req: IncomingMessage) => accounts.userForToken(String(req.headers.authorization ?? '').replace(/^Bearer /, ''));
 
   return async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -94,13 +99,45 @@ export function apiHandler(accounts: Accounts, world: World, onlineCount: () => 
       if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
         const ip = req.socket.remoteAddress ?? '?';
         const route = url.pathname.slice(5);
-        if (['register', 'login', 'guest'].includes(route) && limited(ip)) {
+        if (['register', 'login', 'guest', 'recover', 'password'].includes(route) && limited(ip)) {
           return json(res, 429, { error: 'Too many attempts. Try again in a minute.' });
         }
         const body = await readBody(req);
         if (route === 'register') return json(res, 200, session(accounts.register(String(body.name ?? ''), String(body.password ?? ''))));
         if (route === 'login') return json(res, 200, session(accounts.login(String(body.name ?? ''), String(body.password ?? ''))));
         if (route === 'guest') return json(res, 200, session(accounts.guest()));
+        if (route === 'recover') return json(res, 200, session(accounts.recover(String(body.name ?? ''), String(body.code ?? ''), String(body.password ?? ''))));
+        if (route === 'password') {
+          const me = bearer(req);
+          if (!me) return json(res, 401, { error: 'Sign in first.' });
+          accounts.changePassword(me.id, String(body.old ?? ''), String(body.password ?? ''));
+          kick(me.id, 'Password changed. Sign in again.');
+          return json(res, 200, session(me));
+        }
+        if (route === 'report') {
+          const me = bearer(req);
+          if (!me) return json(res, 401, { error: 'Sign in first.' });
+          accounts.report(me.id, String(body.target ?? ''), String(body.text ?? ''), String(body.reason ?? 'abuse'));
+          return json(res, 200, { ok: true });
+        }
+        if (route === 'admin') {
+          const me = bearer(req);
+          if (!me || !accounts.isAdmin(me.name)) return json(res, 403, { error: 'Admins only.' });
+          const action = String(body.action ?? ''), id = Number(body.user);
+          if (action === 'users') return json(res, 200, { users: accounts.users(String(body.search ?? '')).map((u) => ({ ...u, nation: world.nationOf(u.id)?.id ?? null })) });
+          if (action === 'reports') return json(res, 200, { reports: accounts.reports() });
+          if (action === 'resolve') { accounts.resolveReport(Number(body.report)); return json(res, 200, { ok: true }); }
+          const target = accounts.userById(id);
+          if (!target) return json(res, 404, { error: 'No such user.' });
+          if (action === 'ban' || action === 'unban') {
+            accounts.setFlag(id, 'banned', action === 'ban');
+            if (action === 'ban') { if (world.nationOf(id)) world.release(id, 'was removed by a moderator'); kick(id, 'This account has been banned.'); }
+          } else if (action === 'mute' || action === 'unmute') accounts.setFlag(id, 'muted', action === 'mute');
+          else if (action === 'release') { if (world.nationOf(id)) world.release(id, 'was removed by a moderator'); }
+          else if (action === 'rename') { accounts.rename(id, String(body.name ?? '')); kick(id, 'A moderator changed your name. Sign in again.'); }
+          else return json(res, 400, { error: 'Unknown action.' });
+          return json(res, 200, { ok: true });
+        }
         if (route === 'logout') {
           const token = String(req.headers.authorization ?? '').replace(/^Bearer /, '');
           if (token) accounts.logout(token);

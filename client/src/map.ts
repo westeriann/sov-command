@@ -1,4 +1,4 @@
-import { Map as MLMap, Marker, type ExpressionSpecification, type StyleSpecification } from 'maplibre-gl';
+import { type GeoJSONSource, Map as MLMap, Marker, type ExpressionSpecification, type StyleSpecification } from 'maplibre-gl';
 import type { Feature, FeatureCollection } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Political } from './political';
@@ -303,6 +303,24 @@ export class GameMap {
     if (this.mode === 'wealth' && this.map.getLayer('overlay')) {
       this.setMode('wealth', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
     }
+  }
+
+  private borderData: { features: { properties: { k: number; a: number; b: number } }[] } | null = null;
+
+  /** Land changed hands: redraw national borders from current ownership. */
+  async refreshBorders() {
+    if (!this.borderData) {
+      try { this.borderData = await (await fetch(`${location.origin}/world/borders.geojson`)).json(); } catch { return; }
+    }
+    let changed = false;
+    for (const f of this.borderData!.features) {
+      const pr = f.properties;
+      if (pr.k !== K_PROVINCE && pr.k !== K_NATION) continue; // coasts and sea zones never change
+      const a = this.pol.provinces.get(pr.a)?.nation, b = this.pol.provinces.get(pr.b)?.nation;
+      const k = a !== b ? K_NATION : K_PROVINCE;
+      if (k !== pr.k) { pr.k = k; changed = true; }
+    }
+    if (changed) (this.map.getSource('borders') as GeoJSONSource | undefined)?.setData(this.borderData as unknown as GeoJSON.FeatureCollection);
   }
 
   setWealth(values: Map<number, number>) {

@@ -34,7 +34,7 @@ const STEPS: Step[] = [
   },
   {
     title: 'Forces',
-    text: 'Your army, navy and air force appear on the map as stacks. Click a stack to select it (click again to pick one unit type), then right-click a province: troops and ships move there, fighters patrol and strike wings support battles. Recruit in Ground forces.',
+    text: 'Your army, navy and air force appear on the map as stacks. Click a stack to select it (click again to pick one unit type), then right-click a province (long-press on a phone): troops and ships move there, fighters patrol and strike wings support battles. Recruit in Ground forces.',
     target: '[data-module="army"]',
   },
   {

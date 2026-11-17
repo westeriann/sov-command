@@ -129,7 +129,7 @@ export class Hub implements WorldListener {
       const { events, chat } = this.world.recent(user.id);
       this.send(ws, {
         t: 'welcome',
-        you: { ...user, nation: mine?.id ?? null },
+        you: { ...user, nation: mine?.id ?? null, admin: this.accounts.isAdmin(user.name) || undefined },
         clock: { ...this.world.clock, serverNow: Date.now() },
         nations: this.world.allPublic(),
         mine: mine ? this.world.privateView(mine) : null,
@@ -158,6 +158,7 @@ export class Hub implements WorldListener {
       case 'chat': {
         const now = Date.now();
         if (now - conn.lastChat < CHAT_GAP_MS) return this.error(ws, 'rate_limited', 'Wait a moment before sending again.');
+        if (this.accounts.isMuted(user.id)) return this.error(ws, 'not_allowed', 'A moderator has muted you.');
         conn.lastChat = now;
         return this.reply(ws, this.world.chat(user, msg.text, msg.channel, msg.to));
       }
@@ -196,6 +197,14 @@ export class Hub implements WorldListener {
 
   private send(ws: WebSocket, msg: ServerMsg) {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  /** Disconnect every session of a user (banned, renamed, password changed). */
+  kick(userId: number, reason: string) {
+    for (const ws of this.byUser.get(userId) ?? []) {
+      this.error(ws, 'auth', reason);
+      ws.close(4003, 'auth');
+    }
   }
 
   private toUser(userId: number, msg: ServerMsg) {

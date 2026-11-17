@@ -5,7 +5,7 @@ import { authenticate } from './net';
 export class LoginDialog {
   private el: HTMLElement;
 
-  constructor(root: HTMLElement, private onSignedIn: (r: AuthResponse) => void) {
+  constructor(root: HTMLElement, private onSignedIn: (r: AuthResponse) => void, private onForgot: (name: string) => void = () => {}) {
     this.el = document.createElement('div');
     this.el.className = 'login-backdrop';
     this.el.hidden = true;
@@ -24,6 +24,7 @@ export class LoginDialog {
         </div>
         <div class="login-alt">
           <button type="button" class="link" data-kind="guest">Play as a guest</button>
+          <button type="button" class="link" data-kind="forgot">Forgot password?</button>
           <button type="button" class="link" data-kind="close">Explore without signing in</button>
         </div>
       </form>`;
@@ -60,6 +61,7 @@ export class LoginDialog {
         void run('register');
       } else if (kind === 'guest') void run('guest');
       else if (kind === 'close') this.close();
+      else if (kind === 'forgot') { this.close(); this.onForgot(name.value.trim()); }
     });
     this.el.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.close();

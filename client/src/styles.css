@@ -466,3 +466,14 @@ body.cb .up { color: #6bb8ff; }
   .coach { bottom: 80px; }
   .replay-bar { bottom: 80px; flex-wrap: wrap; }
 }
+
+/* accounts and moderation */
+.recovery-code { font-size: 22px; letter-spacing: 0.12em; text-align: center; padding: 12px; margin: 10px 0; border: 1px dashed var(--cyan); border-radius: 4px; user-select: all; }
+.comms-list .report { font-size: 10px; opacity: 0; margin-left: 6px; }
+.comms-list li:hover .report, .comms-list .report:focus { opacity: 0.8; }
+@media (hover: none) { .comms-list .report { opacity: 0.6; } }
+.admin-actions { white-space: nowrap; }
+.admin-actions .link { margin-right: 8px; font-size: 11px; }
+#account .link + .link { margin-left: 12px; }
+.admin-actions { white-space: normal; }
+.admin-window .league th, .admin-window .league td { padding-left: 6px; padding-right: 6px; }

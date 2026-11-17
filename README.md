@@ -122,6 +122,20 @@ Expansion (all done):
   points, nation comparison charts, a phone layout, keyboard shortcuts (press
   ?), a colour-blind friendly mode
 - Settings: SEASON_DAYS (real days per season, default 28), WORLD_NAME
+
+Launch readiness:
+
+- Phones: long-press the map to give orders (the touch version of right-click)
+- National borders redraw when land changes hands
+- Moderation: set ADMIN_USERS=name1,name2 on the server; admins get an Admin
+  window to ban, mute, rename or remove players from their nation, and to
+  review chat messages players report
+- Accounts: a recovery code is shown once at registration (the way back in
+  without email), password change signs out other devices, 8 wrong passwords
+  lock an account for 15 minutes
+- Backups: the server writes data/backups/world-<time>.db every BACKUP_HOURS
+  (default 6) and keeps BACKUP_KEEP (default 28); to restore, stop the server
+  and run npm run restore (lists backups) or npm run restore -- <file>
 - Next: deployment (a public website and a hosted world server); email alerts
   need a mail service
 

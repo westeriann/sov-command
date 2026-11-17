@@ -1,5 +1,8 @@
+import type { AuthResponse } from '../../shared/protocol';
 import { DiplomacyPanel } from './diplomacy-panel';
 import { Cities } from './cities';
+import { AccountDialog } from './account';
+import { AdminPanel } from './admin';
 import { ResearchPanel } from './research-panel';
 import { RankingsPanel } from './rankings-panel';
 import { Lobby } from './lobby';
@@ -98,6 +101,15 @@ async function start() {
       hud.setOpenPanel(forces.isOpen ? 'army' : null);
     },
     worlds: () => void lobby?.open(),
+    account: () => account.openChangePassword(),
+    admin: () => adminPanel?.toggle(),
+    report: async (from, text) => {
+      const r = await fetch('/api/report', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${loadToken() ?? ''}` },
+        body: JSON.stringify({ target: from, text, reason: 'chat' }),
+      });
+      if (!r.ok) throw new Error('report failed');
+    },
     rally: (province) => conn.send({ t: 'order', order: { kind: 'rally', province } }),
     toggleAlerts: () => {
       alerts = !alerts;
@@ -236,7 +248,10 @@ async function start() {
       if (p) select(p.label[1], p.label[0], true);
     },
   });
-  login = new LoginDialog(hudRoot, (r) => signedIn(r.token));
+  const afterAuth = (r: AuthResponse) => { signedIn(r.token); if (r.recovery) account.showRecovery(r.recovery); };
+  const account = new AccountDialog(hudRoot, (r) => { conn.stop(); signedIn(r.token); });
+  login = new LoginDialog(hudRoot, afterAuth, (name) => account.openRecover(name));
+  const adminPanel: AdminPanel | null = new AdminPanel(hudRoot, pol);
   conn.onAuthFailed = () => login.open();
 
   await gameMap.ready();
@@ -277,6 +292,7 @@ async function start() {
     }
     if (c.has('war')) {
       const moved = pol.transfer(game.war.owners); // borders changed by treaty
+      if (moved) void gameMap.refreshBorders();
       gameMap.setOccupied(new Map(Object.entries(game.war.occupied).map(([p, n]) => [Number(p), n])), moved);
     }
   });
@@ -297,13 +313,35 @@ async function start() {
   });
   forces.onSelectionChange = () => hud.refreshSelection();
   // right-click moves the selected units; Escape clears the selection
+  let press: { timer: number; x: number; y: number } | null = null;
+  let pressedAt = 0; // a long press already gave this order (some phones also send a right-click)
   map.on('contextmenu', (e) => {
     if (!forces?.selected.size) return;
     e.preventDefault();
+    if (Date.now() - pressedAt < 1500) return;
+    pressedAt = Date.now();
+    if (press) { window.clearTimeout(press.timer); press = null; } // the phone's own long-press menu got here first
     const p = pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng);
     if (p) forces.orderAt(p.id); // land or sea: troops and ships move, aircraft fly a mission
   });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') forces?.clearSelection(); });
+  // touch screens have no right-click: a long press gives the order instead
+  map.on('touchstart', (e) => {
+    if (press) window.clearTimeout(press.timer);
+    press = null;
+    if (e.points.length !== 1 || !forces?.selected.size) return;
+    const at = e.lngLat, pt = e.point;
+    press = {
+      x: pt.x, y: pt.y,
+      timer: window.setTimeout(() => {
+        press = null;
+        const p = pol.provinceAt(at.lat, at.wrap().lng);
+        if (p && forces && Date.now() - pressedAt > 1500) { pressedAt = Date.now(); forces.orderAt(p.id); navigator.vibrate?.(30); }
+      }, 550),
+    };
+  });
+  map.on('touchmove', (e) => { if (press && Math.hypot(e.point.x - press.x, e.point.y - press.y) > 12) { window.clearTimeout(press.timer); press = null; } });
+  map.on('touchend', () => { if (press) { window.clearTimeout(press.timer); press = null; } });
   map.on('mousemove', (e) => {
     const lat = e.lngLat.lat, lon = e.lngLat.wrap().lng;
     hud.hover(world.sample(lat, lon), pol.provinceAt(lat, lon));
