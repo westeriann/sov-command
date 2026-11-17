@@ -9,15 +9,16 @@ import type { Game } from './game';
 import type { Political } from './political';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-const SYMBOL: Record<UnitType, string> = {
-  infantry: '<path d="M1 1L23 15M23 1L1 15"/>',
-  armored: '<ellipse cx="12" cy="8" rx="7" ry="4"/>',
-  mechanized: '<path d="M1 1L23 15M23 1L1 15"/><ellipse cx="12" cy="8" rx="7" ry="4"/>',
-  destroyers: '<path d="M2 9h20l-3 5H5zM9 9V5h6v4"/>',
-  submarines: '<ellipse cx="12" cy="11" rx="10" ry="3"/><path d="M10 8V5h4v3"/>',
-  carrier: '<path d="M1 9h22l-3 5H4z"/><path d="M3 8h18" stroke-width="2.4"/><path d="M16 8V4h3v4"/>',
-  fighters: '<path d="M12 1l10 13H2z"/>',
-  strike: '<path d="M12 1l10 13H2z"/><path d="M7 10h10" stroke-width="2.4"/>',
+/** Filled silhouettes (24×24), drawn in the nation's contrast colour. */
+export const ICON: Record<UnitType, string> = {
+  infantry: '<circle cx="11" cy="4.2" r="2.4"/><path d="M8.2 7.6h5.6l1.3 6.4h-1.9l-.9 7.6h-2l-.4-5.4-.4 5.4h-2L7 14H5.9z"/><path d="M14.6 9.4l5.2-6 1 .9-5.2 6z"/>',
+  mechanized: '<path d="M2.5 10.5h14l3.5 3.2v3H2.5z"/><path d="M8 7h5.5v3.5H8z"/><path d="M13.5 8h5v1.2h-5z"/><circle cx="5.5" cy="18" r="1.9"/><circle cx="10" cy="18" r="1.9"/><circle cx="14.5" cy="18" r="1.9"/><circle cx="19" cy="18" r="1.9"/>',
+  armored: '<path d="M7.5 7.5h7.5l1.2 4H6.4z"/><path d="M15.5 8.6h7v1.5h-7z"/><path d="M3 11.5h18l-1.5 3H4.5z"/><rect x="2" y="14.5" width="20" height="5" rx="2.5"/>',
+  destroyers: '<path d="M1 14h22l-3.5 4.5H4.5z"/><path d="M7.5 10h7v4h-7z"/><path d="M10.5 4.5h1.2v5.5h-1.2z"/><path d="M15.5 12.4h5v1.2h-5z"/><path d="M3 12.4h4v1.2H3z"/>',
+  submarines: '<path d="M2 15.2C2 13.4 5 12 8 12h10c3 0 5 1.4 5 3.2s-2 3.2-5 3.2H8c-3 0-6-1.4-6-3.2z"/><path d="M10 8.5h4l1.2 3.5H9z"/><path d="M11.5 5.5h1v3h-1z"/>',
+  carrier: '<path d="M1 11.5h22v2.2H1z"/><path d="M3 13.7h18l-2 4.8H5z"/><path d="M16 6.5h3.2v5H16z"/><path d="M17 4h1v2.5h-1z"/>',
+  fighters: '<path d="M12 1.5l1.6 5.3 7.4 6.4v2.2l-7.3-2.2-.5 5.3 3 2.2v1.6L12 21l-4.2 1.3v-1.6l3-2.2-.5-5.3L3 15.4v-2.2l7.4-6.4z"/>',
+  strike: '<path d="M12 1.5l1.6 4.3V10l9.4 3v2.4l-9.4-1.6v5l3.1 2v1.7L12 21.6l-4.7.9v-1.7l3.1-2v-5L1 15.4V13l9.4-3V5.8z"/>',
 };
 const DOMAIN_NAMES: Record<Domain, string> = { land: 'LAND', sea: 'SEA', air: 'AIR' };
 
@@ -50,6 +51,7 @@ export class Forces {
   private nodes: Map<number, RouteNode>;
   private panel: HTMLElement;
   private onSelect: () => void = () => {};
+  private openStack: string | null = null;
 
   constructor(private map: MLMap, private game: Game, private pol: Political, root: HTMLElement, private actions: ForcesActions) {
     this.nodes = new Map([...pol.provinces.values()].map((p) => [p.id, p as unknown as RouteNode]));
@@ -102,7 +104,8 @@ export class Forces {
     const mine = this.game.mine?.id;
     const groups = new Map<string, UnitView[]>();
     for (const u of this.game.units) {
-      const key = u.next === undefined ? `p${u.province}:${u.nation}:${domainOf(u.type)}` : `u${u.id}`;
+      // one stack per nation per province; units travelling the same leg together move as one
+      const key = u.next === undefined ? `p${u.province}:${u.nation}` : `m${u.nation}:${u.province}:${u.next}:${Math.round((u.legEnd ?? 0) / 3_600_000)}`;
       groups.set(key, [...(groups.get(key) ?? []), u]);
     }
     for (const [key, m] of this.markers) {
@@ -115,7 +118,12 @@ export class Forces {
         const el = document.createElement('button');
         el.type = 'button';
         el.className = 'unit-marker';
-        el.addEventListener('click', (e) => { e.stopPropagation(); this.clickMarker(key, (e as MouseEvent).shiftKey); });
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const pick = (e.target as HTMLElement).closest<HTMLElement>('[data-pick]');
+          if (pick) this.pickType(key, pick.dataset.pick as UnitType);
+          else this.clickMarker(key, (e as MouseEvent).shiftKey);
+        });
         m = { marker: new Marker({ element: el, opacityWhenCovered: '0' }).setLngLat(this.position(units[0])).addTo(this.map), el, units };
         this.markers.set(key, m);
       }
@@ -123,14 +131,24 @@ export class Forces {
       const u0 = units[0];
       const nation = this.pol.nations.get(u0.nation);
       const side = u0.nation === mine ? 'own' : this.game.atWar(mine, u0.nation) ? 'enemy' : 'other';
-      const types = UNIT_TYPES.filter((t) => units.some((u) => u.type === t));
+      const counts = UNIT_TYPES.map((t) => [t, units.filter((u) => u.type === t).length] as const).filter(([, c]) => c > 0);
       const strength = Math.round(units.reduce((s, u) => s + u.strength, 0) / units.length);
       const sel = units.some((u) => this.selected.has(u.id));
-      m.el.className = `unit-marker ${side} d-${domainOf(u0.type)}${sel ? ' selected' : ''}${units.some((u) => u.status === 'fighting') ? ' fighting' : ''}`;
+      // the stack shows its strongest arm: tanks over troops, carriers over escorts
+      const lead = [...counts].sort((a, b) => b[1] * UNIT_SPECS[b[0]].attack - a[1] * UNIT_SPECS[a[0]].attack)[0][0];
+      const domains = new Set(units.map((u) => domainOf(u.type)));
+      const shape = domains.size === 1 ? `d-${[...domains][0]}` : 'd-mixed';
+      m.el.className = `unit-marker ${side} ${shape}${sel ? ' selected' : ''}${this.openStack === key ? ' open' : ''}${units.some((u) => u.status === 'fighting') ? ' fighting' : ''}`;
       m.el.style.setProperty('--nation', nation?.color ?? '#888');
-      m.el.setAttribute('aria-label', `${units.length} ${nation?.short ?? ''} ${UNIT_SPECS[u0.type].name.toLowerCase()}${units.length > 1 ? ' group' : ''}, ${strength}% strength`);
-      const symbol = types.length === 1 ? types[0] : types.find((t) => t === 'carrier' || t === 'armored') ?? types[0];
-      m.el.innerHTML = `<svg viewBox="0 0 24 16" aria-hidden="true">${SYMBOL[symbol]}</svg>${units.length > 1 ? `<b>${units.length}</b>` : ''}<i style="width:${strength}%"></i>`;
+      const summary = counts.map(([t, c]) => `${c} ${UNIT_SPECS[t].name.toLowerCase()}`).join(', ');
+      m.el.setAttribute('aria-label', `${nation?.short ?? ''} forces: ${summary}; ${strength}% strength`);
+      m.el.title = `${nation?.name ?? ''}\n${counts.map(([t, c]) => `${c} × ${UNIT_SPECS[t].name}`).join('\n')}\nStrength ${strength}%`;
+      const extras = counts.filter(([t]) => t !== lead).slice(0, 3);
+      m.el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[lead]}</svg>`
+        + (units.length > 1 ? `<b>${units.length}</b>` : '')
+        + (extras.length ? `<span class="mini">${extras.map(([t]) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>`).join('')}</span>` : '')
+        + `<i style="width:${strength}%"></i>`
+        + (this.openStack === key && side === 'own' ? `<span class="stack-list" role="menu">${counts.map(([t, c]) => `<span role="menuitem" tabindex="0" data-pick="${t}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${c} × ${UNIT_SPECS[t].name}</span>`).join('')}</span>` : '');
     }
     // battles
     const battles = new Set(this.game.war.battles);
@@ -171,6 +189,9 @@ export class Forces {
     const mine = this.game.mine?.id;
     const own = m.units.filter((u) => u.nation === mine);
     if (!own.length) { this.actions.goToProvince(m.units[0].province); return; }
+    // clicking a selected stack again opens its list, to pick out one type
+    const whole = own.every((u) => this.selected.has(u.id));
+    this.openStack = whole && !add && this.openStack !== key && own.length > 1 ? key : null;
     if (!add) this.selected.clear();
     for (const u of own) this.selected.add(u.id);
     this.render();
@@ -178,7 +199,18 @@ export class Forces {
     if (!this.panel.hidden) this.renderPanel();
   }
 
+  private pickType(key: string, type: UnitType) {
+    const m = this.markers.get(key);
+    if (!m) return;
+    this.selected = new Set(m.units.filter((u) => u.nation === this.game.mine?.id && u.type === type).map((u) => u.id));
+    this.openStack = null;
+    this.render();
+    this.onSelect();
+    if (!this.panel.hidden) this.renderPanel();
+  }
+
   clearSelection() {
+    this.openStack = null;
     if (!this.selected.size) return;
     this.selected.clear();
     this.render();
@@ -292,7 +324,7 @@ export class Forces {
             ${UNIT_TYPES.map((t, i) => { const s = UNIT_SPECS[t]; return `
               ${i === 0 || UNIT_SPECS[UNIT_TYPES[i - 1]].domain !== s.domain ? `<span class="label sub">${DOMAIN_NAMES[s.domain]}</span>` : ''}
               <div class="recruit">
-                <div><b>${s.name}</b><span class="mono">attack ${s.attack} · defense ${s.defense} · ${s.range ? `radius ${s.range} km` : `${s.speed} km/day`}</span>
+                <div><b class="recruit-name"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${s.name}</b><span class="mono">attack ${s.attack} · defense ${s.defense} · ${s.range ? `radius ${s.range} km` : `${s.speed} km/day`}</span>
                 <span class="mono">${money(s.cost)} · ${s.days} days (~${Math.round((s.days * 10) / 60)} min) · ${(s.men / 1e3).toFixed(0)}k men · upkeep ${money(s.upkeep)}/yr</span></div>
                 <button type="button" class="claim primary" data-f="recruit" data-type="${t}" ${mil.manpower < s.men || mil.queue.length >= 10 ? 'disabled' : ''}>Recruit</button>
               </div>`; }).join('')}

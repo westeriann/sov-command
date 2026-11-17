@@ -618,6 +618,7 @@ export class Hud {
     if (!n || !this.game.mine) return '';
     const r = this.actions.preview(p.id);
     if (!r) return `<p class="hint">Your selected units cannot reach this province. Units only enter your own land and land of nations you are at war with.</p>`;
+    if (r.days < 0.05) return ''; // already there
     const secs = Math.round(r.days * (86_400 / this.game.speed));
     return `<button type="button" class="claim primary" data-act="movehere" data-province="${p.id}">Move ${n} selected unit${n > 1 ? "s" : ""} here · ${r.days.toFixed(1)} days (~${secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`})</button>`;
   }

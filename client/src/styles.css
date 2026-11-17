@@ -241,16 +241,27 @@ input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color:
 
 /* ---- land forces ---- */
 .unit-marker {
-  position: relative; width: 30px; height: 22px; padding: 2px 3px 4px; border-radius: 3px; cursor: pointer;
-  background: #e7eef2; border: 2px solid var(--nation); box-shadow: 0 1px 4px rgba(2, 8, 14, 0.7);
+  position: relative; width: 30px; height: 30px; padding: 3px 3px 5px; border-radius: 7px; cursor: pointer; color: #f4f8fa;
+  background: radial-gradient(circle at 50% 35%, #1f3140, #0b1620 75%); border: 2px solid var(--nation);
+  box-shadow: 0 0 0 1px rgba(2, 8, 14, 0.8), 0 2px 6px rgba(2, 8, 14, 0.75);
 }
-.unit-marker svg { width: 100%; height: 100%; display: block; fill: none; stroke: #0b1620; stroke-width: 1.6; }
-.unit-marker b { position: absolute; top: -8px; right: -9px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: #0b1620; color: #fff; font: 600 9px/15px var(--f-mono); text-align: center; }
-.unit-marker i { position: absolute; left: 2px; bottom: 1px; height: 2px; background: var(--green); border-radius: 1px; max-width: calc(100% - 4px); }
-.unit-marker.own { outline: 1px solid rgba(95, 212, 234, 0.7); }
-.unit-marker.enemy { background: #ffd9d4; outline: 1px solid #ff5a48; }
-.unit-marker.selected { outline: 2px solid var(--cyan); box-shadow: 0 0 0 4px rgba(95, 212, 234, 0.3), 0 0 14px var(--cyan); }
-.unit-marker.fighting::after { content: ""; position: absolute; inset: -6px; border-radius: 6px; border: 2px solid #ff5a48; animation: pulse 1.2s ease-out infinite; }
+.unit-marker svg { width: 100%; height: 100%; display: block; fill: currentColor; stroke: none; }
+.unit-marker b { position: absolute; top: -8px; right: -10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--nation); color: #fff; font: 700 9px/16px var(--f-mono); text-align: center; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7); box-shadow: 0 0 0 1.5px #0b1620; }
+.unit-marker i { position: absolute; left: 4px; bottom: 2px; height: 2px; background: var(--green); border-radius: 1px; max-width: calc(100% - 8px); }
+.unit-marker .mini { position: absolute; left: 50%; bottom: -11px; transform: translateX(-50%); display: flex; gap: 1px; padding: 1px 2px; border-radius: 4px; background: #0b1620; border: 1px solid var(--nation); }
+.unit-marker .mini svg { width: 9px; height: 9px; }
+.unit-marker.d-sea { border-radius: 15px 15px 9px 9px; }
+.unit-marker.d-air { border-radius: 50%; }
+.unit-marker.d-mixed { border-radius: 4px 14px; }
+.unit-marker.own { box-shadow: 0 0 0 1px rgba(95, 212, 234, 0.8), 0 2px 6px rgba(2, 8, 14, 0.75); }
+.unit-marker.enemy { color: #ffd9d4; box-shadow: 0 0 0 2px #ff5a48, 0 0 8px rgba(255, 90, 72, 0.6); }
+.unit-marker.selected { box-shadow: 0 0 0 2px var(--cyan), 0 0 0 5px rgba(95, 212, 234, 0.3), 0 0 14px var(--cyan); }
+.unit-marker.fighting::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid #ff5a48; animation: pulse 1.2s ease-out infinite; pointer-events: none; }
+.unit-marker .stack-list { position: absolute; left: 34px; top: -4px; z-index: 5; display: flex; flex-direction: column; min-width: 150px; padding: 4px; border-radius: 4px; background: rgba(9, 18, 26, 0.96); border: 1px solid var(--cyan); text-align: left; cursor: default; }
+.unit-marker .stack-list span { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 3px; font: 500 11px/1.2 var(--f-mono); color: #e7eef2; white-space: nowrap; cursor: pointer; }
+.unit-marker .stack-list span:hover, .unit-marker .stack-list span:focus { background: rgba(95, 212, 234, 0.15); outline: none; }
+.unit-marker .stack-list svg { width: 16px; height: 16px; flex: none; }
+.unit-marker.open { z-index: 4; }
 .battle-ring { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #ff5a48; box-shadow: 0 0 12px #ff5a48; animation: pulse 1.2s ease-out infinite; pointer-events: none; }
 @keyframes pulse { from { opacity: 1; transform: scale(0.8); } to { opacity: 0; transform: scale(1.4); } }
 .controller.enemy { border-color: rgba(255, 90, 72, 0.6); }
@@ -263,9 +274,6 @@ input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color:
 .war-row div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .war-row span { font-size: 10px; color: var(--muted); }
 .war-row .claim { width: auto; padding: 7px 12px; flex: none; }
-.unit-marker.d-sea { background: #d6ecf7; border-radius: 10px; }
-.unit-marker.d-air { background: #fff4dc; border-radius: 10px 10px 3px 3px; }
-.unit-marker.d-sea.enemy, .unit-marker.d-air.enemy { background: #ffd9d4; }
 .label.sub { margin-top: 6px; color: var(--cyan); }
 .actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .actions-row .claim { width: auto; padding: 7px 12px; }
@@ -368,3 +376,5 @@ table.league .link i { width: 9px; height: 9px; border-radius: 2px; }
 .tech.active { border-color: var(--cyan); background: rgba(95, 212, 234, 0.06); }
 .tech .claim { width: auto; padding: 6px 10px; margin-top: 4px; }
 @media (max-width: 900px) { .tech-grid, .gov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.recruit-name { display: flex; align-items: center; gap: 8px; }
+.recruit-name svg { width: 22px; height: 22px; fill: var(--cyan); flex: none; }
