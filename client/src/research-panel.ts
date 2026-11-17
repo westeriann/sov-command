@@ -1,0 +1,88 @@
+// The R&D window: the technology tree and the form of government.
+import {
+  BRANCHES, BRANCH_NAMES, GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, TECHS, TIER_COST, prerequisite,
+  type Government, type TechId,
+} from '../../shared/research';
+import type { Game } from './game';
+import type { Political } from './political';
+
+export interface ResearchActions {
+  research(tech: TechId): void;
+  government(g: Government): void;
+}
+
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+export class ResearchPanel {
+  private panel: HTMLElement;
+
+  constructor(root: HTMLElement, private game: Game, private pol: Political, private actions: ResearchActions) {
+    this.panel = document.createElement('section');
+    this.panel.className = 'panel econ-window research-window';
+    this.panel.setAttribute('aria-label', 'Research and government');
+    this.panel.hidden = true;
+    root.appendChild(this.panel);
+    this.panel.addEventListener('click', (e) => this.onClick(e));
+    game.on((c) => { if (c.has('mine') && this.isOpen) this.render(); });
+  }
+
+  get isOpen() { return !this.panel.hidden; }
+  toggle() { this.panel.hidden = !this.panel.hidden; if (this.isOpen) this.render(); }
+  close() { this.panel.hidden = true; }
+
+  private onClick(e: Event) {
+    const act = (e.target as HTMLElement).closest<HTMLElement>('[data-r]');
+    if (!act) return;
+    const r = act.dataset.r;
+    if (r === 'close') { this.close(); document.dispatchEvent(new CustomEvent('research-closed')); }
+    else if (r === 'tech') this.actions.research(act.dataset.tech as TechId);
+    else if (r === 'gov') {
+      if (act.dataset.confirm === '1') this.actions.government(act.dataset.gov as Government);
+      else { act.dataset.confirm = '1'; act.textContent = 'Confirm reform'; }
+    }
+  }
+
+  render() {
+    const mine = this.game.mine, r = mine?.research;
+    const head = `<div class="econ-head"><div><span class="label">RESEARCH &amp; GOVERNMENT</span><h2>${esc(mine ? this.pol.nations.get(mine.id)?.name ?? '' : 'R&D')}</h2></div><button type="button" class="link" data-r="close">Close</button></div>`;
+    if (!mine || !r) {
+      this.panel.innerHTML = `${head}<div class="econ-body"><p class="hint">Take command of a nation to direct its research.</p></div>`;
+      return;
+    }
+    const day = this.game.market?.day ?? 0;
+    const secsPerDay = 86_400 / this.game.speed;
+    const time = (days: number) => { const s = days * secsPerDay; return s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`; };
+    const cur = r.current ? TECHS.find((t) => t.id === r.current) : undefined;
+    const reforming = r.reformUntil !== undefined;
+    const cooldown = r.reformedAt !== undefined ? Math.max(0, REFORM_COOLDOWN_DAYS - (day - r.reformedAt)) : 0;
+    const gov = GOVERNMENT_INFO[r.government];
+
+    this.panel.innerHTML = `${head}
+      <div class="econ-body">
+        <div class="econ-kpis">
+          <div><span>Researching</span><b>${cur ? esc(cur.name) : '—'}</b><em>${cur ? `${Math.round((r.progress / TIER_COST[cur.tier]) * 100)}% · ~${Math.ceil((TIER_COST[cur.tier] - r.progress) / Math.max(0.1, r.rate))} days (${time((TIER_COST[cur.tier] - r.progress) / Math.max(0.1, r.rate))})` : 'choose a technology below'}</em></div>
+          <div><span>Research rate</span><b>${r.rate}</b><em>points a day · raise the research budget in Economy</em></div>
+          <div><span>Technologies</span><b>${r.done.length} / ${TECHS.length}</b><em>bonuses are permanent</em></div>
+          <div><span>Government</span><b>${esc(gov.name)}</b><em>${reforming ? `reform under way · ${r.reformUntil! - day} days left` : cooldown ? `next reform in ${cooldown} days` : 'reform possible'}</em></div>
+        </div>
+        <div class="tech-grid">
+          ${BRANCHES.map((b) => `<section><span class="label">${BRANCH_NAMES[b].toUpperCase()}</span>
+            ${TECHS.filter((t) => t.branch === b).map((t) => {
+              const done = r.done.includes(t.id), active = r.current === t.id;
+              const pre = prerequisite(t), locked = !!pre && !r.done.includes(pre.id);
+              return `<div class="tech${done ? ' done' : ''}${active ? ' active' : ''}">
+                <b>${esc(t.name)}</b><span class="mono">Tier ${t.tier} · ${TIER_COST[t.tier].toLocaleString('en-US')} pts</span><span>${esc(t.text)}</span>
+                ${done ? '<em>Researched</em>' : active ? `<div class="bar"><i style="width:${Math.round((r.progress / TIER_COST[t.tier]) * 100)}%"></i></div>`
+                  : `<button type="button" class="claim" data-r="tech" data-tech="${t.id}" ${locked ? 'disabled' : ''}>${locked ? `Needs ${esc(pre!.name)}` : 'Research'}</button>`}
+              </div>`;
+            }).join('')}</section>`).join('')}
+        </div>
+        <span class="label">FORM OF GOVERNMENT</span>
+        <div class="gov-grid">
+          ${GOVERNMENTS.map((g) => `<div class="tech${g === r.government ? ' active' : ''}"><b>${esc(GOVERNMENT_INFO[g].name)}</b><span>${esc(GOVERNMENT_INFO[g].text)}</span>
+            ${g === r.government ? '<em>Current</em>' : `<button type="button" class="claim" data-r="gov" data-gov="${g}" ${reforming || cooldown ? 'disabled' : ''}>Reform</button>`}</div>`).join('')}
+        </div>
+        <p class="hint">A reform takes 30 game days (5 minutes) of turmoil, −10 stability meanwhile, and the next is possible a game year later. Stability below 25 risks a coup or revolution. Random national events (booms, strikes, disasters, scandals, breakthroughs) appear in Dispatches.</p>
+      </div>`;
+  }
+}

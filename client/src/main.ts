@@ -1,4 +1,5 @@
 import { DiplomacyPanel } from './diplomacy-panel';
+import { ResearchPanel } from './research-panel';
 import './styles.css';
 import { EconomyPanel } from './economy-panel';
 import { Forces } from './forces';
@@ -71,6 +72,7 @@ async function start() {
     toggleEconomy: () => {
       forces?.close();
       diplomacy?.close();
+      research?.close();
       economy.toggle();
       hud.setOpenPanel(economy.isOpen ? 'economy' : null);
     },
@@ -78,13 +80,23 @@ async function start() {
       if (!forces) return;
       economy.close();
       diplomacy?.close();
+      research?.close();
       forces.toggle();
       hud.setOpenPanel(forces.isOpen ? 'army' : null);
+    },
+    toggleResearch: () => {
+      if (!research) return;
+      economy.close();
+      forces?.close();
+      diplomacy?.close();
+      research.toggle();
+      hud.setOpenPanel(research.isOpen ? 'research' : null);
     },
     toggleDiplomacy: () => {
       if (!diplomacy) return;
       economy.close();
       forces?.close();
+      research?.close();
       diplomacy.toggle();
       hud.setOpenPanel(diplomacy.isOpen ? 'diplomacy' : null);
     },
@@ -98,6 +110,7 @@ async function start() {
   });
   let forces: Forces | null = null;
   let diplomacy: DiplomacyPanel | null = null;
+  let research: ResearchPanel | null = null;
   const economy = new EconomyPanel(hudRoot, game, pol, {
     budget: (budget) => conn.send({ t: 'order', order: { kind: 'budget', budget } }),
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
@@ -110,6 +123,11 @@ async function start() {
   document.addEventListener('economy-closed', () => hud.setOpenPanel(null));
   document.addEventListener('forces-closed', () => hud.setOpenPanel(null));
   document.addEventListener('diplomacy-closed', () => hud.setOpenPanel(null));
+  document.addEventListener('research-closed', () => hud.setOpenPanel(null));
+  research = new ResearchPanel(hudRoot, game, pol, {
+    research: (tech) => conn.send({ t: 'order', order: { kind: 'research', tech } }),
+    government: (government) => conn.send({ t: 'order', order: { kind: 'government', government } }),
+  });
   diplomacy = new DiplomacyPanel(hudRoot, game, pol, {
     propose: (target, deal) => conn.send({ t: 'order', order: { kind: 'propose', target, deal } }),
     answer: (from, deal, accept) => conn.send({ t: 'order', order: { kind: 'answer', from, deal, accept } }),

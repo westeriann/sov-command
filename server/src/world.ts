@@ -25,6 +25,10 @@ import { UNIT_SPECS, UNIT_TYPES, type MilitaryPrivate, type UnitType, type UnitV
 import type { WarState } from '../../shared/protocol.ts';
 import { Diplomacy } from './diplomacy.ts';
 import {
+  GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
+  type Effects, type Government, type ResearchPrivate, type TechId,
+} from '../../shared/research.ts';
+import {
   MAX_ALLIANCES, MAX_TRADE_DEALS, dealText, type Deal,
 } from '../../shared/diplomacy.ts';
 
@@ -58,6 +62,8 @@ export interface NationState {
   econ: NationEcon;
   mil: NationMil;
   annexedBy?: number; // conquered: the nation no longer exists
+  tech: { current?: TechId; partial: Partial<Record<TechId, number>>; done: TechId[] };
+  gov: { government: Government; reformUntil?: number; reformedAt?: number };
 }
 
 export interface WorldOptions {
@@ -157,6 +163,8 @@ export class World {
   private ownedPop = new Map<number, number>();
   private warStamp = '';
   diplomacy: Diplomacy;
+  private rand: () => number;
+  private effectCache = new Map<number, Effects>();
   listener: WorldListener | null = null;
 
   constructor(private db: DB, seed: number, defs: NationDef[], private opts: WorldOptions, provinces?: Province[]) {
@@ -179,6 +187,7 @@ export class World {
       setMeta(db, 'clock', JSON.stringify(this.clock));
     }
     this.brain = new AiBrain(seed, this);
+    this.rand = mulberry(seed + 555);
     const storedMarket = getMeta(db, 'market');
     this.market = storedMarket ? JSON.parse(storedMarket) : initMarket();
 
@@ -208,6 +217,8 @@ export class World {
           nextThink: now + ((d.id * 7919) % 1000) / 1000 * AI_REVIEW_DAYS * DAY,
           econ,
           mil: { funds: 0, queue: [] },
+          tech: { partial: {}, done: [] },
+          gov: { government: startingGovernment(personality, d.id) },
         });
       }
       const n = this.nations.get(d.id)!;
@@ -233,7 +244,11 @@ export class World {
       // peace offers saved before diplomacy existed become white-peace proposals
       for (const from of n.mil.peaceOffers ?? []) this.diplomacy.propose({ from, to: n.id, deal: { kind: 'peace', terms: 'white' }, day: this.market.day });
       delete n.mil.peaceOffers;
+      // worlds saved before research and governments existed
+      n.tech ??= { partial: {}, done: [] };
+      n.gov ??= { government: startingGovernment(n.personality, n.id) };
     }
+    this.military.bonus = (nation, kind) => this.effects(nation)[kind];
     if (!storedMil) this.deployStartingArmies();
     else if (![...this.military.units.values()].some((u) => UNIT_SPECS[u.type].domain !== 'land')) {
       // upgrade a world saved before navies and air forces existed
@@ -258,8 +273,35 @@ export class World {
     return n.econ.gdp * SPEND_RATE * 0.9 * (n.econ.budget.military / 100) * 0.7; // 30% goes to munitions
   }
 
+  /** Bonuses from technology and government, cached for the game day. */
+  effects(nation: number): Effects {
+    let e = this.effectCache.get(nation);
+    if (e) return e;
+    const n = this.nations.get(nation);
+    if (!n) return effectsOf('democracy', []);
+    e = effectsOf(n.gov.government, n.tech.done, n.gov.reformUntil !== undefined);
+    if (n.gov.government === 'democracy' && this.military.enemiesOf(nation).length) e.stability -= 5; // war weariness
+    this.effectCache.set(nation, e);
+    return e;
+  }
+
+  /** Research points a nation earns per game day: its research spending as a share of GDP, scaled a little by size. */
+  researchRate(n: NationState) {
+    const share = SPEND_RATE * 0.9 * (n.econ.budget.research / 100);
+    const size = Math.min(1.3, Math.max(0.7, 0.8 + 0.1 * Math.log10(Math.max(1, n.econ.gdp) / 10)));
+    return share * 1000 * size * (1 + this.effects(n.id).research) * (n.policy.focus === 'research' ? 1.25 : 1);
+  }
+
+  private researchView(n: NationState): ResearchPrivate {
+    return {
+      current: n.tech.current, progress: Math.round(n.tech.current ? n.tech.partial[n.tech.current] ?? 0 : 0),
+      rate: Math.round(this.researchRate(n) * 10) / 10, done: [...n.tech.done], government: n.gov.government,
+      reformUntil: n.gov.reformUntil, reformedAt: n.gov.reformedAt,
+    };
+  }
+
   manpower(n: NationState) {
-    const reservists = n.econ.pop * (0.004 + (0.01 * n.econ.budget.military) / 100);
+    const reservists = n.econ.pop * (0.004 + (0.01 * n.econ.budget.military) / 100) * (1 + this.effects(n.id).manpower);
     return Math.max(0, reservists - this.military.menInUniform(n.id, n.mil));
   }
 
@@ -371,9 +413,10 @@ export class World {
   publicView(n: NationState): NationPublic {
     const army = Math.round((this.military?.unitsOf(n.id).length ?? 0) / 5) * 5;
     if (n.annexedBy) return { id: n.id, controller: 'ai', focus: n.policy.focus, army: 0, annexedBy: n.annexedBy };
+    const pol = { government: n.gov?.government, techs: n.tech?.done.length };
     return n.controller === 'human'
-      ? { id: n.id, controller: 'human', player: n.player, online: this.online.has(n.userId!), autopilot: n.autopilot, focus: n.policy.focus, army }
-      : { id: n.id, controller: 'ai', personality: n.personality, focus: n.policy.focus, army };
+      ? { id: n.id, controller: 'human', player: n.player, online: this.online.has(n.userId!), autopilot: n.autopilot, focus: n.policy.focus, army, ...pol }
+      : { id: n.id, controller: 'ai', personality: n.personality, focus: n.policy.focus, army, ...pol };
   }
 
   privateView(n: NationState): NationPrivate {
@@ -381,6 +424,7 @@ export class World {
       ...this.publicView(n), tax: n.policy.tax, claimedAt: n.claimedAt,
       econ: privateEcon(n.econ, n.policy.tax, this.market.day), mil: this.milPrivate(n),
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
+      research: this.researchView(n),
     };
   }
 
@@ -602,6 +646,31 @@ export class World {
         }
         return ok;
       }
+      case 'research': {
+        const t = TECH_BY_ID.get(order.tech);
+        if (!t) return fail('bad_request', 'Unknown technology.');
+        if (n.tech.done.includes(t.id)) return fail('not_allowed', 'Already researched.');
+        const pre = prerequisite(t);
+        if (pre && !n.tech.done.includes(pre.id)) return fail('not_allowed', `Research ${pre.name} first.`);
+        n.tech.current = t.id; // progress on any other tech is kept for later
+        this.touch(n, false);
+        return ok;
+      }
+      case 'government': {
+        const g = order.government;
+        if (!GOVERNMENTS.includes(g)) return fail('bad_request', 'Unknown government.');
+        if (g === n.gov.government) return fail('not_allowed', 'That is already your government.');
+        if (n.gov.reformUntil !== undefined) return fail('not_allowed', 'A reform is already under way.');
+        const day = this.market.day;
+        if (n.gov.reformedAt !== undefined && day - n.gov.reformedAt < REFORM_COOLDOWN_DAYS) {
+          return fail('not_allowed', `The country needs time: the next reform is possible in ${REFORM_COOLDOWN_DAYS - (day - n.gov.reformedAt)} game days.`);
+        }
+        n.gov = { government: g, reformUntil: day + REFORM_DAYS, reformedAt: day };
+        this.effectCache.delete(n.id);
+        this.event('politics', n.id, `The ${this.defs.get(n.id)!.name} begins a transition to ${GOVERNMENT_INFO[g].name.toLowerCase()}.`);
+        this.touch(n);
+        return ok;
+      }
       case 'cancel': {
         const t = this.nations.get(Number(order.target));
         if (!t || (order.pact !== 'alliance' && order.pact !== 'trade')) return fail('bad_request', 'Unknown treaty.');
@@ -744,14 +813,18 @@ export class World {
       this.militaryDay();
       // occupation costs the owner output, revenue and stability
       if (this.diplomacy.expire(this.market.day)) this.warChanged();
+      this.effectCache.clear();
       const inputs = [...this.nations.values()].filter((n) => !n.annexedBy).map((n) => ({
         econ: n.econ, tax: n.policy.tax, focus: n.policy.focus,
         control: this.military.controlShare(n.id, this.ownedPop.get(n.id) ?? 0),
         atWar: this.military.enemiesOf(n.id).length > 0,
         blockade: this.military.blockade(n.id),
         tradeDeals: this.diplomacy.partners('trade', n.id).length,
+        bonusGrowth: this.effects(n.id).growth,
+        bonusStability: this.effects(n.id).stability,
       }));
       runDay(inputs, this.market, this.market.day + 1);
+      this.politicsDay(this.market.day);
       if (this.market.day % HISTORY_EVERY_DAYS === 0) weekly = true;
     }
     this.saveState();
@@ -774,6 +847,63 @@ export class World {
     setMeta(this.db, 'market', JSON.stringify(this.market));
     this.saveState();
     this.persist();
+  }
+
+  // ---- politics and research ---------------------------------------------------------
+  /** One game day: research progress, reforms ending, national events, unrest. */
+  private politicsDay(day: number) {
+    for (const n of this.nations.values()) {
+      if (n.annexedBy) continue;
+      const name = this.defs.get(n.id)!.name;
+      const human = n.controller === 'human';
+      const cur = n.tech.current;
+      if (cur) {
+        const t = TECH_BY_ID.get(cur)!;
+        const p = (n.tech.partial[cur] ?? 0) + this.researchRate(n);
+        if (p >= TIER_COST[t.tier]) {
+          n.tech.done.push(cur);
+          delete n.tech.partial[cur];
+          n.tech.current = undefined;
+          this.effectCache.delete(n.id);
+          if (human) this.event('research', n.id, `${name}: researchers complete ${t.name} (${t.text}).`);
+          if (n.controller === 'ai' || n.autopilot) n.tech.current = this.brain.pickResearch(n);
+          this.touch(n, human);
+        } else n.tech.partial[cur] = p;
+      } else if (n.controller === 'ai' || n.autopilot) n.tech.current = this.brain.pickResearch(n);
+      if (n.gov.reformUntil !== undefined && day >= n.gov.reformUntil) {
+        n.gov.reformUntil = undefined;
+        this.effectCache.delete(n.id);
+        this.event('politics', n.id, `The ${name} completes its transition to ${GOVERNMENT_INFO[n.gov.government].name.toLowerCase()}.`);
+        this.touch(n);
+      }
+      const e = n.econ;
+      // unrest: a nation in turmoil can see its government overthrown
+      if (e.stability < 25 && this.rand() < 1 / 120) {
+        const next: Government = n.gov.government === 'junta' ? 'democracy' : e.budget.military >= 25 ? 'junta' : n.gov.government === 'democracy' ? 'autocracy' : 'democracy';
+        n.gov = { government: next, reformedAt: day };
+        e.stability = 45;
+        e.treasury -= e.gdp * 0.02;
+        this.effectCache.delete(n.id);
+        this.event('politics', n.id, next === 'junta'
+          ? `Coup in the ${name}: the army seizes power and declares a military junta.`
+          : `Revolution in the ${name}: the old regime falls; a ${GOVERNMENT_INFO[next].name.toLowerCase()} takes over.`);
+        this.touch(n);
+        continue;
+      }
+      // national events, about one every three game months
+      if (this.rand() < 1 / 90) {
+        const r = this.rand();
+        let text: string;
+        if (r < 0.2) { e.gdp *= 1.005; text = 'an investment boom lifts the economy'; }
+        else if (r < 0.35) { e.stability -= 6; text = 'a general strike paralyses the country (−6 stability)'; }
+        else if (r < 0.5) { e.gdp *= 0.993; e.stability -= 3; text = 'floods and storms damage cities and farmland'; }
+        else if (r < 0.65) { e.stability -= n.gov.government === 'democracy' ? 7 : 4; text = 'a corruption scandal shakes the government'; }
+        else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + 250; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
+        else { e.stability += 4; text = 'a national celebration lifts the public mood (+4 stability)'; }
+        e.stability = Math.min(100, Math.max(0, e.stability));
+        if (human) { this.event('politics', n.id, `${name}: ${text}.`); this.touch(n, false); }
+      }
+    }
   }
 
   // ---- diplomacy -----------------------------------------------------------------
@@ -890,4 +1020,12 @@ function cleanDeal(d: unknown): Deal | null {
   if (x.kind === 'alliance' || x.kind === 'trade') return { kind: x.kind };
   if (x.kind === 'peace') return { kind: 'peace', terms: x.terms === 'cede' ? 'cede' : 'white' };
   return null;
+}
+
+/** Governments the world starts with, by the AI's character. */
+function startingGovernment(p: Personality, id: number): Government {
+  if (p === 'expansionist') return id % 2 ? 'junta' : 'autocracy';
+  if (p === 'turtle' || p === 'opportunist') return id % 3 ? 'autocracy' : 'democracy';
+  if (p === 'idealist') return id % 3 ? 'democracy' : 'technocracy';
+  return id % 4 ? 'democracy' : 'technocracy';
 }

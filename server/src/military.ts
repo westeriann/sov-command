@@ -56,6 +56,8 @@ export class Military {
   wars: War[] = [];
   /** Set by the World: whether two nations are allied (allies may cross each other's land). */
   allied: (a: number, b: number) => boolean = () => false;
+  /** Set by the World: a nation's bonus from technology and government (0.1 = +10%). */
+  bonus: (nation: number, kind: 'landAttack' | 'landDefense' | 'naval' | 'air' | 'build') => number = () => 0;
   occupied = new Map<number, number>();
   battles = new Set<number>();
   nextId = 1;
@@ -409,21 +411,23 @@ export class Military {
       if (land) {
         for (const w of air) {
           if (!isSide(w.nation) || !this.units.has(w.id)) continue;
-          const power = (w.strength / 100) * UNIT_SPECS[w.type].attack;
+          const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air'));
           if (w.type === 'fighters' && w.mission?.kind === 'patrol' && this.inRange(w, p, PATROL_RADIUS)) cover[side(w.nation)] += power;
           if (w.type === 'strike' && w.mission?.kind === 'support' && this.inRange(w, p, SUPPORT_RADIUS)) strike[side(w.nation)] += power;
         }
         for (const s of ships) {
           if (!isSide(s.nation) || !prov.adj.includes(s.province)) continue;
-          naval[side(s.nation)] += (s.strength / 100) * UNIT_SPECS[s.type].attack * (s.type === 'carrier' ? 0.6 : 0.3);
+          naval[side(s.nation)] += (s.strength / 100) * UNIT_SPECS[s.type].attack * (s.type === 'carrier' ? 0.6 : 0.3) * (1 + this.bonus(s.nation, 'naval'));
         }
       }
       const totalCover = cover.a + cover.d;
       const share = { a: totalCover ? cover.a / totalCover : 0.5, d: totalCover ? cover.d / totalCover : 0.5 };
       const bonus = (s: 'a' | 'd') => (strike[s] * (0.3 + 0.7 * share[s]) + naval[s]) * 0.5;
 
+      const tech = (u: Unit, role: 'attack' | 'defense') => 1 + this.bonus(u.nation,
+        domainOf(u.type) === 'sea' ? 'naval' : domainOf(u.type) === 'air' ? 'air' : role === 'attack' ? 'landAttack' : 'landDefense');
       const power = (units: Unit[], role: 'attack' | 'defense') => units.reduce((sum, u) =>
-        sum + (u.strength / 100) * UNIT_SPECS[u.type][role] * (role === 'defense' ? terrain : 1) * supply.get(u.nation)!, 0)
+        sum + (u.strength / 100) * UNIT_SPECS[u.type][role] * (role === 'defense' ? terrain : 1) * supply.get(u.nation)! * tech(u, role), 0)
         * (0.9 + 0.2 * this.rand());
       const pa = Math.max(0.01, power(attackers, 'attack') + bonus('a'));
       const pd = Math.max(0.01, power(defenders, 'defense') + bonus('d'));
@@ -511,7 +515,7 @@ export class Military {
       const daily = spec.cost / spec.days;
       if (mil.funds >= daily) {
         mil.funds -= daily;
-        item.progress = Math.min(1, item.progress + 1 / spec.days);
+        item.progress = Math.min(1, item.progress + (1 + this.bonus(nation, 'build')) / spec.days);
         if (item.progress >= 1) {
           mil.queue.shift();
           this.spawn(nation, item.type, where);

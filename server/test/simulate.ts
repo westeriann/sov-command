@@ -30,6 +30,8 @@ function report(label: string) {
   const by = (d: string) => [...m.units.values()].filter((u) => ['infantry','mechanized','armored'].includes(u.type) === (d === 'land') && (d === 'land' || (d === 'sea') === ['destroyers','submarines','carrier'].includes(u.type))).length;
   console.log(`   forces: ${by('land')} land, ${by('sea')} naval, ${by('air')} air; ${m.wars.length} wars now; ${m.occupied.size} provinces occupied`);
   const d = w.diplomacy; console.log(`   diplomacy: ${d.treaties.filter((t) => t.kind === 'alliance').length} alliances, ${d.treaties.filter((t) => t.kind === 'trade').length} trade deals, ${d.owners.size} provinces changed hands, ${[...w.nations.values()].filter((n) => n.annexedBy).length} nations annexed`);
+  const govs: Record<string, number> = {}; let techs = 0; for (const n of w.nations.values()) { if (n.annexedBy) continue; govs[n.gov.government] = (govs[n.gov.government] ?? 0) + 1; techs += n.tech.done.length; }
+  console.log(`   politics: ${JSON.stringify(govs)}; ${(techs / w.nations.size).toFixed(1)} techs per nation`);
 }
 
 report('day 0');

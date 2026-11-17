@@ -126,6 +126,8 @@ export interface DayInput {
   blockade?: number; // share of the coast blockaded by enemy warships (0..1)
   atWar?: boolean;
   tradeDeals?: number; // trade agreements in force
+  bonusGrowth?: number; // technology and government
+  bonusStability?: number;
 }
 
 /**
@@ -231,7 +233,8 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
       - Math.max(0, debtRatio - 0.6) * 0.02
       - (1 - control) * 0.15
       - (n.atWar ? 0.01 : 0)
-      + (n.tradeDeals ?? 0) * TRADE_DEAL_GROWTH;
+      + (n.tradeDeals ?? 0) * TRADE_DEAL_GROWTH
+      + (n.bonusGrowth ?? 0);
     g = Math.min(0.12, Math.max(-0.15, g));
     e.growth = g;
     e.gdp *= 1 + g / 365;
@@ -244,7 +247,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     const stabTarget = Math.min(100, Math.max(0,
       55 + (e.budget.welfare - 30) * 0.6 - (n.tax - 25) * 0.9 - e.shortage * 80
       - Math.max(0, debtRatio - 0.6) * 30 + g * 300 + (n.focus === 'diplomacy' ? 3 : 0)
-      - (1 - control) * 50 - (n.atWar ? 5 : 0)));
+      - (1 - control) * 50 - (n.atWar ? 5 : 0) + (n.bonusStability ?? 0)));
     e.stability += (stabTarget - e.stability) * 0.03;
 
     if (day % HISTORY_EVERY_DAYS === 0) {

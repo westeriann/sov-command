@@ -79,7 +79,19 @@ Stage 6 (diplomacy) done:
   holds, with their people and output; a nation that loses all its land is
   annexed and its player released
 - The map redraws borders as land changes hands
-- Next: stage 7 (politics and research)
+
+Stage 7 (politics and research) done:
+
+- Technology tree: 12 technologies in 4 branches (economy, land warfare,
+  sea and air, society), 3 tiers each, funded by the research budget; each
+  gives a permanent bonus (growth, stability, attack, defense, naval and air
+  power, reservists, build speed, research speed)
+- Governments: democracy, autocracy, military junta and technocracy, each
+  with trade-offs; reform takes 30 game days of turmoil, once a game year
+- National events (booms, strikes, disasters, scandals, breakthroughs,
+  celebrations) and unrest: below 25 stability, coups and revolutions
+- AI nations research by personality; R&D window in the client
+- Next: stage 8 (polish: tutorial, sound, balance, load testing)
 
 ## Run it
 

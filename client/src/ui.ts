@@ -1,4 +1,5 @@
 import { money } from '../../shared/economy';
+import { GOVERNMENT_INFO } from '../../shared/research';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal, type Pact } from '../../shared/diplomacy';
 import { FOCI, LIMITS, type Focus, type NationPublic } from '../../shared/protocol';
 import type { Change, Game } from './game';
@@ -29,6 +30,7 @@ export interface HudActions {
   toggleEconomy(): void;
   toggleForces(): void;
   toggleDiplomacy(): void;
+  toggleResearch(): void;
   propose(target: number, deal: Deal): void;
   cancel(target: number, pact: Pact): void;
   war(target: number): void;
@@ -46,7 +48,7 @@ const MODULES: [string, string, string | null][] = [
   ['Naval ops', 'navy', null],
   ['Air command', 'air', null],
   ['Diplomacy', 'diplomacy', null],
-  ['R&D', 'research', 'Stage 7'],
+  ['R&D', 'research', null],
 ];
 
 const RESOURCES: [string, string][] = [
@@ -298,6 +300,7 @@ export class Hud {
     const mod = t.closest<HTMLElement>('[data-module]')?.dataset.module;
     if (mod === 'navy' || mod === 'air') { if (this.openPanel !== 'army') this.actions.toggleForces(); return; }
     if (mod === 'diplomacy' || (mod === 'map' && this.openPanel === 'diplomacy')) { this.actions.toggleDiplomacy(); return; }
+    if (mod === 'research' || (mod === 'map' && this.openPanel === 'research')) { this.actions.toggleResearch(); return; }
     if (mod === 'economy' || mod === 'map' || mod === 'army') {
       if (mod === 'army' || (mod === 'map' && this.openPanel === 'army')) this.actions.toggleForces();
       if (mod === 'economy' || (mod === 'map' && this.openPanel === 'economy')) this.actions.toggleEconomy();
@@ -361,10 +364,10 @@ export class Hud {
     this.policyTimer = window.setTimeout(() => this.actions.policy({ tax: Number(t.value) }), 350);
   }
 
-  private openPanel: 'economy' | 'army' | 'diplomacy' | null = null;
+  private openPanel: 'economy' | 'army' | 'diplomacy' | 'research' | null = null;
 
   /** Highlight the module whose window is open (or the map when none is). */
-  setOpenPanel(panel: 'economy' | 'army' | 'diplomacy' | null) {
+  setOpenPanel(panel: 'economy' | 'army' | 'diplomacy' | 'research' | null) {
     this.openPanel = panel;
     this.root.querySelectorAll<HTMLElement>('[data-module]').forEach((b) => {
       const active = b.dataset.module === (panel ?? 'map');
@@ -585,7 +588,7 @@ export class Hud {
     if (g.status !== 'online' || !live) {
       return `<button type="button" class="claim" data-act="signin">Sign in to lead this nation</button>`;
     }
-    const focus = `<span>Focus</span><span>${FOCUS_NAMES[live.focus]}</span>`;
+    const focus = `<span>Government</span><span>${live.government ? GOVERNMENT_INFO[live.government].name : '—'}</span><span>Focus</span><span>${FOCUS_NAMES[live.focus]}</span><span>Technologies</span><span>${live.techs ?? 0}</span>`;
     if (g.mine?.id === n.id) {
       return `<div class="controller you"><b>You lead this nation.</b></div>
         <div class="kv mono">${focus}</div>

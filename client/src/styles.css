@@ -356,3 +356,15 @@ table.league .link i { width: 9px; height: 9px; border-radius: 2px; }
   .credit { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* R&D window */
+.tech-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0 16px; }
+.gov-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 8px 0 12px; }
+.tech-grid section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tech { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--edge-soft); border-radius: 4px; font-size: 12px; }
+.tech span { color: var(--muted); font-size: 11px; }
+.tech em { font-style: normal; font-size: 11px; color: var(--cyan); }
+.tech.done { border-color: rgba(95, 212, 234, 0.35); opacity: 0.75; }
+.tech.active { border-color: var(--cyan); background: rgba(95, 212, 234, 0.06); }
+.tech .claim { width: auto; padding: 6px 10px; margin-top: 4px; }
+@media (max-width: 900px) { .tech-grid, .gov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

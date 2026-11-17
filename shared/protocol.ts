@@ -7,6 +7,7 @@
 import type { Budget, EconomyPrivate, EconomyPublic, MarketSnapshot } from './economy';
 import type { MilitaryPrivate, Mission, UnitType, UnitView, War } from './military';
 import type { Deal, DealKind, Pact, Proposal, Treaty } from './diplomacy';
+import type { Government, ResearchPrivate, TechId } from './research';
 
 export type Focus = 'economy' | 'military' | 'research' | 'diplomacy';
 export type Personality = 'expansionist' | 'trader' | 'turtle' | 'opportunist' | 'idealist';
@@ -40,6 +41,8 @@ export interface NationPublic {
   focus: Focus;
   army?: number; // intelligence estimate: divisions, rounded to the nearest 5
   annexedBy?: number; // the nation no longer exists; its land belongs to this one
+  government?: Government;
+  techs?: number; // technologies researched
 }
 
 /** What only the nation's own player may know. */
@@ -49,6 +52,7 @@ export interface NationPrivate extends NationPublic {
   econ?: EconomyPrivate;
   mil?: MilitaryPrivate;
   diplo?: { incoming: Proposal[]; outgoing: Proposal[] };
+  research?: ResearchPrivate;
 }
 
 /** Front lines and wars are public knowledge. */
@@ -74,7 +78,7 @@ export interface ClockInfo {
   serverNow: number; // server's real ms when this was sent
 }
 
-export type EventKind = 'claim' | 'release' | 'autopilot' | 'policy' | 'world' | 'war' | 'peace' | 'diplomacy';
+export type EventKind = 'claim' | 'release' | 'autopilot' | 'policy' | 'world' | 'war' | 'peace' | 'diplomacy' | 'politics' | 'research';
 
 export interface WorldEvent {
   at: number; // game ms
@@ -109,7 +113,9 @@ export type Order =
   | { kind: 'peace'; target: number } // offer white peace, or accept theirs
   | { kind: 'propose'; target: number; deal: Deal }
   | { kind: 'answer'; from: number; deal: DealKind; accept: boolean }
-  | { kind: 'cancel'; target: number; pact: Pact };
+  | { kind: 'cancel'; target: number; pact: Pact }
+  | { kind: 'research'; tech: TechId }
+  | { kind: 'government'; government: Government };
 
 export type ClientMsg =
   | { t: 'hello'; token: string }

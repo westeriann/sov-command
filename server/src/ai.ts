@@ -11,6 +11,15 @@ import { FOCI, LIMITS, PERSONALITIES, type Focus, type Order, type Personality, 
 import { UNIT_SPECS, distanceKm, domainOf, type UnitType } from '../../shared/military.ts';
 import type { NationState, World } from './world.ts';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal } from '../../shared/diplomacy.ts';
+import { TECHS, prerequisite, type Branch, type TechId } from '../../shared/research.ts';
+
+const RESEARCH_ORDER: Record<Personality, Branch[]> = {
+  expansionist: ['land', 'sea_air', 'economy', 'society'],
+  trader: ['economy', 'society', 'sea_air', 'land'],
+  turtle: ['land', 'society', 'economy', 'sea_air'],
+  opportunist: ['economy', 'land', 'sea_air', 'society'],
+  idealist: ['society', 'economy', 'sea_air', 'land'],
+};
 
 const BASE: Record<Personality, Record<Focus, number>> = {
   expansionist: { economy: 0.30, military: 0.50, research: 0.10, diplomacy: 0.10 },
@@ -271,6 +280,14 @@ export class AiBrain {
       if (pool.length) orders.push({ kind: 'propose', target: pool[Math.floor(this.random() * pool.length)], deal: { kind: 'alliance' } });
     }
     return orders;
+  }
+
+  /** Next technology: cheapest tier first, this personality's favourite branches first within a tier. */
+  pickResearch(n: NationState): TechId | undefined {
+    const order = RESEARCH_ORDER[n.personality];
+    const open = TECHS.filter((t) => !n.tech.done.includes(t.id) && (!prerequisite(t) || n.tech.done.includes(prerequisite(t)!.id)));
+    open.sort((a, b) => a.tier * 4 + order.indexOf(a.branch) - (b.tier * 4 + order.indexOf(b.branch)));
+    return open[0]?.id;
   }
 
   /** What to build next: mostly land, a quarter air, some ships if we have a coast. */

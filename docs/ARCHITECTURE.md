@@ -108,7 +108,7 @@ containers. A small lobby service lists worlds and assigns players.
 4. **Land warfare**: units, production, movement, supply, combat (done)
 5. **Navy and air**: fleets, sea control, air wings, strikes (done)
 6. **Diplomacy**: trade agreements, defensive alliances, peace terms, annexation (done)
-7. **Politics and research**: government, stability, events, tech tree
+7. **Politics and research**: government, stability, events, tech tree (done)
 8. **Polish**: tutorial, sound, balance, load testing
 
 ## Open questions
