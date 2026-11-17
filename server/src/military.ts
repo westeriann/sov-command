@@ -31,6 +31,7 @@ export interface NationMil {
   peaceOffers?: number[]; // legacy: offers now live in diplomacy
   warheads?: number;
   lastMissileDay?: number;
+  rally?: number; // new land units march here
 }
 
 export interface MilitaryState {
@@ -609,7 +610,7 @@ export class Military {
   }
 
   /** Daily logistics for one nation: income, upkeep, production and reinforcement. */
-  logistics(nation: number, mil: NationMil, income: number, manpower: number, homeFor: (t: UnitType) => number | undefined) {
+  logistics(nation: number, mil: NationMil, income: number, manpower: number, homeFor: (t: UnitType) => number | undefined, now = 0) {
     const mine = this.unitsOf(nation);
     const upkeep = mine.reduce((s, u) => s + UNIT_SPECS[u.type].upkeep, 0);
     mil.funds += (income - upkeep) / 365;
@@ -623,7 +624,9 @@ export class Military {
         item.progress = Math.min(1, item.progress + (1 + this.bonus(nation, 'build')) / spec.days);
         if (item.progress >= 1) {
           mil.queue.shift();
-          this.spawn(nation, item.type, where);
+          const u = this.spawn(nation, item.type, where);
+          // send new land units to the rally point, if one is set and reachable
+          if (mil.rally !== undefined && domainOf(u.type) === 'land' && mil.rally !== where) this.move(nation, [u.id], mil.rally, now);
         }
       }
     }

@@ -11,6 +11,12 @@ export const WEALTH_STOPS: [number, string][] = [
   [1000, '#7a2e3a'], [3000, '#c8574a'], [8000, '#e0a64a'], [20000, '#9cc46a'], [45000, '#3fa7a3'], [80000, '#4f86c6'],
 ];
 
+const WEALTH_DEFAULT = WEALTH_STOPS.map((s) => [...s] as [number, string]);
+/** Viridis: readable with every common kind of colour blindness. */
+const WEALTH_CB: [number, string][] = [
+  [1000, '#440154'], [3000, '#414487'], [8000, '#2a788e'], [20000, '#22a884'], [45000, '#7ad151'], [80000, '#fde725'],
+];
+
 const MERC_LAT = 85.051129;
 const OVERLAY_COORDS: [[number, number], [number, number], [number, number], [number, number]] = [
   [-180, MERC_LAT], [180, MERC_LAT], [180, -MERC_LAT], [-180, -MERC_LAT],
@@ -287,6 +293,15 @@ export class GameMap {
     this.overlays.delete('political');
     if (this.mode === 'political' && this.map.getLayer('overlay')) {
       this.setMode('political', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+    }
+  }
+
+  /** Swap to a colour-blind-safe wealth scale. */
+  setColorBlind(on: boolean) {
+    WEALTH_STOPS.splice(0, WEALTH_STOPS.length, ...(on ? WEALTH_CB : WEALTH_DEFAULT).map((s) => [...s] as [number, string]));
+    this.overlays.delete('wealth');
+    if (this.mode === 'wealth' && this.map.getLayer('overlay')) {
+      this.setMode('wealth', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
     }
   }
 

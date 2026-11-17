@@ -436,7 +436,7 @@ export class World {
       queue: n.mil.queue.map((q) => ({ ...q })),
       peaceOffers: this.diplomacy.incoming(n.id).filter((p) => p.deal.kind === 'peace' && p.deal.terms === 'white').map((p) => p.from),
       warheads: n.mil.warheads ?? 0, missileReady: (n.mil.lastMissileDay ?? -1) < this.market.day,
-      generals: this.military.unitsOf(n.id).filter((u) => u.general).length, maxGenerals: this.maxGenerals(n.id),
+      generals: this.military.unitsOf(n.id).filter((u) => u.general).length, maxGenerals: this.maxGenerals(n.id), rally: n.mil.rally,
     };
   }
 
@@ -515,6 +515,15 @@ export class World {
       .reverse().map((r) => ({ day: r.day, ...JSON.parse(r.data) }));
   }
 
+  /** Weekly GDP, forces and provinces for a few nations. */
+  stats(ids: number[]) {
+    const pick = ids.slice(0, 6);
+    return this.replay().filter((f) => f.g).map((f) => ({
+      day: f.day,
+      v: Object.fromEntries(pick.map((id) => [id, { g: f.g[id] ?? 0, a: f.a[id] ?? 0, p: f.p[id] ?? 0 }])),
+    }));
+  }
+
   seasonInfo(): SeasonInfo {
     const s = this.season;
     const leaders = Object.entries(s.scores).map(([id, score]) => ({ nation: Number(id), score: Math.round(score), power: Math.round((this.power.get(Number(id)) ?? 0) * 1000) / 10 }))
@@ -546,7 +555,13 @@ export class World {
       this.season.history.push({ d: this.market.day, s: Object.fromEntries(best.map(([id, v]) => [id, Math.round(v)])) });
       if (this.season.history.length > 260) this.season.history.splice(0, this.season.history.length - 260);
       this.db.prepare('insert or replace into snapshots (day, data) values (?, ?)')
-        .run(this.market.day, JSON.stringify({ o: Object.fromEntries(this.diplomacy.owners), x: Object.fromEntries(this.military.occupied) }));
+        .run(this.market.day, JSON.stringify({
+          o: Object.fromEntries(this.diplomacy.owners), x: Object.fromEntries(this.military.occupied),
+          // per-nation figures for comparison charts: GDP ($bn), forces (units), provinces held
+          g: Object.fromEntries(live.map((n) => [n.id, Math.round(n.econ.gdp)])),
+          a: Object.fromEntries(live.map((n) => [n.id, this.military.unitsOf(n.id).length])),
+          p: Object.fromEntries(live.map((n) => [n.id, [...this.military.provinces.values()].filter((q) => q.kind === 'land' && this.military.controller(q.id) === n.id).length])),
+        }));
     }
   }
 
@@ -927,6 +942,14 @@ export class World {
         this.touch(n, false);
         return ok;
       }
+      case 'rally': {
+        if (order.province === null) { n.mil.rally = undefined; this.touch(n, false); return ok; }
+        const p = this.military.provinces.get(Number(order.province));
+        if (!p || p.kind !== 'land' || this.military.controller(p.id) !== n.id) return fail('not_allowed', 'Rally points must be in land you hold.');
+        n.mil.rally = p.id;
+        this.touch(n, false);
+        return ok;
+      }
       case 'release': {
         const t = this.nations.get(Number(order.target));
         if (!t || this.diplomacy.overlords.get(t.id) !== n.id) return fail('not_allowed', 'That nation is not your vassal.');
@@ -1091,7 +1114,7 @@ export class World {
       events,
     );
     for (const n of this.nations.values()) {
-      this.military.logistics(n.id, n.mil, this.defenceIncome(n), this.manpower(n), (t) => this.homeFor(n.id, t));
+      this.military.logistics(n.id, n.mil, this.defenceIncome(n), this.manpower(n), (t) => this.homeFor(n.id, t), this.gameNow());
     }
     this.handleMilEvents(events);
   }

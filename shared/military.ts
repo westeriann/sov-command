@@ -213,4 +213,5 @@ export interface MilitaryPrivate {
   missileReady: boolean; // one missile launch per game day
   generals: number;
   maxGenerals: number;
+  rally?: number; // province new land units march to
 }

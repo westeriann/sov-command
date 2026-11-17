@@ -351,6 +351,7 @@ export class Forces {
               <div class="recruit"><div><b>Nuclear warheads: ${mil.warheads}</b><span class="mono">$40bn each · strike from an enemy province's panel</span></div>
               <button type="button" class="claim danger" data-f="warhead" ${mil.funds < 40 ? 'disabled' : ''}>Build</button></div>` : ''}
             <span class="label">PRODUCTION QUEUE</span>
+            <p class="hint">${mil.rally !== undefined ? `New land units march to ${esc(this.pol.provinces.get(mil.rally)?.name ?? 'the rally point')}.` : 'Set a rally point from one of your provinces to send new land units to the front.'}</p>
             ${mil.queue.length ? `<div class="bars">${mil.queue.map((q, i) => `<span>${i + 1}. ${UNIT_SPECS[q.type].name}</span><div class="bar"><i style="width:${Math.round(q.progress * 100)}%"></i></div><span class="mono">${Math.round(q.progress * 100)}%</span>`).join('')}</div>`
               : '<p class="hint">Nothing in production. New divisions appear at your capital.</p>'}
           </section>

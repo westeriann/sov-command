@@ -37,6 +37,9 @@ export interface HudActions {
   toggleResearch(): void;
   toggleRankings(): void;
   worlds(): void;
+  rally(province: number | null): void;
+  toggleAlerts(): boolean;
+  setColorBlind(on: boolean): void;
   guide(): void;
   toggleSound(): boolean; // returns whether sound is now on
   propose(target: number, deal: Deal): void;
@@ -171,6 +174,7 @@ export class Hud {
           <span class="mono date" id="clock"></span>
           <span class="speed mono" id="speed" title="The world clock never pauses"></span>
           <button type="button" class="link" data-act="worlds">Worlds</button>
+          <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
           <button type="button" class="link" data-act="guide">Guide</button>
           <button type="button" class="link" data-act="sound" id="soundBtn" aria-pressed="true">Sound on</button>
           <span id="account"></span>
@@ -198,6 +202,7 @@ export class Hud {
         <label class="check"><input type="checkbox" id="rivers" checked>Rivers</label>
         <label class="check"><input type="checkbox" id="labels" checked>Names</label>
         <label class="check"><input type="checkbox" id="grid">Grid lines</label>
+        <label class="check"><input type="checkbox" id="colorBlind">Colour-blind friendly</label>
         <div class="seg" role="group" aria-label="Projection">
           <button type="button" data-proj="globe" aria-pressed="true">Globe</button>
           <button type="button" data-proj="mercator" aria-pressed="false">Flat</button>
@@ -251,6 +256,8 @@ export class Hud {
         <button type="button" data-module="army">ARMY</button>
         <button type="button" data-open="dispatches" id="btnDispatches">DISPATCHES</button>
         <button type="button" data-open="chat" id="btnChat">CHAT</button>
+        <button type="button" class="phone-only" data-act="menu" aria-label="Show or hide the menu">MENU</button>
+        <button type="button" class="phone-only" data-act="info" aria-label="Show or hide details">INFO</button>
       </footer>
 
       <div class="readout mono" id="readout" hidden></div>
@@ -302,6 +309,7 @@ export class Hud {
     this.root.addEventListener('change', (e) => {
       const t = e.target as HTMLInputElement;
       if (t.id === 'autopilot') this.actions.autopilot(t.checked);
+      if (t.id === 'colorBlind') this.actions.setColorBlind(t.checked);
       if (t.id === 'chatChannel') {
         const ch = (t as unknown as HTMLSelectElement).value;
         this.root.querySelector<HTMLElement>('#chatTo')!.hidden = ch !== 'direct';
@@ -372,6 +380,9 @@ export class Hud {
       else if (a === 'signout') this.actions.signOut();
       else if (a === 'guide') this.actions.guide();
       else if (a === 'worlds') this.actions.worlds();
+      else if (a === 'rally') this.actions.rally(act.dataset.province ? Number(act.dataset.province) : null);
+      else if (a === 'alerts') { const on = this.actions.toggleAlerts(); act.textContent = on ? 'Alerts on' : 'Alerts off'; act.setAttribute('aria-pressed', String(on)); }
+      else if (a === 'menu' || a === 'info') document.body.classList.toggle(a === 'menu' ? 'show-left' : 'show-right');
       else if (a === 'history') {
         const box = act.parentElement?.querySelector<HTMLElement>('.history-box');
         const id = Number(act.dataset.nation);
@@ -707,6 +718,7 @@ export class Hud {
     return `<span class="label">BUILDINGS</span>
       ${nuked ? '<p class="hint down">Struck by a nuclear weapon: a third of its people are gone.</p>' : ''}
       ${list.length ? `<div class="bars">${list.map((b) => `<span>${BUILDINGS[b.type].name}</span><div class="bar"><i style="width:${Math.round(b.progress * 100)}%"></i></div><span class="mono">${b.progress >= 1 ? 'ready' : `${Math.round(b.progress * 100)}%`}</span>`).join('')}</div>` : '<p class="hint">None yet.</p>'}
+      ${mine ? `<div class="actions-row">${g.mine?.mil?.rally === p.id ? `<button type="button" class="claim" data-act="rally">Clear rally point</button>` : `<button type="button" class="claim" data-act="rally" data-province="${p.id}" title="New land units march here when they are ready">Set rally point here</button>`}</div>` : ''}
       ${mine && missing.length ? `<div class="build-list">${missing.map((t) => `<button type="button" class="claim" data-act="build" data-province="${p.id}" data-building="${t}" title="${BUILDINGS[t].text}">
         <b>${BUILDINGS[t].name}</b><span class="mono">$${BUILDINGS[t].cost}bn · ${BUILDINGS[t].days} days</span><span>${BUILDINGS[t].text}</span></button>`).join('')}</div>` : ''}`;
   }

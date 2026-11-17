@@ -47,6 +47,8 @@ async function start() {
   let login: LoginDialog;
 
   const sound = new Sound();
+  let alerts = false;
+  try { alerts = localStorage.getItem('sov.alerts') === 'on'; } catch { /* storage blocked */ }
   let tutorial: Tutorial | null = null;
   const hud = new Hud(hudRoot, world, pol, game, {
     onMode: (m, opacity) => gameMap.setMode(m, opacity),
@@ -95,6 +97,18 @@ async function start() {
       hud.setOpenPanel(forces.isOpen ? 'army' : null);
     },
     worlds: () => void lobby?.open(),
+    rally: (province) => conn.send({ t: 'order', order: { kind: 'rally', province } }),
+    toggleAlerts: () => {
+      alerts = !alerts;
+      if (alerts && 'Notification' in window && Notification.permission === 'default') void Notification.requestPermission();
+      try { localStorage.setItem('sov.alerts', alerts ? 'on' : 'off'); } catch { /* storage blocked */ }
+      return alerts;
+    },
+    setColorBlind: (on) => {
+      document.body.classList.toggle('cb', on);
+      gameMap.setColorBlind(on);
+      try { localStorage.setItem('sov.cb', on ? 'on' : 'off'); } catch { /* storage blocked */ }
+    },
     toggleRankings: () => {
       if (!rankings) return;
       economy.close();
@@ -174,7 +188,36 @@ async function start() {
     },
   });
   hud.setSound(sound.on);
+  {
+    const b = hudRoot.querySelector<HTMLElement>('#alertsBtn');
+    if (b) { b.textContent = alerts ? 'Alerts on' : 'Alerts off'; b.setAttribute('aria-pressed', String(alerts)); }
+    let cb = false;
+    try { cb = localStorage.getItem('sov.cb') === 'on'; } catch { /* storage blocked */ }
+    if (cb) { document.body.classList.add('cb'); gameMap.setColorBlind(true); (hudRoot.querySelector('#colorBlind') as HTMLInputElement | null)?.setAttribute('checked', ''); }
+  }
+  // keyboard shortcuts (ignored while typing)
+  const keys: Record<string, string> = { e: 'economy', f: 'army', d: 'diplomacy', r: 'research', k: 'rankings', m: 'map' };
+  document.addEventListener('keydown', (ev) => {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey || (ev.target as HTMLElement).closest('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea')) return;
+    const mod = keys[ev.key.toLowerCase()];
+    if (mod) { hudRoot.querySelector<HTMLElement>(`[data-module="${mod}"]`)?.click(); ev.preventDefault(); }
+    else if (ev.key.toLowerCase() === 'c') hudRoot.querySelector<HTMLElement>('[data-open="chat"]')?.click();
+    else if (ev.key.toLowerCase() === 'g') tutorial?.start();
+    else if (ev.key === '?') shortcuts.hidden = !shortcuts.hidden;
+    else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); hud.setOpenPanel(null); }
+  });
+  const shortcuts = document.createElement('section');
+  shortcuts.className = 'panel shortcuts';
+  shortcuts.hidden = true;
+  shortcuts.setAttribute('aria-label', 'Keyboard shortcuts');
+  shortcuts.innerHTML = `<span class="label">KEYBOARD</span><dl>
+    <dt>E</dt><dd>Economy</dd><dt>F</dt><dd>Forces</dd><dt>D</dt><dd>Diplomacy</dd><dt>R</dt><dd>Research &amp; government</dd>
+    <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd>
+    <dt>Esc</dt><dd>Close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
+  hudRoot.appendChild(shortcuts);
   hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.module, .claim, [data-r], [data-d]')) sound.play('click'); });
+  // phones: picking a module closes the menu sheet
+  hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('[data-module]')) document.body.classList.remove('show-left'); });
   tutorial = new Tutorial(hudRoot);
   game.on((c) => { if (c.has('me') && game.me) tutorial?.maybeStart(); }); // first visit: after signing in
   research = new ResearchPanel(hudRoot, game, pol, {
@@ -199,6 +242,12 @@ async function start() {
   gameMap.setMode('political', 0.3);
   gameMap.addNationLabels();
   let lastHeard: unknown = null;
+  let lastIncoming = 0;
+  /** Browser notifications while the tab is in the background (opt-in). */
+  const notify = (title: string, body: string) => {
+    if (!alerts || !document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+    try { new Notification(title, { body, tag: 'sovereign' }); } catch { /* not allowed here */ }
+  };
   game.on((c) => {
     if (c.has('nations') || c.has('mine') || c.has('status')) {
       gameMap.setControllers(new Set(game.humanNations().map((n) => n.id)), game.mine?.id ?? null);
@@ -214,10 +263,16 @@ async function start() {
         const cue: Partial<Record<string, Cue>> = { war: 'war', peace: 'peace', research: 'research', politics: 'alert', diplomacy: 'notice' };
         const c2 = cue[e.kind];
         if (c2) sound.play(c2);
+        if (c2 && c2 !== 'research') notify('Sovereign Command', e.text);
       }
       lastHeard = e;
     }
     if (c.has('war') && game.mine && game.war.battles.some((p) => game.units.some((u) => u.nation === game.mine!.id && u.province === p))) sound.play('battle');
+    if (c.has('mine') && game.mine) {
+      const incoming = game.mine.diplo?.incoming.length ?? 0;
+      if (incoming > lastIncoming) notify('Sovereign Command', 'A new diplomatic proposal awaits your answer.');
+      lastIncoming = incoming;
+    }
     if (c.has('war')) {
       const moved = pol.transfer(game.war.owners); // borders changed by treaty
       gameMap.setOccupied(new Map(Object.entries(game.war.occupied).map(([p, n]) => [Number(p), n])), moved);

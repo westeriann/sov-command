@@ -425,3 +425,43 @@ table.league .link i { width: 9px; height: 9px; border-radius: 2px; }
 .comms li.direct b, .comms li.allies b { color: #ffb547; }
 .history-wrap { margin-top: 10px; }
 .muted { color: var(--muted); }
+
+/* header fits on one row on laptops */
+@media (max-width: 1560px) { .speed { display: none; } .clock { gap: 10px; } }
+.clock .link { font-size: 12px; }
+.rankings-window .league th, .rankings-window .league td { padding-left: 6px; padding-right: 6px; }
+.mini-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 12px; }
+.mini-chart { margin: 0; }
+.mini-chart figcaption { font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+.mini-chart svg { width: 100%; height: auto; background: rgba(9, 18, 26, 0.5); border: 1px solid var(--edge-soft); border-radius: 3px; }
+.shortcuts { position: absolute; right: calc(var(--gap) + 336px); bottom: 76px; padding: 14px 16px; z-index: 30; }
+.shortcuts dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 8px 0 0; font-size: 12px; }
+.shortcuts dt { font-family: var(--f-mono); color: var(--cyan); }
+.shortcuts dd { margin: 0; }
+
+/* accessibility */
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+body.cb .unit-marker.enemy { color: #ffe0b3; box-shadow: 0 0 0 2px #ff9f1c, 0 0 8px rgba(255, 159, 28, 0.6); }
+body.cb .battle-ring, body.cb .unit-marker.fighting::after { border-color: #ff9f1c; box-shadow: 0 0 12px #ff9f1c; }
+body.cb .down, body.cb .hint.down { color: #ffb347; }
+body.cb .up { color: #6bb8ff; }
+
+/* phones: map first; menu and details slide in on demand */
+.phone-only { display: none; }
+@media (max-width: 760px) {
+  .phone-only { display: inline-block; }
+  .top { padding: 6px 10px; gap: 6px 12px; }
+  .top .sub, .clock .speed, .clock [data-act="worlds"], .clock [data-act="guide"] { display: none; }
+  .left, .right { display: none; }
+  body.show-left .left { display: flex; top: auto; bottom: 72px; left: var(--gap); right: var(--gap); width: auto; max-height: 55%; z-index: 20; }
+  body.show-right .right { display: flex; top: auto; bottom: 72px; left: var(--gap); right: var(--gap); width: auto; max-height: 60%; z-index: 21; }
+  .econ-window { left: 0; right: 0; top: 64px; bottom: 64px; border-radius: 0; z-index: 22; }
+  .comms { left: var(--gap); right: var(--gap); width: auto; }
+  .taskbar { left: var(--gap); right: var(--gap); transform: none; width: auto; overflow-x: auto; }
+  .taskbar .tag { display: none; }
+  .taskbar button { padding-left: 10px; padding-right: 10px; font-size: 12px; }
+  .mini-charts { grid-template-columns: minmax(0, 1fr); }
+  .shortcuts { right: var(--gap); left: var(--gap); }
+  .coach { bottom: 80px; }
+  .replay-bar { bottom: 80px; flex-wrap: wrap; }
+}

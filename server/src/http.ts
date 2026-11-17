@@ -84,6 +84,10 @@ export function apiHandler(accounts: Accounts, world: World, onlineCount: () => 
       if (req.method === 'GET' && url.pathname === '/api/history') {
         return json(res, 200, { events: world.history(Number(url.searchParams.get('nation'))) });
       }
+      if (req.method === 'GET' && url.pathname === '/api/stats') {
+        const ids = String(url.searchParams.get('nations') ?? '').split(',').map(Number).filter((x) => Number.isFinite(x) && x > 0);
+        return json(res, 200, { series: world.stats(ids) });
+      }
       if (req.method === 'GET' && url.pathname === '/api/replay') {
         return json(res, 200, { frames: world.replay() });
       }

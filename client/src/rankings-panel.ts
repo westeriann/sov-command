@@ -46,6 +46,7 @@ export class RankingsPanel {
     if (k === 'close') { this.close(); document.dispatchEvent(new CustomEvent('rankings-closed')); }
     else if (k === 'goto') this.actions.goToNation(Number(act.dataset.nation));
     else if (k === 'replay') void this.startReplay();
+    else if (k === 'compare') void this.compare();
     else if (k === 'play') this.play();
     else if (k === 'stop') this.stopReplay();
   }
@@ -80,12 +81,42 @@ export class RankingsPanel {
             ${this.chart()}
             <span class="label">HALL OF FAME</span>
             ${s.hallOfFame.length ? `<ol class="fame">${s.hallOfFame.map((h) => `<li><b>Season ${h.season}</b> · ${esc(h.name)}${h.player ? ` (${esc(h.player)})` : ''} · ${h.score.toLocaleString('en-US')} pts</li>`).join('')}</ol>` : '<p class="hint">No season has ended yet.</p>'}
+            <span class="label">COMPARE NATIONS</span>
+            <div class="council-form"><select id="cmpA" aria-label="First nation">${this.nationOptions(this.game.mine?.id ?? s.leaders[0]?.nation)}</select>
+            <select id="cmpB" aria-label="Second nation">${this.nationOptions(s.leaders.find((l) => l.nation !== this.game.mine?.id)?.nation)}</select>
+            <button type="button" class="claim" data-k="compare">Compare GDP, forces and territory</button></div>
+            <div id="compare"></div>
             <span class="label">HISTORY</span>
             <button type="button" class="claim" data-k="replay">Replay the map</button>
             <p class="hint">Watch borders and fronts change week by week this season.</p>
           </section>
         </div>
       </div>`;
+  }
+
+  private nationOptions(selected?: number) {
+    return [...this.pol.nations.values()].sort((a, b) => a.name.localeCompare(b.name))
+      .map((n) => `<option value="${n.id}"${n.id === selected ? ' selected' : ''}>${esc(n.name)}</option>`).join('');
+  }
+
+  private async compare() {
+    const a = Number((this.panel.querySelector('#cmpA') as HTMLSelectElement).value);
+    const b = Number((this.panel.querySelector('#cmpB') as HTMLSelectElement).value);
+    const box = this.panel.querySelector<HTMLElement>('#compare')!;
+    box.innerHTML = '<p class="hint">Loading…</p>';
+    let series: { day: number; v: Record<number, { g: number; a: number; p: number }> }[] = [];
+    try { series = (await (await fetch(`/api/stats?nations=${a},${b}`)).json()).series ?? []; } catch { /* offline */ }
+    if (series.length < 2) { box.innerHTML = '<p class="hint">Not enough weekly figures yet.</p>'; return; }
+    const chart = (key: 'g' | 'a' | 'p', title: string) => {
+      const max = Math.max(1, ...series.flatMap((f) => [f.v[a]?.[key] ?? 0, f.v[b]?.[key] ?? 0]));
+      const W = 200, H = 70;
+      const line = (id: number, color: string) => `<polyline fill="none" stroke="${color}" stroke-width="2" points="${series.map((f, i) =>
+        `${((i / (series.length - 1)) * (W - 4) + 2).toFixed(1)},${(H - 2 - ((f.v[id]?.[key] ?? 0) / max) * (H - 8)).toFixed(1)}`).join(' ')}"/>`;
+      return `<figure class="mini-chart"><figcaption>${title}</figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${title}">${line(a, LINE_COLORS[0])}${line(b, LINE_COLORS[1])}</svg></figure>`;
+    };
+    const nm = (id: number) => esc(this.pol.nations.get(id)?.short ?? '');
+    box.innerHTML = `<div class="chart-legend"><span><i style="background:${LINE_COLORS[0]}"></i>${nm(a)}</span><span><i style="background:${LINE_COLORS[1]}"></i>${nm(b)}</span></div>
+      <div class="mini-charts">${chart('g', 'GDP')}${chart('a', 'Forces')}${chart('p', 'Provinces held')}</div>`;
   }
 
   /** A small line chart of the current top nations' scores. */

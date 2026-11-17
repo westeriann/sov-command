@@ -108,3 +108,15 @@ test('strike wings bomb enemy industry', () => {
   assert.ok(w.nations.get(2)!.econ.gdp < gdp, 'bombing costs the target output');
   assert.ok((w.military.buildings.get(6)?.length ?? 0) < 2, 'and destroys buildings over time');
 });
+
+test('rally points send newly built land units toward the front', () => {
+  const w = setup();
+  assert.equal(w.submit(1, { kind: 'rally', province: 5 }, 'human').ok, false, 'only in land you hold');
+  assert.equal(w.submit(1, { kind: 'rally', province: 4 }, 'human').ok, true);
+  const n = w.nations.get(1)!;
+  n.mil.queue = [{ type: 'infantry', progress: 0.99 }];
+  w.tick(Date.now() + realPerDay * 2);
+  const fresh = w.military.unitsOf(1).find((u) => u.type === 'infantry')!;
+  assert.ok(fresh.next !== undefined || fresh.province === 4, 'it marches to the rally point');
+  assert.equal(w.privateView(n).mil!.rally, 4);
+});

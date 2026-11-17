@@ -104,7 +104,26 @@ Stage 8 (polish) done:
 - Load test: npx tsx test/load.ts 300 60 (in server/) runs 300 bot players
   for a minute: median tick 1.2 ms, worst ~130 ms of a 1,000 ms budget,
   about 3 KB/s per player
-- Next: deployment (a public website and a hosted world server)
+
+Expansion (all done):
+
+- War: supply lines (units cut off from the capital or a port weaken), province
+  buildings (forts, air defense, factories, mines, ports, air bases), generals
+  who gain skill in battle, strategic bombing, missile strikes, and nuclear
+  weapons with severe consequences for whoever uses them
+- Economy and map: embargoes, unrest and revolts in conquered provinces,
+  droughts and hurricanes
+- Diplomacy and politics: blocs, a world council (sanctions, condemnations,
+  ceasefires), spy operations, puppet states, elections in democracies
+- Online game: seasons with daily scoring, early victory by domination and a
+  hall of fame; private and alliance chat; leaderboard and score charts;
+  nation histories; map replays; a world lobby (VITE_WORLDS lists worlds)
+- Quality of life: browser alerts while the tab is in the background, rally
+  points, nation comparison charts, a phone layout, keyboard shortcuts (press
+  ?), a colour-blind friendly mode
+- Settings: SEASON_DAYS (real days per season, default 28), WORLD_NAME
+- Next: deployment (a public website and a hosted world server); email alerts
+  need a mail service
 
 ## Run it
 

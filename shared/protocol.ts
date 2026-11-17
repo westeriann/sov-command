@@ -151,6 +151,7 @@ export type Order =
   | { kind: 'vote'; id: number; yes: boolean }
   | { kind: 'spy'; target: number; mission: SpyMission }
   | { kind: 'release'; target: number } // free a vassal
+  | { kind: 'rally'; province: number | null } // new land units march here
   | { kind: 'nuke'; province: number }
   | { kind: 'government'; government: Government };
 
