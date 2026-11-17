@@ -24,6 +24,8 @@ import { Military, type MilEvent, type NationMil, type Province } from './milita
 import { UNIT_SPECS, UNIT_TYPES, type MilitaryPrivate, type UnitType, type UnitView } from '../../shared/military.ts';
 import type { WarState } from '../../shared/protocol.ts';
 import { Diplomacy } from './diplomacy.ts';
+import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, type BuildingType } from '../../shared/buildings.ts';
+import { GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, UNITS_PER_GENERAL, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import {
   GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
   type Effects, type Government, type ResearchPrivate, type TechId,
@@ -165,6 +167,9 @@ export class World {
   diplomacy: Diplomacy;
   private rand: () => number;
   private effectCache = new Map<number, Effects>();
+  private factories = new Map<number, number>();
+  nuked: number[] = [];
+  private warDirty = false;
   listener: WorldListener | null = null;
 
   constructor(private db: DB, seed: number, defs: NationDef[], private opts: WorldOptions, provinces?: Province[]) {
@@ -235,6 +240,8 @@ export class World {
     this.diplomacy = new Diplomacy(storedDiplo ? JSON.parse(storedDiplo) : null);
     const byId = new Map(provList.map((p) => [p.id, p]));
     for (const [p, owner] of this.diplomacy.owners) { const prov = byId.get(p); if (prov) prov.owner = owner; }
+    this.nuked = JSON.parse(getMeta(db, 'nuked') ?? '[]');
+    for (const p of this.nuked) { const prov = byId.get(p); if (prov) prov.pop *= 0.7; }
     const storedMil = getMeta(db, 'military');
     this.military = new Military(byId, storedMil ? JSON.parse(storedMil) : null, mulberry(seed + 99));
     this.military.allied = (a, b) => this.diplomacy.has('alliance', a, b);
@@ -249,6 +256,12 @@ export class World {
       n.gov ??= { government: startingGovernment(n.personality, n.id) };
     }
     this.military.bonus = (nation, kind) => this.effects(nation)[kind];
+    this.military.onEconomicDamage = (nation, share) => {
+      const e = this.nations.get(nation)?.econ;
+      if (!e) return;
+      e.gdp *= 1 - share;
+      e.stability = Math.max(0, e.stability - share * 300);
+    };
     if (!storedMil) this.deployStartingArmies();
     else if (![...this.military.units.values()].some((u) => UNIT_SPECS[u.type].domain !== 'land')) {
       // upgrade a world saved before navies and air forces existed
@@ -380,6 +393,7 @@ export class World {
     return {
       wars: this.military.wars, occupied: Object.fromEntries(this.military.occupied), battles: [...this.military.battles],
       treaties: this.diplomacy.treaties, owners: Object.fromEntries(this.diplomacy.owners),
+      buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked,
     };
   }
 
@@ -391,6 +405,7 @@ export class World {
   private saveState() {
     setMeta(this.db, 'military', JSON.stringify(this.military.serialize()));
     setMeta(this.db, 'diplomacy', JSON.stringify(this.diplomacy.serialize()));
+    setMeta(this.db, 'nuked', JSON.stringify(this.nuked));
   }
 
   /** Units visible to a user's nation (none for players without a nation). */
@@ -406,6 +421,8 @@ export class World {
       upkeep: Math.round(upkeep * 100) / 100, manpower: Math.round(this.manpower(n)),
       queue: n.mil.queue.map((q) => ({ ...q })),
       peaceOffers: this.diplomacy.incoming(n.id).filter((p) => p.deal.kind === 'peace' && p.deal.terms === 'white').map((p) => p.from),
+      warheads: n.mil.warheads ?? 0, missileReady: (n.mil.lastMissileDay ?? -1) < this.market.day,
+      generals: this.military.unitsOf(n.id).filter((u) => u.general).length, maxGenerals: this.maxGenerals(n.id),
     };
   }
 
@@ -413,7 +430,7 @@ export class World {
   publicView(n: NationState): NationPublic {
     const army = Math.round((this.military?.unitsOf(n.id).length ?? 0) / 5) * 5;
     if (n.annexedBy) return { id: n.id, controller: 'ai', focus: n.policy.focus, army: 0, annexedBy: n.annexedBy };
-    const pol = { government: n.gov?.government, techs: n.tech?.done.length };
+    const pol = { government: n.gov?.government, techs: n.tech?.done.length, nuclear: (n.mil?.warheads ?? 0) > 0 || undefined };
     return n.controller === 'human'
       ? { id: n.id, controller: 'human', player: n.player, online: this.online.has(n.userId!), autopilot: n.autopilot, focus: n.policy.focus, army, ...pol }
       : { id: n.id, controller: 'ai', personality: n.personality, focus: n.policy.focus, army, ...pol };
@@ -560,8 +577,8 @@ export class World {
       case 'mission': {
         const ids = Array.isArray(order.units) ? order.units.slice(0, 200).map(Number) : [];
         const m = order.mission;
-        if (m && (!['patrol', 'support'].includes(m.kind) || !this.military.provinces.has(Number(m.target)))) {
-          return fail('bad_request', 'Missions are patrol or support over a province.');
+        if (m && (!['patrol', 'support', 'bomb'].includes(m.kind) || !this.military.provinces.has(Number(m.target)))) {
+          return fail('bad_request', 'Missions are patrol, support or bombing over a province.');
         }
         const done = this.military.setMission(n.id, ids, m ? { kind: m.kind, target: Number(m.target) } : null);
         if (!done) return fail('no_route', 'Out of range: move the air wings to a closer base first.');
@@ -671,6 +688,78 @@ export class World {
         this.touch(n);
         return ok;
       }
+      case 'build': {
+        const p = this.military.provinces.get(Number(order.province)), spec = BUILDINGS[order.building as BuildingType];
+        if (!p || !spec || !BUILDING_TYPES.includes(order.building)) return fail('bad_request', 'Unknown building or province.');
+        if (p.owner !== n.id || this.military.controller(p.id) !== n.id) return fail('not_allowed', 'You can only build in provinces you own and hold.');
+        const here = this.military.buildings.get(p.id) ?? [];
+        if (here.some((b) => b.type === order.building)) return fail('not_allowed', `There is already a ${spec.name.toLowerCase()} here.`);
+        if (spec.coastal && !p.adj.some((q) => this.military.provinces.get(q)?.kind === 'sea')) return fail('not_allowed', 'A port needs a coast.');
+        const busy = [...this.military.buildings].filter(([q, list]) => this.military.provinces.get(q)?.owner === n.id && list.some((b) => b.progress < 1)).length;
+        if (busy >= MAX_CONSTRUCTION) return fail('not_allowed', `At most ${MAX_CONSTRUCTION} projects at a time.`);
+        if (n.econ.treasury < spec.cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
+        n.econ.treasury -= spec.cost;
+        this.military.buildings.set(p.id, [...here, { type: order.building, progress: 0 }]);
+        if (actor === 'human') this.warChanged(); else this.warDirty = true; // AI projects go out with the daily update
+        this.touch(n, false);
+        return ok;
+      }
+      case 'general': {
+        const u = this.military.units.get(Number(order.unit));
+        if (!u || u.nation !== n.id || UNIT_SPECS[u.type].domain !== 'land') return fail('bad_request', 'Generals command land units.');
+        if (u.general) return fail('not_allowed', 'That unit already has a general.');
+        if (this.military.unitsOf(n.id).filter((x) => x.general).length >= this.maxGenerals(n.id)) {
+          return fail('not_allowed', `One general per ${UNITS_PER_GENERAL} land units.`);
+        }
+        if (n.mil.funds < GENERAL_COST) return fail('no_funds', 'Not enough military funds.');
+        n.mil.funds -= GENERAL_COST;
+        u.general = { name: generalName(this.rand), skill: 1, xp: 0 };
+        this.pushUnits(n);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'missile': {
+        if (!n.tech.done.includes('hypersonics')) return fail('not_allowed', 'Research Hypersonic missiles first.');
+        const p = Number(order.province), target = this.military.controller(p);
+        if (!this.military.atWar(n.id, target)) return fail('not_allowed', 'You can only strike nations you are at war with.');
+        if ((n.mil.lastMissileDay ?? -1) >= this.market.day) return fail('not_allowed', 'One missile salvo per game day.');
+        if (n.mil.funds < MISSILE_COST) return fail('no_funds', 'Not enough military funds.');
+        if (!this.inStrikeRange(n.id, p)) return fail('no_route', `Out of range: missiles reach ${MISSILE_RANGE.toLocaleString('en-US')} km from your territory.`);
+        n.mil.funds -= MISSILE_COST;
+        n.mil.lastMissileDay = this.market.day;
+        const where = this.military.provinces.get(p)?.name ?? `province ${p}`;
+        if (this.military.built(p, 'air_defense') && this.rand() < 0.5) {
+          this.event('war', n.id, `Air defenses in ${where} intercept a ${this.defs.get(n.id)!.short} missile salvo.`);
+        } else {
+          for (const u of this.military.unitsIn(p)) {
+            if (u.nation !== target) continue;
+            u.strength -= MISSILE_DAMAGE;
+            if (u.strength < 5) this.military.units.delete(u.id);
+          }
+          const hit = this.rand() < 0.3 ? this.military.destroyBuilding(p) : undefined;
+          this.event('war', n.id, `${this.defs.get(n.id)!.short} missiles strike ${where}${hit ? `, destroying the ${BUILDINGS[hit].name.toLowerCase()}` : ''}.`);
+          this.warChanged();
+        }
+        this.touch(n, false);
+        for (const x of [n, this.nations.get(target!)]) if (x) this.pushUnits(x);
+        return ok;
+      }
+      case 'warhead': {
+        if (!n.tech.done.includes('nuclear')) return fail('not_allowed', 'Research Nuclear deterrent first.');
+        if (n.mil.funds < WARHEAD_COST) return fail('no_funds', `A warhead costs ${WARHEAD_COST} bn of military funds.`);
+        n.mil.funds -= WARHEAD_COST;
+        n.mil.warheads = (n.mil.warheads ?? 0) + 1;
+        if (n.mil.warheads === 1) this.event('politics', n.id, `The ${this.defs.get(n.id)!.name} has become a nuclear power.`);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'nuke': {
+        const p = Number(order.province), target = this.military.controller(p);
+        if (!(n.mil.warheads ?? 0)) return fail('not_allowed', 'You have no nuclear warheads.');
+        if (!this.military.provinces.has(p) || !this.military.atWar(n.id, target)) return fail('not_allowed', 'You can only strike nations you are at war with.');
+        this.nuke(n, p);
+        return ok;
+      }
       case 'cancel': {
         const t = this.nations.get(Number(order.target));
         if (!t || (order.pact !== 'alliance' && order.pact !== 'trade')) return fail('bad_request', 'Unknown treaty.');
@@ -758,6 +847,11 @@ export class World {
       } else if (e.kind === 'liberated') {
         changed = true;
         this.event('war', e.nation, `${who} retakes ${where}.`);
+      } else if (e.kind === 'bombed') {
+        this.event('war', e.nation, `${who} bombers destroy industry in ${where}${e.other ? ` (${this.defs.get(e.other)?.short})` : ''}.`);
+      } else if (e.kind === 'promoted') {
+        const n = this.nations.get(e.nation);
+        if (n?.controller === 'human') this.event('war', e.nation, `A ${who} general is promoted after the fighting near ${where}.`);
       } else if (e.kind === 'destroyed') {
         const n = this.nations.get(e.nation);
         if (n?.controller === 'human') this.event('war', e.nation, `A ${who} division was destroyed near ${where}.`);
@@ -814,19 +908,21 @@ export class World {
       // occupation costs the owner output, revenue and stability
       if (this.diplomacy.expire(this.market.day)) this.warChanged();
       this.effectCache.clear();
+      this.constructionDay();
       const inputs = [...this.nations.values()].filter((n) => !n.annexedBy).map((n) => ({
         econ: n.econ, tax: n.policy.tax, focus: n.policy.focus,
         control: this.military.controlShare(n.id, this.ownedPop.get(n.id) ?? 0),
         atWar: this.military.enemiesOf(n.id).length > 0,
         blockade: this.military.blockade(n.id),
         tradeDeals: this.diplomacy.partners('trade', n.id).length,
-        bonusGrowth: this.effects(n.id).growth,
+        bonusGrowth: this.effects(n.id).growth + Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * FACTORY_GROWTH,
         bonusStability: this.effects(n.id).stability,
       }));
       runDay(inputs, this.market, this.market.day + 1);
       this.politicsDay(this.market.day);
       if (this.market.day % HISTORY_EVERY_DAYS === 0) weekly = true;
     }
+    if (this.warDirty) { this.warDirty = false; this.warChanged(); }
     this.saveState();
     if (this.military.battles.size) this.listener?.war(this.warState());
     for (const n of this.nations.values()) {
@@ -847,6 +943,88 @@ export class World {
     setMeta(this.db, 'market', JSON.stringify(this.market));
     this.saveState();
     this.persist();
+  }
+
+  // ---- strategic warfare -----------------------------------------------------------
+  maxGenerals(nation: number) {
+    return Math.max(1, Math.floor(this.military.unitsOf(nation).filter((u) => UNIT_SPECS[u.type].domain === 'land').length / UNITS_PER_GENERAL));
+  }
+
+  /** Within missile range of any province this nation holds. */
+  inStrikeRange(nation: number, p: number) {
+    const at = this.military.provinces.get(p)?.label;
+    if (!at) return false;
+    for (const q of this.military.provinces.values()) {
+      if (q.kind === 'land' && this.military.controller(q.id) === nation && distanceKm(q.label, at) <= MISSILE_RANGE) return true;
+    }
+    return false;
+  }
+
+  /** A nuclear strike: devastating for the target, and the world turns on the attacker. */
+  private nuke(n: NationState, p: number, retaliation = false) {
+    const m = this.military, prov = m.provinces.get(p)!;
+    const owner = prov.owner, victim = m.controller(p);
+    n.mil.warheads = Math.max(0, (n.mil.warheads ?? 1) - 1);
+    for (const u of m.unitsIn(p)) m.units.delete(u.id);
+    m.buildings.delete(p);
+    const lost = prov.pop * 0.3;
+    prov.pop -= lost;
+    this.nuked.push(p);
+    if (owner) {
+      const o = this.nations.get(owner)!;
+      const f = Math.min(0.9, lost / Math.max(1, this.ownedPop.get(owner) ?? 1));
+      o.econ.pop *= 1 - f;
+      o.econ.gdp *= 1 - f * 1.5;
+      o.econ.stability = Math.max(0, o.econ.stability - 25);
+      this.touch(o);
+    }
+    this.countOwnedPop();
+    n.econ.stability = Math.max(0, n.econ.stability - 15);
+    const A = this.defs.get(n.id)!.name;
+    this.event('war', n.id, `NUCLEAR STRIKE: the ${A} destroys ${prov.name ?? 'a province'}${owner ? ` in the ${this.defs.get(owner)!.name}` : ''}. ${Math.round(lost / 1e5) / 10} million people are lost.`);
+    // the world turns away: allies and trading partners abandon the attacker
+    if (!retaliation) {
+      for (const kind of ['alliance', 'trade'] as const) for (const x of this.diplomacy.partners(kind, n.id)) this.diplomacy.cancel(kind, n.id, x);
+      this.event('diplomacy', n.id, `Every alliance and trade agreement of the ${A} is torn up in outrage.`);
+    }
+    this.warChanged();
+    for (const x of this.nations.values()) this.pushUnits(x);
+    this.touch(n);
+    // a nuclear-armed AI victim answers in kind
+    const v = victim ? this.nations.get(victim) : undefined;
+    if (!retaliation && v && (v.controller === 'ai' || v.autopilot) && (v.mil.warheads ?? 0) > 0) {
+      const cap = this.home(n.id);
+      if (cap !== undefined) this.nuke(v, cap, true);
+    }
+  }
+
+  /** Construction advances daily; finished buildings take effect. */
+  private constructionDay() {
+    this.factories.clear();
+    for (const [p, list] of this.military.buildings) {
+      const prov = this.military.provinces.get(p)!;
+      for (const b of list) {
+        if (b.progress < 1) {
+          b.progress = Math.min(1, b.progress + 1 / BUILDINGS[b.type].days);
+          if (b.progress >= 1) this.finished(prov.owner, p, b.type);
+        }
+        if (b.progress >= 1 && b.type === 'factory' && prov.owner && this.military.controller(p) === prov.owner) {
+          this.factories.set(prov.owner, (this.factories.get(prov.owner) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  private finished(owner: number | undefined, p: number, type: BuildingType) {
+    const n = owner ? this.nations.get(owner) : undefined;
+    if (!n) return;
+    if (type === 'mine') {
+      // the nation's main raw material
+      const main = COMMODITIES.reduce((a, c) => (n.econ.capacity[c] * this.market.prices[c] > n.econ.capacity[a] * this.market.prices[a] ? c : a));
+      n.econ.capacity[main] *= 1.04;
+    }
+    if (n.controller === 'human') this.event('politics', n.id, `${this.defs.get(n.id)!.short}: ${BUILDINGS[type].name} completed in ${this.military.provinces.get(p)?.name ?? 'a province'}.`);
+    this.warDirty = true;
   }
 
   // ---- politics and research ---------------------------------------------------------
@@ -1028,4 +1206,10 @@ function startingGovernment(p: Personality, id: number): Government {
   if (p === 'turtle' || p === 'opportunist') return id % 3 ? 'autocracy' : 'democracy';
   if (p === 'idealist') return id % 3 ? 'democracy' : 'technocracy';
   return id % 4 ? 'democracy' : 'technocracy';
+}
+
+const FIRST = ['Ari', 'Bela', 'Cato', 'Dara', 'Emil', 'Faro', 'Gida', 'Hale', 'Ines', 'Joru', 'Kaya', 'Lev', 'Mira', 'Nico', 'Oren', 'Pia', 'Rasa', 'Soren', 'Tala', 'Vik'];
+const LAST = ['Adler', 'Brann', 'Corvo', 'Dahl', 'Esker', 'Falk', 'Grane', 'Hollis', 'Iver', 'Juno', 'Kessler', 'Lund', 'Marek', 'Novak', 'Orlov', 'Petra', 'Quint', 'Rhee', 'Sato', 'Varga'];
+function generalName(rand: () => number) {
+  return `Gen. ${FIRST[Math.floor(rand() * FIRST.length)]} ${LAST[Math.floor(rand() * LAST.length)]}`;
 }

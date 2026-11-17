@@ -3,9 +3,10 @@
 // blockades, production and fog of war. Owned by the World; every change comes
 // through orders that players and AI submit the same way.
 import { DAY } from '../../shared/clock.ts';
+import type { BuildingState, BuildingType } from '../../shared/buildings.ts';
 import {
-  RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, distanceKm, domainOf, findRoute, legDays,
-  type Domain, type Mission, type QueueItem, type RouteNode, type UnitType, type UnitView, type War,
+  GENERAL_BONUS, NO_SUPPLY_LOSS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, distanceKm, domainOf, findRoute, legDays,
+  type Domain, type General, type Mission, type QueueItem, type RouteNode, type UnitType, type UnitView, type War,
 } from '../../shared/military.ts';
 
 export interface Unit {
@@ -20,12 +21,16 @@ export interface Unit {
   legEnd?: number; // game ms
   fighting?: boolean;
   mission?: Mission; // air wings only
+  supplied?: boolean; // land units: false when cut off
+  general?: General;
 }
 
 export interface NationMil {
   funds: number; // $bn for building, upkeep and reinforcement
   queue: QueueItem[];
   peaceOffers?: number[]; // legacy: offers now live in diplomacy
+  warheads?: number;
+  lastMissileDay?: number;
 }
 
 export interface MilitaryState {
@@ -33,6 +38,7 @@ export interface MilitaryState {
   units: Unit[];
   wars: War[];
   occupied: Record<number, number>;
+  buildings?: Record<number, BuildingState[]>;
 }
 
 export interface Province extends RouteNode {
@@ -41,7 +47,7 @@ export interface Province extends RouteNode {
   name?: string;
 }
 
-export type MilEvent = { kind: 'occupied' | 'liberated' | 'destroyed' | 'battle'; province: number; nation: number; other?: number };
+export type MilEvent = { kind: 'occupied' | 'liberated' | 'destroyed' | 'battle' | 'bombed' | 'promoted'; province: number; nation: number; other?: number };
 
 const RETREAT_AT = 25; // strength below which a unit falls back
 const DESTROYED_AT = 5;
@@ -70,14 +76,78 @@ export class Military {
       for (const u of state.units) this.units.set(u.id, u);
       this.wars = state.wars;
       this.occupied = new Map(Object.entries(state.occupied).map(([k, v]) => [Number(k), v]));
+      this.buildings = new Map(Object.entries(state.buildings ?? {}).map(([k, v]) => [Number(k), v]));
     }
   }
 
   serialize(): MilitaryState {
-    return { nextId: this.nextId, units: [...this.units.values()], wars: this.wars, occupied: Object.fromEntries(this.occupied) };
+    return { nextId: this.nextId, units: [...this.units.values()], wars: this.wars, occupied: Object.fromEntries(this.occupied), buildings: Object.fromEntries(this.buildings) };
   }
 
+  buildings = new Map<number, BuildingState[]>();
+  /** Set by the World: damage a nation's economy by a share of GDP (strategic bombing). */
+  onEconomicDamage: (nation: number, share: number) => void = () => {};
+
   // ---- queries -------------------------------------------------------------------
+  /** A finished building of this type in the province. */
+  built(p: number, type: BuildingType) {
+    return !!this.buildings.get(p)?.some((b) => b.type === type && b.progress >= 1);
+  }
+
+  /** Destroy one finished building at random; returns its type. */
+  destroyBuilding(p: number): BuildingType | undefined {
+    const list = this.buildings.get(p)?.filter((b) => b.progress >= 1);
+    if (!list?.length) return undefined;
+    const b = list[Math.floor(this.rand() * list.length)];
+    this.buildings.set(p, this.buildings.get(p)!.filter((x) => x !== b));
+    return b.type;
+  }
+
+  /** Combat radius, longer from an air base. */
+  rangeOf(u: Unit) {
+    return UNIT_SPECS[u.type].range! * (this.built(u.province, 'airbase') ? 1.3 : 1);
+  }
+
+  /**
+   * Supply: from the capital (or any port we hold) through land that we or our
+   * allies control. Units on that land or next to it are supplied; units
+   * beyond it, or in pockets cut off from it, are not.
+   */
+  updateSupply(homeOf: (n: number) => number | undefined) {
+    const byNation = new Map<number, Unit[]>();
+    for (const u of this.units.values()) {
+      if (domainOf(u.type) !== 'land') continue;
+      byNation.set(u.nation, [...(byNation.get(u.nation) ?? []), u]);
+    }
+    for (const [nation, units] of byNation) {
+      // the common case: every unit stands on land its own nation holds
+      if (units.every((u) => this.controller(u.province) === nation)) { for (const u of units) u.supplied = true; continue; }
+      const friendly = (p: number) => {
+        const c = this.controller(p);
+        return c === nation || (c !== undefined && this.allied(nation, c));
+      };
+      const seeds: number[] = [];
+      const home = homeOf(nation);
+      if (home !== undefined && this.controller(home) === nation) seeds.push(home);
+      for (const [p] of this.buildings) if (this.built(p, 'port') && this.controller(p) === nation) seeds.push(p);
+      const reach = new Set<number>(seeds);
+      const queue = [...seeds];
+      while (queue.length) {
+        const p = queue.pop()!;
+        for (const q of this.provinces.get(p)!.adj) {
+          if (reach.has(q) || this.provinces.get(q)?.kind !== 'land' || !friendly(q)) continue;
+          reach.add(q);
+          queue.push(q);
+        }
+      }
+      for (const u of units) {
+        const at = this.provinces.get(u.province);
+        u.supplied = !seeds.length || at?.kind === 'sea' || reach.has(u.province) || !!at?.adj.some((q) => reach.has(q));
+        if (!u.supplied) u.strength = Math.max(10, u.strength - NO_SUPPLY_LOSS);
+      }
+    }
+  }
+
   controller(p: number) {
     return this.occupied.get(p) ?? this.provinces.get(p)?.owner;
   }
@@ -176,6 +246,8 @@ export class Military {
     if (u.next) Object.assign(v, { next: u.next, legStart: u.legStart, legEnd: u.legEnd });
     if (own && u.path.length) v.path = [...u.path];
     if (u.mission) v.mission = { ...u.mission };
+    if (own && u.supplied === false) v.supplied = false;
+    if (u.general) v.general = { ...u.general };
     return v;
   }
 
@@ -240,7 +312,8 @@ export class Military {
       if (mission) {
         const target = this.provinces.get(mission.target);
         if (!target) continue;
-        if (distanceKm(this.label(u.province), target.label) > UNIT_SPECS[u.type].range!) continue;
+        if (mission.kind === 'bomb' && u.type !== 'strike') continue;
+        if (distanceKm(this.label(u.province), target.label) > this.rangeOf(u)) continue;
         u.mission = { kind: mission.kind, target: mission.target };
       } else {
         u.mission = undefined;
@@ -345,7 +418,7 @@ export class Military {
     const spec = UNIT_SPECS[u.type];
     if (!u.mission || u.next !== undefined) return false;
     const target = this.label(u.mission.target), here = this.label(p);
-    return distanceKm(target, here) <= radius && distanceKm(this.label(u.province), here) <= spec.range!;
+    return distanceKm(target, here) <= radius && distanceKm(this.label(u.province), here) <= this.rangeOf(u) && !!spec;
   }
 
   /**
@@ -355,6 +428,7 @@ export class Military {
    */
   fight(spendMunitions: (nation: number, amount: number) => boolean, homeOf: (n: number) => number | undefined, events: MilEvent[]) {
     this.battles.clear();
+    this.updateSupply(homeOf);
     const all = [...this.units.values()];
     const air = all.filter((u) => domainOf(u.type) === 'air');
     const ships = all.filter((u) => domainOf(u.type) === 'sea');
@@ -396,7 +470,8 @@ export class Military {
       if (!attackers.length) continue;
       this.battles.add(p);
       const land = prov.kind === 'land';
-      const terrain = land ? (TERRAIN_DEFENSE[prov.terrain] ?? 1) * ((prov.river ?? 0) >= 4 ? RIVER_DEFENSE : 1) : 1;
+      const terrain = land ? (TERRAIN_DEFENSE[prov.terrain] ?? 1) * ((prov.river ?? 0) >= 4 ? RIVER_DEFENSE : 1) * (this.built(p, 'fort') ? 1.5 : 1) : 1;
+      const airDefense = land && this.built(p, 'air_defense'); // works for whoever holds the province
       const supply = new Map<number, number>();
       for (const n of nations) {
         const count = here.filter((u) => u.nation === n).length;
@@ -411,7 +486,7 @@ export class Military {
       if (land) {
         for (const w of air) {
           if (!isSide(w.nation) || !this.units.has(w.id)) continue;
-          const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air'));
+          const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air')) * (airDefense && side(w.nation) === 'a' ? 0.5 : 1);
           if (w.type === 'fighters' && w.mission?.kind === 'patrol' && this.inRange(w, p, PATROL_RADIUS)) cover[side(w.nation)] += power;
           if (w.type === 'strike' && w.mission?.kind === 'support' && this.inRange(w, p, SUPPORT_RADIUS)) strike[side(w.nation)] += power;
         }
@@ -426,8 +501,11 @@ export class Military {
 
       const tech = (u: Unit, role: 'attack' | 'defense') => 1 + this.bonus(u.nation,
         domainOf(u.type) === 'sea' ? 'naval' : domainOf(u.type) === 'air' ? 'air' : role === 'attack' ? 'landAttack' : 'landDefense');
+      // the best general on each side lifts that whole side
+      const command = (units: Unit[]) => 1 + GENERAL_BONUS * Math.max(0, ...units.map((u) => u.general?.skill ?? 0));
       const power = (units: Unit[], role: 'attack' | 'defense') => units.reduce((sum, u) =>
-        sum + (u.strength / 100) * UNIT_SPECS[u.type][role] * (role === 'defense' ? terrain : 1) * supply.get(u.nation)! * tech(u, role), 0)
+        sum + (u.strength / 100) * UNIT_SPECS[u.type][role] * (role === 'defense' ? terrain : 1) * supply.get(u.nation)! * tech(u, role)
+          * (u.supplied === false ? NO_SUPPLY_POWER : 1), 0) * command(units)
         * (0.9 + 0.2 * this.rand());
       const pa = Math.max(0.01, power(attackers, 'attack') + bonus('a'));
       const pd = Math.max(0.01, power(defenders, 'defense') + bonus('d'));
@@ -447,9 +525,19 @@ export class Military {
         const enemyCover = s === 'a' ? cover.d : cover.a;
         if (w.type === 'fighters') w.strength -= enemyCover ? 3 * (1 - share[s]) + 0.5 : 0;
         else w.strength -= 4 * (1 - share[s]) + 0.5;
+        if (airDefense && s === 'a') w.strength -= 2;
         if (w.strength < DESTROYED_AT) { this.units.delete(w.id); events.push({ kind: 'destroyed', province: w.province, nation: w.nation }); }
       }
 
+      // commanders learn from every day of battle
+      for (const u of [...attackers, ...defenders]) {
+        if (!u.general) continue;
+        u.general.xp += 6;
+        if (u.general.skill < 5 && u.general.xp >= 100 * u.general.skill) {
+          u.general.skill++;
+          events.push({ kind: 'promoted', province: p, nation: u.nation });
+        }
+      }
       for (const u of [...attackers, ...defenders]) this.retreatOrDie(u, events);
       const holding = (u: Unit) => this.units.has(u.id) && u.province === p && u.next === undefined; // not retreating
       const leftAtt = attackers.filter(holding);
@@ -461,6 +549,19 @@ export class Military {
       } else if (!leftAtt.length) {
         for (const u of leftDef) u.fighting = false;
       }
+    }
+
+    // strategic bombing: strike wings hit industry in enemy provinces
+    for (const w of air) {
+      if (!this.units.has(w.id) || w.type !== 'strike' || w.mission?.kind !== 'bomb' || w.next !== undefined) continue;
+      const t = w.mission.target, owner = this.controller(t);
+      if (!this.atWar(w.nation, owner) || distanceKm(this.label(w.province), this.label(t)) > this.rangeOf(w)) continue;
+      const defended = this.built(t, 'air_defense');
+      const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air')) * (defended ? 0.4 : 1);
+      this.onEconomicDamage(owner!, 0.00015 * power / 10);
+      if (this.rand() < 0.06 * power / 10 && this.destroyBuilding(t)) events.push({ kind: 'bombed', province: t, nation: w.nation, other: owner });
+      w.strength -= defended ? 3 : 0.7;
+      if (w.strength < DESTROYED_AT) { this.units.delete(w.id); events.push({ kind: 'destroyed', province: t, nation: w.nation }); }
     }
 
     // air wings whose base fell go home

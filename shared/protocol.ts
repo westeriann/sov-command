@@ -8,6 +8,7 @@ import type { Budget, EconomyPrivate, EconomyPublic, MarketSnapshot } from './ec
 import type { MilitaryPrivate, Mission, UnitType, UnitView, War } from './military';
 import type { Deal, DealKind, Pact, Proposal, Treaty } from './diplomacy';
 import type { Government, ResearchPrivate, TechId } from './research';
+import type { BuildingState, BuildingType } from './buildings';
 
 export type Focus = 'economy' | 'military' | 'research' | 'diplomacy';
 export type Personality = 'expansionist' | 'trader' | 'turtle' | 'opportunist' | 'idealist';
@@ -43,6 +44,7 @@ export interface NationPublic {
   annexedBy?: number; // the nation no longer exists; its land belongs to this one
   government?: Government;
   techs?: number; // technologies researched
+  nuclear?: boolean; // holds nuclear warheads
 }
 
 /** What only the nation's own player may know. */
@@ -62,6 +64,8 @@ export interface WarState {
   battles: number[]; // provinces with fighting today
   treaties: Treaty[];
   owners: Record<number, number>; // province id -> nation, where land changed hands by treaty
+  buildings: Record<number, BuildingState[]>; // province id -> buildings (finished and under way)
+  nuked: number[]; // provinces struck by nuclear weapons
 }
 
 /** Daily economy broadcast: world market plus every nation's public figures. */
@@ -115,6 +119,11 @@ export type Order =
   | { kind: 'answer'; from: number; deal: DealKind; accept: boolean }
   | { kind: 'cancel'; target: number; pact: Pact }
   | { kind: 'research'; tech: TechId }
+  | { kind: 'build'; province: number; building: BuildingType }
+  | { kind: 'general'; unit: number }
+  | { kind: 'missile'; province: number }
+  | { kind: 'warhead' }
+  | { kind: 'nuke'; province: number }
   | { kind: 'government'; government: Government };
 
 export type ClientMsg =

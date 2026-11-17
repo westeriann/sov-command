@@ -36,9 +36,9 @@ export const domainOf = (t: UnitType) => UNIT_SPECS[t].domain;
 export const TRANSPORT_SPEED = 300; // km per game day
 export const EMBARK_DAYS = 1;
 
-export type MissionKind = 'patrol' | 'support';
+export type MissionKind = 'patrol' | 'support' | 'bomb';
 export interface Mission {
-  kind: MissionKind; // patrol: fighters win air superiority; support: strike wings back ground battles
+  kind: MissionKind; // patrol: fighters win air superiority; support: strike wings back ground battles; bomb: strike wings hit industry
   target: number; // province the mission is centred on
 }
 
@@ -160,6 +160,20 @@ class MinHeap {
 }
 
 /** A unit as a player sees it. Enemy strength is only known roughly. */
+/** A commander attached to a land unit: lifts every friendly unit in the same battle. */
+export interface General { name: string; skill: number; xp: number } // skill 1..5
+export const GENERAL_COST = 1; // $bn
+export const GENERAL_BONUS = 0.05; // per skill level
+export const UNITS_PER_GENERAL = 8;
+/** Out of supply: weaker in battle and worn down each day. */
+export const NO_SUPPLY_POWER = 0.6;
+export const NO_SUPPLY_LOSS = 2;
+/** Strategic weapons. */
+export const MISSILE_COST = 1.5; // $bn of military funds
+export const MISSILE_RANGE = 2500; // km from any province you control
+export const MISSILE_DAMAGE = 15;
+export const WARHEAD_COST = 40;
+
 export interface UnitView {
   id: number;
   nation: number;
@@ -172,6 +186,8 @@ export interface UnitView {
   next?: number; // province being moved into
   legStart?: number; // game ms
   legEnd?: number; // game ms
+  supplied?: boolean; // false: cut off from supply (own units only)
+  general?: General;
 }
 
 export interface War {
@@ -193,4 +209,8 @@ export interface MilitaryPrivate {
   manpower: number; // reservists not yet in uniform
   queue: QueueItem[];
   peaceOffers: number[]; // nations that have offered us white peace
+  warheads: number;
+  missileReady: boolean; // one missile launch per game day
+  generals: number;
+  maxGenerals: number;
 }

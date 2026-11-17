@@ -386,3 +386,13 @@ table.league .link i { width: 9px; height: 9px; border-radius: 2px; }
 .coach .actions-row { justify-content: flex-end; }
 .coach-target { outline: 2px solid var(--cyan) !important; outline-offset: 3px; box-shadow: 0 0 0 6px rgba(95, 212, 234, 0.18), 0 0 24px rgba(95, 212, 234, 0.5) !important; border-radius: 4px; transition: outline-color 0.2s; }
 #soundBtn, [data-act="guide"] { margin-right: 10px; }
+
+/* supply, generals, buildings */
+.unit-marker.nosupply { border-style: dashed; animation: nosupply 1.6s ease-in-out infinite; }
+@keyframes nosupply { 50% { opacity: 0.55; } }
+.unit-marker .star { position: absolute; top: -9px; left: -7px; font-size: 9px; line-height: 1; color: #ffd27a; text-shadow: 0 0 2px #0b1620, 0 0 2px #0b1620; letter-spacing: -1px; }
+.build-list { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 8px 0 12px; }
+.build-list .claim { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; }
+.build-list .claim span { font-size: 10px; color: var(--muted); font-weight: 400; }
+.hint.down { color: #ff8a7c; }
+@media (prefers-reduced-motion: reduce) { .unit-marker.nosupply { animation: none; } }

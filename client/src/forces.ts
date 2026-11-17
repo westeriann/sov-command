@@ -39,6 +39,8 @@ export interface ForcesActions {
   mission(units: number[], mission: Mission | null): void;
   recruit(type: UnitType): void;
   peace(target: number): void;
+  general(unit: number): void;
+  warhead(): void;
   goToProvince(id: number): void;
 }
 
@@ -138,15 +140,18 @@ export class Forces {
       const lead = [...counts].sort((a, b) => b[1] * UNIT_SPECS[b[0]].attack - a[1] * UNIT_SPECS[a[0]].attack)[0][0];
       const domains = new Set(units.map((u) => domainOf(u.type)));
       const shape = domains.size === 1 ? `d-${[...domains][0]}` : 'd-mixed';
-      m.el.className = `unit-marker ${side} ${shape}${sel ? ' selected' : ''}${this.openStack === key ? ' open' : ''}${units.some((u) => u.status === 'fighting') ? ' fighting' : ''}`;
+      const cutOff = units.some((u) => u.supplied === false);
+      const general = units.find((u) => u.general)?.general;
+      m.el.className = `unit-marker ${side} ${shape}${cutOff ? ' nosupply' : ''}${sel ? ' selected' : ''}${this.openStack === key ? ' open' : ''}${units.some((u) => u.status === 'fighting') ? ' fighting' : ''}`;
       m.el.style.setProperty('--nation', nation?.color ?? '#888');
       const summary = counts.map(([t, c]) => `${c} ${UNIT_SPECS[t].name.toLowerCase()}`).join(', ');
-      m.el.setAttribute('aria-label', `${nation?.short ?? ''} forces: ${summary}; ${strength}% strength`);
+      m.el.setAttribute('aria-label', `${nation?.short ?? ''} forces: ${summary}; ${strength}% strength${general ? `; led by ${general.name} (skill ${general.skill})` : ''}${cutOff ? '; OUT OF SUPPLY' : ''}`);
       m.el.title = `${nation?.name ?? ''}\n${counts.map(([t, c]) => `${c} × ${UNIT_SPECS[t].name}`).join('\n')}\nStrength ${strength}%`;
       const extras = counts.filter(([t]) => t !== lead).slice(0, 3);
       m.el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[lead]}</svg>`
         + (units.length > 1 ? `<b>${units.length}</b>` : '')
         + (extras.length ? `<span class="mini">${extras.map(([t]) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>`).join('')}</span>` : '')
+        + (general ? `<span class="star" aria-hidden="true">${'★'.repeat(Math.min(3, general.skill))}</span>` : '')
         + `<i style="width:${strength}%"></i>`
         + (this.openStack === key && side === 'own' ? `<span class="stack-list" role="menu">${counts.map(([t, c]) => `<span role="menuitem" tabindex="0" data-pick="${t}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${c} × ${UNIT_SPECS[t].name}</span>`).join('')}</span>` : '');
     }
@@ -262,7 +267,11 @@ export class Forces {
     const fighters = sel.filter((u) => u.type === 'fighters').map((u) => u.id);
     const strikes = sel.filter((u) => u.type === 'strike').map((u) => u.id);
     if (fighters.length) this.actions.mission(fighters, { kind: 'patrol', target: to });
-    if (strikes.length) this.actions.mission(strikes, { kind: 'support', target: to });
+    // strike wings: support a battle, or bomb enemy industry where there is no fighting
+    const prov = this.pol.provinces.get(to);
+    const ctrl = prov ? this.game.war.occupied[to] ?? prov.nation : undefined;
+    const bomb = this.game.atWar(this.game.mine?.id, ctrl) && !this.game.war.battles.includes(to);
+    if (strikes.length) this.actions.mission(strikes, { kind: bomb ? 'bomb' : 'support', target: to });
   }
 
   // ---- Forces window ---------------------------------------------------------------
@@ -276,6 +285,8 @@ export class Forces {
     else if (f === 'peace') this.actions.peace(Number(act.dataset.target));
     else if (f === 'halt') this.actions.halt([...this.selected]);
     else if (f === 'standdown') this.actions.mission([...this.selected], null);
+    else if (f === 'general') this.actions.general(Number(act.dataset.unit));
+    else if (f === 'warhead') this.actions.warhead();
     else if (f === 'goto') {
       const p = Number(act.dataset.province);
       this.selected = new Set(this.game.units.filter((u) => u.nation === this.game.mine?.id && u.province === p && u.next === undefined).map((u) => u.id));
@@ -313,6 +324,14 @@ export class Forces {
         ${sel.length ? `<section class="selection">
           <span class="label">SELECTED · ${sel.map((u) => UNIT_SPECS[u.type].name).filter((v, i, a) => a.indexOf(v) === i).join(', ')} (${sel.length})</span>
           <p class="hint">Right-click on the map: troops and ships move there (troops cross the sea by transport); fighters patrol over it and strike wings support battles there, within their combat radius (the ring). To rebase aircraft, use "Move selected here" on one of your provinces. One game day is about ten seconds.</p>
+          ${(() => {
+            const gens = sel.filter((u) => u.general);
+            const candidate = sel.find((u) => domainOf(u.type) === 'land' && !u.general);
+            const cut = sel.filter((u) => u.supplied === false).length;
+            return `${gens.map((u) => `<p class="hint">★ ${esc(u.general!.name)} · skill ${u.general!.skill} of 5 · ${u.general!.xp} xp</p>`).join('')}
+              ${cut ? `<p class="hint down">${cut} unit${cut > 1 ? 's are' : ' is'} out of supply: weaker in battle and losing strength each day. Reconnect to your territory, or capture a port.</p>` : ''}
+              ${candidate && mil.generals < mil.maxGenerals ? `<button type="button" class="claim" data-f="general" data-unit="${candidate.id}">Appoint a general · $1bn (${mil.generals}/${mil.maxGenerals})</button>` : ''}`;
+          })()}
           <div class="actions-row">
             <button type="button" class="claim" data-f="halt">Stop after the current leg</button>
             ${sel.some((u) => u.mission) ? '<button type="button" class="claim" data-f="standdown">Stand down air missions</button>' : ''}
@@ -328,6 +347,9 @@ export class Forces {
                 <span class="mono">${money(s.cost)} · ${s.days} days (~${Math.round((s.days * 10) / 60)} min) · ${(s.men / 1e3).toFixed(0)}k men · upkeep ${money(s.upkeep)}/yr</span></div>
                 <button type="button" class="claim primary" data-f="recruit" data-type="${t}" ${mil.manpower < s.men || mil.queue.length >= 10 ? 'disabled' : ''}>Recruit</button>
               </div>`; }).join('')}
+            ${mine.research?.done.includes('nuclear') ? `<span class="label sub">STRATEGIC</span>
+              <div class="recruit"><div><b>Nuclear warheads: ${mil.warheads}</b><span class="mono">$40bn each · strike from an enemy province's panel</span></div>
+              <button type="button" class="claim danger" data-f="warhead" ${mil.funds < 40 ? 'disabled' : ''}>Build</button></div>` : ''}
             <span class="label">PRODUCTION QUEUE</span>
             ${mil.queue.length ? `<div class="bars">${mil.queue.map((q, i) => `<span>${i + 1}. ${UNIT_SPECS[q.type].name}</span><div class="bar"><i style="width:${Math.round(q.progress * 100)}%"></i></div><span class="mono">${Math.round(q.progress * 100)}%</span>`).join('')}</div>`
               : '<p class="hint">Nothing in production. New divisions appear at your capital.</p>'}

@@ -31,7 +31,7 @@ function report(label: string) {
   console.log(`   forces: ${by('land')} land, ${by('sea')} naval, ${by('air')} air; ${m.wars.length} wars now; ${m.occupied.size} provinces occupied`);
   const d = w.diplomacy; console.log(`   diplomacy: ${d.treaties.filter((t) => t.kind === 'alliance').length} alliances, ${d.treaties.filter((t) => t.kind === 'trade').length} trade deals, ${d.owners.size} provinces changed hands, ${[...w.nations.values()].filter((n) => n.annexedBy).length} nations annexed`);
   const govs: Record<string, number> = {}; let techs = 0; for (const n of w.nations.values()) { if (n.annexedBy) continue; govs[n.gov.government] = (govs[n.gov.government] ?? 0) + 1; techs += n.tech.done.length; }
-  console.log(`   politics: ${JSON.stringify(govs)}; ${(techs / w.nations.size).toFixed(1)} techs per nation`);
+  console.log(`   politics: ${JSON.stringify(govs)}; ${(techs / w.nations.size).toFixed(1)} techs per nation; ${[...w.military.buildings.values()].flat().filter((b) => b.progress >= 1).length} buildings; ${[...w.nations.values()].filter((n) => (n.mil.warheads ?? 0) > 0).length} nuclear powers; ${[...w.military.units.values()].filter((u) => u.general).length} generals`);
 }
 
 report('day 0');

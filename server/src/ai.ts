@@ -12,6 +12,8 @@ import { UNIT_SPECS, distanceKm, domainOf, type UnitType } from '../../shared/mi
 import type { NationState, World } from './world.ts';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal } from '../../shared/diplomacy.ts';
 import { TECHS, prerequisite, type Branch, type TechId } from '../../shared/research.ts';
+import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
+import { MISSILE_COST, WARHEAD_COST } from '../../shared/military.ts';
 
 const RESEARCH_ORDER: Record<Personality, Branch[]> = {
   expansionist: ['land', 'sea_air', 'economy', 'society'],
@@ -156,12 +158,14 @@ export class AiBrain {
       else if ((loss >= gain && days > 30) || days > 150 || control < 0.7) orders.push({ kind: 'peace', target: foe });
     }
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
+    orders.push(...this.strategicOrders(n, enemies.length > 0));
 
     // rare wars of choice against clearly weaker neighbours (about one somewhere per game year)
     if (!enemies.length && aggressive && this.random() < (p === 'expansionist' ? 0.012 : 0.006)) {
       const targets = (w.defs.get(me)?.neighbours ?? [])
         .map((id) => w.nations.get(id))
         .filter((t): t is NationState => !!t && !t.annexedBy && !w.diplomacy.has('alliance', me, t.id))
+        .filter((t) => !w.publicView(t).nuclear || (n.mil.warheads ?? 0) > 0) // nuclear deterrence
         // count the target's allies too, if they border us or the target (others can hardly reach the front)
         .filter((t) => {
           const near = new Set([...(w.defs.get(me)?.neighbours ?? []), ...(w.defs.get(t.id)?.neighbours ?? [])]);
@@ -205,8 +209,23 @@ export class AiBrain {
     for (const u of rear) orders.push({ kind: 'move', units: [u.id], to: front[u.id % front.length] });
 
     // air: fighters cover the front, strike wings back the main thrust (rebasing forward if out of range)
-    const hot = [...m.battles].find((b) => front.includes(b) || isEnemyLand(b)) ?? front[Math.floor(front.length / 2)];
+    const battle = [...m.battles].find((b) => front.includes(b) || isEnemyLand(b));
+    const hot = battle ?? front[Math.floor(front.length / 2)];
+    // generals for the biggest front stacks
+    const free = w.maxGenerals(me) - units.filter((u) => u.general).length;
+    if (free > 0 && n.mil.funds > 3) {
+      const best = [...stacks].filter(([p]) => front.includes(p)).sort((a, b) => b[1].length - a[1].length)[0];
+      const pick = best?.[1].map((id) => m.units.get(id)!).find((u) => !u.general);
+      if (pick && !best![1].some((id) => m.units.get(id)?.general)) orders.push({ kind: 'general', unit: pick.id });
+    }
+    // missiles at the main enemy position
+    if (n.tech.done.includes('hypersonics') && n.mil.funds > MISSILE_COST * 6 && isEnemyLand(hot)) orders.push({ kind: 'missile', province: hot });
     for (const wing of all.filter((u) => domainOf(u.type) === 'air' && u.next === undefined)) {
+      // with no battle to support, strike wings bomb enemy industry in range
+      if (wing.type === 'strike' && !battle) {
+        const target = [...m.buildings.keys()].find((q) => isEnemyLand(q) && distanceKm(m.provinces.get(wing.province)!.label, m.provinces.get(q)!.label) <= m.rangeOf(wing));
+        if (target !== undefined) { if (wing.mission?.target !== target) orders.push({ kind: 'mission', units: [wing.id], mission: { kind: 'bomb', target } }); continue; }
+      }
       const kind = wing.type === 'fighters' ? 'patrol' : 'support';
       if (wing.mission?.target === hot && wing.mission.kind === kind) continue;
       const reach = distanceKm(m.provinces.get(wing.province)!.label, m.provinces.get(hot)!.label) <= UNIT_SPECS[wing.type].range!;
@@ -288,6 +307,35 @@ export class AiBrain {
     const open = TECHS.filter((t) => !n.tech.done.includes(t.id) && (!prerequisite(t) || n.tech.done.includes(prerequisite(t)!.id)));
     open.sort((a, b) => a.tier * 4 + order.indexOf(a.branch) - (b.tier * 4 + order.indexOf(b.branch)));
     return open[0]?.id;
+  }
+
+  /** Construction and the nuclear question. */
+  private strategicOrders(n: NationState, atWar: boolean): Order[] {
+    const w = this.world, m = w.military, me = n.id, orders: Order[] = [];
+    if (n.tech.done.includes('nuclear') && (n.personality === 'expansionist' || n.personality === 'turtle')
+      && (n.mil.warheads ?? 0) < 2 && n.mil.funds > WARHEAD_COST * 1.5) orders.push({ kind: 'warhead' });
+    if (n.econ.treasury < n.econ.gdp * 0.05 || this.random() > 0.15) return orders;
+    const own = [...m.provinces.values()].filter((p) => p.kind === 'land' && p.owner === me && m.controller(p.id) === me);
+    if (!own.length) return orders;
+    // a modest building programme: grows with the economy, not without limit
+    const count = own.reduce((s, p) => s + (m.buildings.get(p.id)?.length ?? 0), 0);
+    if (count >= 4 + Math.floor(Math.sqrt(n.econ.gdp / 20))) return orders;
+    const has = (p: number, t: BuildingType) => !!m.buildings.get(p)?.some((b) => b.type === t);
+    const cap = w.defs.get(me)!.capital;
+    const border = own.filter((p) => p.adj.some((q) => m.provinces.get(q)?.kind === 'land' && m.provinces.get(q)!.owner !== me));
+    const coastal = own.filter((p) => p.adj.some((q) => m.provinces.get(q)?.kind === 'sea'));
+    const r = this.random();
+    let pick: [number, BuildingType] | undefined;
+    if (atWar || (r < 0.3 && n.personality !== 'trader')) {
+      const p = border.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'fort'));
+      if (p) pick = [p.id, 'fort'];
+    }
+    if (!pick && r < 0.45 && !has(cap, 'air_defense') && own.some((p) => p.id === cap)) pick = [cap, 'air_defense'];
+    if (!pick && r < 0.55 && coastal.length) { const p = coastal.find((x) => !has(x.id, 'port')); if (p) pick = [p.id, 'port']; }
+    if (!pick && r < 0.65) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'mine')); if (p) pick = [p.id, 'mine']; }
+    if (!pick) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'factory')); if (p) pick = [p.id, 'factory']; }
+    if (pick && BUILDINGS[pick[1]]) orders.push({ kind: 'build', province: pick[0], building: pick[1] });
+    return orders;
   }
 
   /** What to build next: mostly land, a quarter air, some ships if we have a coast. */

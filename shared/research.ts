@@ -21,20 +21,20 @@ export const NO_EFFECTS: Effects = { growth: 0, stability: 0, landAttack: 0, lan
 export type TechId =
   | 'automation' | 'logistics_ai' | 'fusion_grid'
   | 'drones' | 'active_armor' | 'robotic_infantry'
-  | 'hypersonics' | 'stealth' | 'orbital_recon'
+  | 'hypersonics' | 'stealth' | 'orbital_recon' | 'nuclear'
   | 'digital_state' | 'healthcare' | 'social_cohesion';
 
 export interface Tech {
   id: TechId;
   name: string;
   branch: Branch;
-  tier: 1 | 2 | 3;
+  tier: 1 | 2 | 3 | 4;
   effects: Partial<Effects>;
   text: string;
 }
 
 /** Research points per tier. At the default 15% research budget a tier-1 tech takes about 2 game months (10 real minutes). */
-export const TIER_COST = { 1: 2000, 2: 4500, 3: 9000 } as const;
+export const TIER_COST = { 1: 2000, 2: 4500, 3: 9000, 4: 15000 } as const;
 
 export const TECHS: Tech[] = [
   { id: 'automation', name: 'Industrial automation', branch: 'economy', tier: 1, effects: { growth: 0.002 }, text: '+0.2% growth a year' },
@@ -46,6 +46,7 @@ export const TECHS: Tech[] = [
   { id: 'hypersonics', name: 'Hypersonic missiles', branch: 'sea_air', tier: 1, effects: { naval: 0.1 }, text: '+10% naval power' },
   { id: 'stealth', name: 'Stealth airframes', branch: 'sea_air', tier: 2, effects: { air: 0.15 }, text: '+15% air power' },
   { id: 'orbital_recon', name: 'Orbital reconnaissance', branch: 'sea_air', tier: 3, effects: { naval: 0.1, air: 0.1 }, text: '+10% naval and air power' },
+  { id: 'nuclear', name: 'Nuclear deterrent', branch: 'sea_air', tier: 4, effects: {}, text: 'Lets you build nuclear warheads ($40bn each)' },
   { id: 'digital_state', name: 'Digital government', branch: 'society', tier: 1, effects: { stability: 2, research: 0.1 }, text: '+2 stability, research 10% faster' },
   { id: 'healthcare', name: 'Universal genomics', branch: 'society', tier: 2, effects: { stability: 3, manpower: 0.1 }, text: '+3 stability, +10% reservists' },
   { id: 'social_cohesion', name: 'Civic renewal', branch: 'society', tier: 3, effects: { stability: 4, growth: 0.002 }, text: '+4 stability, +0.2% growth' },

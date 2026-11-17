@@ -1,5 +1,7 @@
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO } from '../../shared/research';
+import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
+import { MISSILE_COST } from '../../shared/military';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal, type Pact } from '../../shared/diplomacy';
 import { FOCI, LIMITS, type Focus, type NationPublic } from '../../shared/protocol';
 import type { Change, Game } from './game';
@@ -38,6 +40,9 @@ export interface HudActions {
   war(target: number): void;
   peace(target: number): void;
   moveHere(province: number): void;
+  build(province: number, building: BuildingType): void;
+  missile(province: number): void;
+  nuke(province: number): void;
   selection(): number; // how many of your units are selected
   preview(province: number): { days: number } | null;
 }
@@ -299,7 +304,7 @@ export class Hud {
   // ---- events ---------------------------------------------------------------
   private onClick(e: Event) {
     const t = e.target as HTMLElement;
-    const prov = t.closest<HTMLElement>('[data-province]');
+    const prov = t.closest<HTMLElement>('[data-province]:not([data-act])'); // action buttons carry a province too
     if (prov) return this.events.onSelectProvince(Number(prov.dataset.province));
     const mod = t.closest<HTMLElement>('[data-module]')?.dataset.module;
     if (mod === 'navy' || mod === 'air') { if (this.openPanel !== 'army') this.actions.toggleForces(); return; }
@@ -334,6 +339,12 @@ export class Hud {
         else { act.dataset.confirm = '1'; act.textContent = `Confirm: end the ${act.dataset.pact === 'alliance' ? 'alliance' : 'trade agreement'}`; }
       }
       else if (a === 'movehere') this.actions.moveHere(Number(act.dataset.province));
+      else if (a === 'build') this.actions.build(Number(act.dataset.province), act.dataset.building as BuildingType);
+      else if (a === 'missile') this.actions.missile(Number(act.dataset.province));
+      else if (a === 'nuke') {
+        if (act.dataset.confirm === '1') this.actions.nuke(Number(act.dataset.province));
+        else { act.dataset.confirm = '1'; act.textContent = 'Confirm: launch a nuclear strike'; }
+      }
       else if (a === 'focus') this.actions.policy({ focus: act.dataset.focus as Focus });
       else if (a === 'signin') this.actions.signIn();
       else if (a === 'signout') this.actions.signOut();
@@ -636,6 +647,34 @@ export class Hud {
     return `<button type="button" class="claim primary" data-act="movehere" data-province="${p.id}">Move ${n} selected unit${n > 1 ? "s" : ""} here · ${r.days.toFixed(1)} days (~${secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`})</button>`;
   }
 
+  /** Buildings here; build buttons in your own provinces. */
+  private buildingsHtml(p: Province) {
+    const g = this.game, list = g.war.buildings[p.id] ?? [];
+    const mine = !!g.mine && p.nation === g.mine.id && (g.war.occupied[p.id] ?? p.nation) === g.mine.id;
+    const nuked = g.war.nuked.includes(p.id);
+    if (!list.length && !mine && !nuked) return '';
+    const coastal = p.adj.some((q) => this.pol.provinces.get(q)?.kind === 'sea');
+    const missing = BUILDING_TYPES.filter((t) => !list.some((b) => b.type === t) && (!BUILDINGS[t].coastal || coastal));
+    return `<span class="label">BUILDINGS</span>
+      ${nuked ? '<p class="hint down">Struck by a nuclear weapon: a third of its people are gone.</p>' : ''}
+      ${list.length ? `<div class="bars">${list.map((b) => `<span>${BUILDINGS[b.type].name}</span><div class="bar"><i style="width:${Math.round(b.progress * 100)}%"></i></div><span class="mono">${b.progress >= 1 ? 'ready' : `${Math.round(b.progress * 100)}%`}</span>`).join('')}</div>` : '<p class="hint">None yet.</p>'}
+      ${mine && missing.length ? `<div class="build-list">${missing.map((t) => `<button type="button" class="claim" data-act="build" data-province="${p.id}" data-building="${t}" title="${BUILDINGS[t].text}">
+        <b>${BUILDINGS[t].name}</b><span class="mono">$${BUILDINGS[t].cost}bn · ${BUILDINGS[t].days} days</span><span>${BUILDINGS[t].text}</span></button>`).join('')}</div>` : ''}`;
+  }
+
+  /** Missile and nuclear strikes on enemy-held provinces. */
+  private strikeHtml(p: Province) {
+    const g = this.game, mine = g.mine;
+    const ctrl = g.war.occupied[p.id] ?? p.nation;
+    if (!mine || !g.atWar(mine.id, ctrl)) return '';
+    const done = mine.research?.done ?? [];
+    const mil = mine.mil;
+    const missile = done.includes('hypersonics')
+      ? `<button type="button" class="claim" data-act="missile" data-province="${p.id}" ${mil?.missileReady ? '' : 'disabled'}>${mil?.missileReady ? `Missile strike · $${MISSILE_COST}bn` : 'Missiles reloading (one salvo a day)'}</button>` : '';
+    const nuke = (mil?.warheads ?? 0) > 0 ? `<button type="button" class="claim danger" data-act="nuke" data-province="${p.id}">Nuclear strike (${mil!.warheads} warhead${mil!.warheads > 1 ? 's' : ''})</button>` : '';
+    return missile || nuke ? `<div class="actions-row">${missile}${nuke}</div>` : '';
+  }
+
   /** Treaties, war and peace with another nation, when you lead one. */
   private warButtons(n: Nation) {
     const g = this.game, mine = g.mine;
@@ -688,6 +727,8 @@ export class Hud {
       </div>
       ${this.occupationHtml(p)}
       ${this.moveHereHtml(p)}
+      ${this.strikeHtml(p)}
+      ${this.buildingsHtml(p)}
       <span class="label">RESOURCES</span>
       ${this.resourcesHtml(p)}
       ${n ? `

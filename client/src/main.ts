@@ -111,6 +111,9 @@ async function start() {
     war: (target) => conn.send({ t: 'order', order: { kind: 'war', target } }),
     peace: (target) => conn.send({ t: 'order', order: { kind: 'peace', target } }),
     moveHere: (p) => forces?.moveSelectedTo(p),
+    build: (province, building) => conn.send({ t: 'order', order: { kind: 'build', province, building } }),
+    missile: (province) => conn.send({ t: 'order', order: { kind: 'missile', province } }),
+    nuke: (province) => conn.send({ t: 'order', order: { kind: 'nuke', province } }),
     selection: () => forces?.selected.size ?? 0,
     preview: (p) => forces?.preview(p) ?? null,
   });
@@ -190,6 +193,8 @@ async function start() {
     mission: (units, mission) => conn.send({ t: 'order', order: { kind: 'mission', units, mission } }),
     recruit: (unit) => conn.send({ t: 'order', order: { kind: 'recruit', unit } }),
     peace: (target) => conn.send({ t: 'order', order: { kind: 'peace', target } }),
+    general: (unit) => conn.send({ t: 'order', order: { kind: 'general', unit } }),
+    warhead: () => conn.send({ t: 'order', order: { kind: 'warhead' } }),
     goToProvince: goTo,
   });
   forces.onSelectionChange = () => hud.refreshSelection();
