@@ -1,4 +1,5 @@
 import { DiplomacyPanel } from './diplomacy-panel';
+import { Cities } from './cities';
 import { ResearchPanel } from './research-panel';
 import { RankingsPanel } from './rankings-panel';
 import { Lobby } from './lobby';
@@ -239,6 +240,7 @@ async function start() {
   conn.onAuthFailed = () => login.open();
 
   await gameMap.ready();
+  new Cities(gameMap.map, pol, game);
   gameMap.setMode('political', 0.3);
   gameMap.addNationLabels();
   let lastHeard: unknown = null;

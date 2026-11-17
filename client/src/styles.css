@@ -163,6 +163,7 @@ input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color:
   text-shadow: 0 0 3px rgba(2, 8, 14, 0.95), 0 0 8px rgba(2, 8, 14, 0.7);
 }
 .province-label {
+  margin-top: -18px; /* sits just above its city */
   font: 500 11px/1 var(--f-body); color: rgba(244, 248, 250, 0.92);
   text-shadow: 0 0 3px rgba(2, 8, 14, 1), 0 0 6px rgba(2, 8, 14, 0.8);
 }
