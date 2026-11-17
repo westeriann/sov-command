@@ -35,34 +35,75 @@ function blob(lon: number, lat: number, km: number, rand: () => number): [number
   return ring;
 }
 
-/** A tile of city seen from orbit: blocks of roofs, streets, a little green. */
-function urbanTexture(): ImageData {
+type Climate = 'temperate' | 'arid' | 'tropical' | 'cold';
+type Style = 'old' | 'grid' | 'sprawl';
+const STYLES: Style[] = ['old', 'grid', 'sprawl'];
+const VARIANTS = 3;
+
+/** Roof and pavement colours as seen from orbit, by climate. */
+const PALETTE: Record<Climate, string[]> = {
+  temperate: ['#6a6765', '#8d8780', '#a9a39a', '#5c5450', '#7b6f66', '#b5aea3'],
+  arid: ['#b39b7a', '#c9b796', '#9a8467', '#d8cbb1', '#8c7a63', '#bfae90'],
+  tropical: ['#7b7266', '#9a9183', '#6c675c', '#b0a596', '#857565', '#5f6655'],
+  cold: ['#7a7c80', '#9a9ca0', '#5d6066', '#b3b4b6', '#6c6a6a', '#8b8f95'],
+};
+
+function climateOf(terrain: string): Climate {
+  if (['desert_sand', 'desert_rock', 'savanna', 'shrubland', 'steppe', 'mountain_dry'].includes(terrain)) return 'arid';
+  if (terrain === 'rainforest') return 'tropical';
+  if (['tundra', 'boreal', 'ice'].includes(terrain)) return 'cold';
+  return 'temperate';
+}
+
+/**
+ * A tile of city seen from orbit, on a transparent background so the land
+ * shows through: roofs and streets only, laid out as an old organic town, a
+ * planned grid, or loose sprawl.
+ */
+function urbanTexture(style: Style, climate: Climate, seed: number): ImageData {
   const S = 128, c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d')!;
-  const rand = rng(7);
-  g.fillStyle = '#a39887';
-  g.fillRect(0, 0, S, S);
-  const roofs = ['#a39a8b', '#7d756b', '#b4aa98', '#6e6a63', '#958c80', '#a8a196', '#8a7f72'];
-  for (let y = 0; y < S; y += 8) {
-    for (let x = 0; x < S; x += 8) {
-      if (rand() < 0.08) { g.fillStyle = '#6f7a5c'; g.fillRect(x, y, 8, 8); continue; } // parks
-      g.fillStyle = roofs[Math.floor(rand() * roofs.length)];
-      g.fillRect(x + 1, y + 1, 3 + Math.floor(rand() * 4), 3 + Math.floor(rand() * 4));
-      g.fillRect(x + 4, y + 4, 2 + Math.floor(rand() * 3), 2 + Math.floor(rand() * 3));
+  const rand = rng(seed * 131 + STYLES.indexOf(style) * 17 + 3);
+  const colors = PALETTE[climate];
+  const roof = (alpha: number) => { g.globalAlpha = alpha; g.fillStyle = colors[Math.floor(rand() * colors.length)]; };
+  // tiles repeat: draw anything that crosses an edge on the other side too
+  const rect = (x: number, y: number, w: number, h: number) => {
+    for (const dx of [0, -S]) for (const dy of [0, -S]) g.fillRect(x + dx, y + dy, w, h);
+    g.fillRect(x, y, w, h);
+  };
+  if (style === 'grid') {
+    const step = 9 + Math.floor(rand() * 5);
+    for (let y = 0; y < S; y += step) for (let x = 0; x < S; x += step) {
+      if (rand() < 0.1) continue; // empty lot
+      roof(0.28 + rand() * 0.3);
+      rect(x + 1, y + 1, step - 3 - Math.floor(rand() * 3), step - 3 - Math.floor(rand() * 3));
     }
+    g.globalAlpha = 0.22; g.strokeStyle = '#d9d2c4'; g.lineWidth = 1;
+    for (let i = 0; i < S; i += step * 3) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, S); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(S, i); g.stroke(); }
+  } else if (style === 'old') {
+    for (let i = 0; i < 520; i++) {
+      roof(0.22 + rand() * 0.32);
+      rect(rand() * S, rand() * S, 2 + rand() * 5, 2 + rand() * 4);
+    }
+    g.globalAlpha = 0.2; g.strokeStyle = '#d6cfc0'; g.lineWidth = 1.2;
+    for (let i = 0; i < 6; i++) {
+      g.beginPath();
+      g.moveTo(rand() * S, 0);
+      g.bezierCurveTo(rand() * S, S * 0.33, rand() * S, S * 0.66, rand() * S, S);
+      g.stroke();
+    }
+  } else {
+    for (let i = 0; i < 260; i++) {
+      roof(0.18 + rand() * 0.25);
+      rect(rand() * S, rand() * S, 2 + rand() * 3, 2 + rand() * 3);
+    }
+    g.globalAlpha = 0.18; g.fillStyle = climate === 'arid' ? '#9a8a64' : '#56664a'; // gardens, fields between houses
+    for (let i = 0; i < 18; i++) rect(rand() * S, rand() * S, 5 + rand() * 9, 4 + rand() * 8);
+    g.globalAlpha = 0.16; g.strokeStyle = '#d6cfc0';
+    for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, rand() * S); g.lineTo(S, rand() * S); g.stroke(); }
   }
-  // streets: a slightly skewed grid with a few boulevards
-  g.strokeStyle = 'rgba(205, 198, 182, 0.55)';
-  g.lineWidth = 1;
-  for (let i = 0; i <= S; i += 16) {
-    g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 3, S); g.stroke();
-    g.beginPath(); g.moveTo(0, i); g.lineTo(S, i - 2); g.stroke();
-  }
-  g.strokeStyle = 'rgba(220, 212, 195, 0.7)';
-  g.lineWidth = 2;
-  g.beginPath(); g.moveTo(0, 40); g.lineTo(S, 88); g.stroke();
-  g.beginPath(); g.moveTo(70, 0); g.lineTo(52, S); g.stroke();
+  g.globalAlpha = 1;
   return g.getImageData(0, 0, S, S);
 }
 
@@ -99,7 +140,9 @@ const SLOTS: [number, number][] = [[-34, 30], [0, 38], [34, 30], [-56, 10], [56,
 
 export class Cities {
   constructor(private map: MLMap, private pol: Political, private game: Game) {
-    map.addImage('urban', urbanTexture(), { pixelRatio: 2 });
+    for (const st of STYLES) for (const cl of Object.keys(PALETTE) as Climate[]) for (let v = 0; v < VARIANTS; v++) {
+      map.addImage(`u-${st}-${cl}-${v}`, urbanTexture(st, cl, v), { pixelRatio: 2 });
+    }
     for (const t of Object.keys(GLYPH) as BuildingType[]) map.addImage(`b-${t}`, buildingIcon(t), { pixelRatio: 2 });
 
     const capitals = new Set([...pol.nations.values()].map((n) => n.capital));
@@ -113,7 +156,14 @@ export class Cities {
       const rand = rng(p.id * 7919);
       const [lon, lat] = p.label;
       const km = (5 + 14 * Math.sqrt(pop / 1e7)) * (capital ? 1.35 : 1);
-      const rings = [blob(lon, lat, km, rand)];
+      // each city gets its own look: layout by size and luck, palette by climate
+      const style: Style = pop > 8e6 || capital ? (rand() < 0.5 ? 'grid' : 'old') : pop > 3e6 ? STYLES[Math.floor(rand() * 2)] : (rand() < 0.6 ? 'sprawl' : 'old');
+      const pat = `u-${style}-${climateOf(p.terrain)}-${p.id % VARIANTS}`;
+      const sprawl = `u-sprawl-${climateOf(p.terrain)}-${(p.id + 1) % VARIANTS}`;
+      // a dense core, then thinner rings, so the city fades into the countryside
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35 }, geometry: { type: 'Polygon', coordinates: [blob(lon, lat, km * 1.9, rand)] } });
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45 }, geometry: { type: 'Polygon', coordinates: [blob(lon, lat, km * 1.35, rand)] } });
+      const rings = [blob(lon, lat, km * 0.8, rand)];
       // suburbs and satellite towns around bigger cities
       const extra = Math.min(4, Math.floor(pop / 3e6) + (capital ? 1 : 0));
       for (let i = 0; i < extra; i++) {
@@ -121,7 +171,7 @@ export class Cities {
         const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
         rings.push(blob(lon + (d / 111) * Math.cos(a) / cos, lat + (d / 111) * Math.sin(a), km * (0.25 + rand() * 0.3), rand));
       }
-      for (const r of rings) areas.push({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [r] } });
+      rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8 }, geometry: { type: 'Polygon', coordinates: [r] } }));
       cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1) }, geometry: { type: 'Point', coordinates: [lon, lat] } });
     }
     map.addSource('cities', { type: 'geojson', data: { type: 'FeatureCollection', features: areas } });
@@ -132,19 +182,19 @@ export class Cities {
     map.addLayer({
       id: 'city-cores', type: 'circle', source: 'city-cores', maxzoom: 5.5,
       paint: {
-        'circle-color': '#efe2c4',
+        'circle-color': '#d9ccb0',
         'circle-blur': 1,
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, ['*', 2, ['get', 'size']], 4, ['*', 7, ['get', 'size']]],
-        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.25, 3.5, 0.35, 5.5, 0],
+        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.12, 3.5, 0.16, 5, 0],
       },
     }, below);
     // up close: the city itself, blended into the terrain
     map.addLayer({
       id: 'cities', type: 'fill', source: 'cities', minzoom: 3,
       paint: {
-        'fill-pattern': 'urban',
-        'fill-antialias': true,
-        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0, 4, 0.55, 6, 0.75, 8, 0.8],
+        'fill-pattern': ['get', 'pat'],
+        'fill-antialias': false,
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0, 4.2, ['*', 0.55, ['get', 'w']], 6, ['*', 0.8, ['get', 'w']], 8, ['get', 'w']],
       },
     }, below);
     map.addLayer({

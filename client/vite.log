@@ -126,3 +126,10 @@ Error: read ECONNRESET
 Error: read ECONNRESET
     at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
 9:46:01 PM [vite] (client) page reload src/cities.ts
+9:50:10 PM [vite] (client) page reload src/cities.ts
+9:51:37 PM [vite] ws proxy error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+9:51:37 PM [vite] ws proxy socket error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
