@@ -79,6 +79,7 @@ export interface WarState {
 export interface EconomyUpdate {
   market: MarketSnapshot;
   nations: EconomyPublic[];
+  season?: SeasonInfo;
 }
 
 /** Lets the client run the world clock locally between messages. */
@@ -98,11 +99,24 @@ export interface WorldEvent {
   text: string;
 }
 
+export type ChatChannel = 'world' | 'allies' | 'direct';
 export interface ChatLine {
   at: number; // real ms
   from: string;
   nation?: number;
   text: string;
+  channel?: ChatChannel; // world when absent
+  to?: number; // direct messages: the nation addressed
+}
+
+/** Seasons: scores build up every game day; the leader when the season ends wins it. */
+export interface SeasonInfo {
+  number: number;
+  startedAt: number; // real ms
+  endsAt: number; // real ms
+  leaders: { nation: number; score: number; power: number }[]; // top 20; power = share of world strength now
+  history: { d: number; s: Record<number, number> }[]; // weekly scores of the current top nations
+  hallOfFame: { season: number; endedAt: number; nation: number; name: string; player?: string; score: number }[];
 }
 
 export interface Me {
@@ -145,7 +159,7 @@ export type ClientMsg =
   | { t: 'claim'; nation: number }
   | { t: 'release' }
   | { t: 'order'; order: Order }
-  | { t: 'chat'; text: string }
+  | { t: 'chat'; text: string; channel?: ChatChannel; to?: number }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =

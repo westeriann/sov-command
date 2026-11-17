@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { DAY, gameTimeAt } from '../../shared/clock.ts';
 import {
   FOCI, LIMITS,
-  type ChatLine, type ClockInfo, type ErrorCode, type EventKind, type Focus, type NationPrivate,
+  type ChatChannel, type ChatLine, type ClockInfo, type SeasonInfo, type ErrorCode, type EventKind, type Focus, type NationPrivate,
   type NationPublic, type Order, type Personality, type Policy, type WorldEvent,
 } from '../../shared/protocol.ts';
 import { COMMODITIES, normalizeBudget, type Commodity } from '../../shared/economy.ts';
@@ -78,6 +78,7 @@ export interface WorldOptions {
   aiBudgetPerTick: number; // most AI decisions per tick, keeps CPU flat
   autopilotAfterMs: number; // real ms offline before the AI steps in
   releaseAfterMs: number; // real ms offline before the nation returns to the AI
+  seasonMs?: number; // real length of a season (default 28 days)
 }
 
 export interface WorldListener {
@@ -174,6 +175,8 @@ export class World {
   private factories = new Map<number, number>();
   nuked: number[] = [];
   private warDirty = false;
+  season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number> }[]; dominance: number };
+  private power = new Map<number, number>();
   listener: WorldListener | null = null;
 
   constructor(private db: DB, seed: number, defs: NationDef[], private opts: WorldOptions, provinces?: Province[]) {
@@ -244,6 +247,8 @@ export class World {
     this.diplomacy = new Diplomacy(storedDiplo ? JSON.parse(storedDiplo) : null);
     const byId = new Map(provList.map((p) => [p.id, p]));
     for (const [p, owner] of this.diplomacy.owners) { const prov = byId.get(p); if (prov) prov.owner = owner; }
+    const seasonMs = opts.seasonMs ?? 28 * 86_400_000;
+    this.season = JSON.parse(getMeta(db, 'season') ?? 'null') ?? { number: 1, startedAt: Date.now(), endsAt: Date.now() + seasonMs, scores: {}, history: [], dominance: 0 };
     this.nuked = JSON.parse(getMeta(db, 'nuked') ?? '[]');
     for (const p of this.nuked) { const prov = byId.get(p); if (prov) prov.pop *= 0.7; }
     const storedMil = getMeta(db, 'military');
@@ -414,6 +419,7 @@ export class World {
     setMeta(this.db, 'military', JSON.stringify(this.military.serialize()));
     setMeta(this.db, 'diplomacy', JSON.stringify(this.diplomacy.serialize()));
     setMeta(this.db, 'nuked', JSON.stringify(this.nuked));
+    setMeta(this.db, 'season', JSON.stringify(this.season));
   }
 
   /** Units visible to a user's nation (none for players without a nation). */
@@ -458,6 +464,7 @@ export class World {
     return {
       market: marketSnapshot(this.market),
       nations: [...this.nations.values()].filter((n) => !n.annexedBy).map((n) => publicEcon(n.id, n.econ)),
+      season: this.seasonInfo(),
     };
   }
 
@@ -475,8 +482,88 @@ export class World {
     return id ? this.nations.get(id) ?? null : null;
   }
 
-  recent() {
-    return { events: this.recentEvents.slice(-40), chat: this.recentChat.slice(-40) };
+  recent(userId?: number) {
+    return { events: this.recentEvents.slice(-40), chat: this.recentChat.filter((l) => this.canRead(l, userId)).slice(-40) };
+  }
+
+  /** Who may read a chat line: everyone for world chat; the two nations for direct; allies of the sender for allies. */
+  canRead(line: ChatLine, userId?: number) {
+    if (!line.channel || line.channel === 'world') return true;
+    const me = userId !== undefined ? this.byUser.get(userId) : undefined;
+    if (me === undefined) return false;
+    if (me === line.nation) return true;
+    if (line.channel === 'direct') return me === line.to;
+    return line.nation !== undefined && this.diplomacy.allies(line.nation).includes(me);
+  }
+
+  /** Users who should receive a private line right now. */
+  audience(line: ChatLine) {
+    return [...this.byUser.keys()].filter((u) => this.canRead(line, u));
+  }
+
+  /** Recent events about one nation, for its history page. */
+  history(nation: number) {
+    const name = this.defs.get(nation)?.name;
+    if (!name) return [];
+    return (this.db.prepare('select at, kind, text from events where nation = ? or text like ? order by id desc limit 80')
+      .all(nation, `%${name}%`) as { at: number; kind: string; text: string }[]);
+  }
+
+  /** Weekly territory snapshots for replays. */
+  replay() {
+    return (this.db.prepare('select day, data from snapshots order by day desc limit 520').all() as { day: number; data: string }[])
+      .reverse().map((r) => ({ day: r.day, ...JSON.parse(r.data) }));
+  }
+
+  seasonInfo(): SeasonInfo {
+    const s = this.season;
+    const leaders = Object.entries(s.scores).map(([id, score]) => ({ nation: Number(id), score: Math.round(score), power: Math.round((this.power.get(Number(id)) ?? 0) * 1000) / 10 }))
+      .sort((a, b) => b.score - a.score).slice(0, 20);
+    const hallOfFame = (this.db.prepare('select number, ended_at, standings from seasons order by number desc limit 10').all() as { number: number; ended_at: number; standings: string }[])
+      .map((r) => ({ season: r.number, endedAt: r.ended_at, ...(JSON.parse(r.standings)[0] ?? {}) }));
+    return { number: s.number, startedAt: s.startedAt, endsAt: s.endsAt, leaders, history: s.history, hallOfFame };
+  }
+
+  /** Daily scores: a weighted share of the world's wealth, people, armed strength and science. */
+  private scoreDay() {
+    const live = [...this.nations.values()].filter((n) => !n.annexedBy);
+    const strength = (n: NationState) => this.military.unitsOf(n.id).reduce((s, u) => s + UNIT_SPECS[u.type].cost * u.strength / 100, 0);
+    const str = new Map(live.map((n) => [n.id, strength(n)]));
+    const tot = { gdp: 0, pop: 0, mil: 0, tech: 0 };
+    for (const n of live) { tot.gdp += n.econ.gdp; tot.pop += n.econ.pop; tot.mil += str.get(n.id)!; tot.tech += n.tech.done.length; }
+    let top = 0;
+    this.power.clear();
+    for (const n of live) {
+      const p = 0.4 * n.econ.gdp / tot.gdp + 0.3 * n.econ.pop / tot.pop + 0.2 * str.get(n.id)! / Math.max(1, tot.mil) + 0.1 * n.tech.done.length / Math.max(1, tot.tech);
+      this.power.set(n.id, p);
+      this.season.scores[n.id] = (this.season.scores[n.id] ?? 0) + p * 100;
+      top = Math.max(top, p);
+    }
+    // domination: a nation holding 40% of world power for 60 game days ends the season early
+    this.season.dominance = top >= 0.4 ? this.season.dominance + 1 : 0;
+    if (this.market.day % 7 === 0) {
+      const best = Object.entries(this.season.scores).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      this.season.history.push({ d: this.market.day, s: Object.fromEntries(best.map(([id, v]) => [id, Math.round(v)])) });
+      if (this.season.history.length > 260) this.season.history.splice(0, this.season.history.length - 260);
+      this.db.prepare('insert or replace into snapshots (day, data) values (?, ?)')
+        .run(this.market.day, JSON.stringify({ o: Object.fromEntries(this.diplomacy.owners), x: Object.fromEntries(this.military.occupied) }));
+    }
+  }
+
+  /** Close the season: record the standings in the hall of fame and start a new one. Nations keep going. */
+  endSeason(reason: string) {
+    const s = this.season;
+    const standings = Object.entries(s.scores).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([id, score]) => {
+      const n = this.nations.get(Number(id))!;
+      return { nation: n.id, name: this.defs.get(n.id)!.name, player: n.player, score: Math.round(score) };
+    });
+    this.db.prepare('insert or replace into seasons (number, ended_at, standings) values (?, ?, ?)').run(s.number, Date.now(), JSON.stringify(standings));
+    const w = standings[0];
+    if (w) this.event('world', w.nation, `Season ${s.number} ends (${reason}). Victory to the ${w.name}${w.player ? ` led by ${w.player}` : ''} with ${w.score.toLocaleString('en-US')} points.`);
+    const length = s.endsAt - s.startedAt;
+    this.season = { number: s.number + 1, startedAt: Date.now(), endsAt: Date.now() + length, scores: {}, history: [], dominance: 0 };
+    this.saveState();
+    this.listener?.economy({ ...this.economyUpdate(), market: marketSnapshot(this.market, 1) });
   }
 
   humanCount() {
@@ -891,13 +978,19 @@ export class World {
     }
   }
 
-  chat(user: User, text: string): Result {
+  chat(user: User, text: string, channel: ChatChannel = 'world', to?: number): Result {
     const clean = String(text ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, LIMITS.chatLength);
     if (!clean) return fail('bad_request', 'Empty message.');
     const nation = this.byUser.get(user.id);
+    if (!['world', 'allies', 'direct'].includes(channel)) return fail('bad_request', 'Unknown channel.');
+    if (channel !== 'world' && !nation) return fail('not_ruling', 'Lead a nation to use private channels.');
+    if (channel === 'direct' && (!this.nations.has(Number(to)) || Number(to) === nation)) return fail('bad_request', 'Choose a nation to write to.');
+    if (channel === 'allies' && !this.diplomacy.allies(nation!).length) return fail('not_allowed', 'You have no allies to talk to.');
     const line: ChatLine = { at: Date.now(), from: user.name, nation, text: clean };
-    this.db.prepare('insert into chat (at, user_id, name, nation, text) values (?, ?, ?, ?, ?)')
-      .run(line.at, user.id, user.name, nation ?? null, clean);
+    if (channel !== 'world') line.channel = channel;
+    if (channel === 'direct') line.to = Number(to);
+    this.db.prepare('insert into chat (at, user_id, name, nation, text, channel, to_nation) values (?, ?, ?, ?, ?, ?, ?)')
+      .run(line.at, user.id, user.name, nation ?? null, clean, channel, line.to ?? null);
     this.recentChat.push(line);
     if (this.recentChat.length > 200) this.recentChat.splice(0, 100);
     this.listener?.chat(line);
@@ -939,6 +1032,8 @@ export class World {
     this.military.advance(now, events);
     this.handleMilEvents(events);
     this.runEconomy(realNow);
+    if (realNow >= this.season.endsAt) this.endSeason('time is up');
+    else if (this.season.dominance >= 60) this.endSeason('one nation dominates the world');
     this.persist();
   }
 
@@ -1029,6 +1124,7 @@ export class World {
       }));
       runDay(inputs, this.market, this.market.day + 1);
       this.politicsDay(this.market.day);
+      this.scoreDay();
       if (this.market.day % HISTORY_EVERY_DAYS === 0) weekly = true;
     }
     if (this.warDirty) { this.warDirty = false; this.warChanged(); }

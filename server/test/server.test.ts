@@ -15,7 +15,7 @@ let base = '';
 before(async () => {
   app = start({
     port: 0, worldDir: resolve('../client/public/world'), dbFile: join(dir, 'w.db'), speed: 24,
-    aiBudgetPerTick: 25, autopilotAfterMs: 3_600_000, releaseAfterMs: 86_400_000, allowedOrigins: [],
+    aiBudgetPerTick: 25, autopilotAfterMs: 3_600_000, releaseAfterMs: 86_400_000, seasonMs: 28 * 86_400_000, allowedOrigins: [],
   });
   base = `http://127.0.0.1:${await app.ready}`;
 });

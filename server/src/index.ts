@@ -19,6 +19,7 @@ const config = {
   aiBudgetPerTick: Number(env('AI_BUDGET', '25')),
   autopilotAfterMs: Number(env('AUTOPILOT_AFTER_HOURS', '1')) * HOUR, // one game year
   releaseAfterMs: Number(env('RELEASE_AFTER_DAYS', '7')) * 24 * HOUR,
+  seasonMs: Number(env('SEASON_DAYS', '28')) * 24 * HOUR, // real days per season
   allowedOrigins: env('ALLOWED_ORIGINS', '').split(',').map((s) => s.trim()).filter(Boolean),
 };
 
@@ -31,6 +32,7 @@ export function start(cfg = config) {
     aiBudgetPerTick: cfg.aiBudgetPerTick,
     autopilotAfterMs: cfg.autopilotAfterMs,
     releaseAfterMs: cfg.releaseAfterMs,
+    seasonMs: cfg.seasonMs,
   }, provinces);
   const accounts = new Accounts(db);
   let hub: Hub | null = null;

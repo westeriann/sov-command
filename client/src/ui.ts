@@ -1,5 +1,6 @@
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO } from '../../shared/research';
+import { historyHtml } from './rankings-panel';
 import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
 import { MISSILE_COST } from '../../shared/military';
 import { SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
@@ -27,13 +28,15 @@ export interface HudActions {
   release(): void;
   policy(p: { focus?: Focus; tax?: number }): void;
   autopilot(on: boolean): void;
-  chat(text: string): void;
+  chat(text: string, channel: 'world' | 'allies' | 'direct', to?: number): void;
   signIn(): void;
   signOut(): void;
   toggleEconomy(): void;
   toggleForces(): void;
   toggleDiplomacy(): void;
   toggleResearch(): void;
+  toggleRankings(): void;
+  worlds(): void;
   guide(): void;
   toggleSound(): boolean; // returns whether sound is now on
   propose(target: number, deal: Deal): void;
@@ -59,6 +62,7 @@ const MODULES: [string, string, string | null][] = [
   ['Air command', 'air', null],
   ['Diplomacy', 'diplomacy', null],
   ['R&D', 'research', null],
+  ['Rankings', 'rankings', null],
 ];
 
 const RESOURCES: [string, string][] = [
@@ -166,6 +170,7 @@ export class Hud {
           <button type="button" class="status mono" id="status"></button>
           <span class="mono date" id="clock"></span>
           <span class="speed mono" id="speed" title="The world clock never pauses"></span>
+          <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="guide">Guide</button>
           <button type="button" class="link" data-act="sound" id="soundBtn" aria-pressed="true">Sound on</button>
           <span id="account"></span>
@@ -233,6 +238,8 @@ export class Hud {
         <ol class="comms-list mono" id="commsList"></ol>
         <form class="chat-form" id="chatForm" hidden>
           <label for="chatInput" class="visually-hidden">Message</label>
+          <select id="chatChannel" aria-label="Channel"><option value="world">World</option><option value="allies">Allies</option><option value="direct">Direct</option></select>
+          <select id="chatTo" aria-label="Send to" hidden>${[...this.pol.nations.values()].sort((a, b) => a.name.localeCompare(b.name)).map((n) => `<option value="${n.id}">${esc(n.name)}</option>`).join('')}</select>
           <input id="chatInput" maxlength="${LIMITS.chatLength}" placeholder="Message everyone in this world" autocomplete="off">
           <button type="submit">Send</button>
         </form>
@@ -295,11 +302,18 @@ export class Hud {
     this.root.addEventListener('change', (e) => {
       const t = e.target as HTMLInputElement;
       if (t.id === 'autopilot') this.actions.autopilot(t.checked);
+      if (t.id === 'chatChannel') {
+        const ch = (t as unknown as HTMLSelectElement).value;
+        this.root.querySelector<HTMLElement>('#chatTo')!.hidden = ch !== 'direct';
+        this.root.querySelector<HTMLInputElement>('#chatInput')!.placeholder = ch === 'world' ? 'Message everyone in this world' : ch === 'allies' ? 'Message your allies and bloc' : 'Private message';
+      }
     });
     this.root.querySelector<HTMLFormElement>('#chatForm')!.addEventListener('submit', (e) => {
       e.preventDefault();
       const input = this.root.querySelector<HTMLInputElement>('#chatInput')!;
-      if (input.value.trim()) this.actions.chat(input.value);
+      const channel = this.root.querySelector<HTMLSelectElement>('#chatChannel')!.value as 'world' | 'allies' | 'direct';
+      const to = Number(this.root.querySelector<HTMLSelectElement>('#chatTo')!.value);
+      if (input.value.trim()) this.actions.chat(input.value, channel, channel === 'direct' ? to : undefined);
       input.value = '';
     });
   }
@@ -313,6 +327,7 @@ export class Hud {
     if (mod === 'navy' || mod === 'air') { if (this.openPanel !== 'army') this.actions.toggleForces(); return; }
     if (mod === 'diplomacy' || (mod === 'map' && this.openPanel === 'diplomacy')) { this.actions.toggleDiplomacy(); return; }
     if (mod === 'research' || (mod === 'map' && this.openPanel === 'research')) { this.actions.toggleResearch(); return; }
+    if (mod === 'rankings' || (mod === 'map' && this.openPanel === 'rankings')) { this.actions.toggleRankings(); return; }
     if (mod === 'economy' || mod === 'map' || mod === 'army') {
       if (mod === 'army' || (mod === 'map' && this.openPanel === 'army')) this.actions.toggleForces();
       if (mod === 'economy' || (mod === 'map' && this.openPanel === 'economy')) this.actions.toggleEconomy();
@@ -356,6 +371,12 @@ export class Hud {
       else if (a === 'signin') this.actions.signIn();
       else if (a === 'signout') this.actions.signOut();
       else if (a === 'guide') this.actions.guide();
+      else if (a === 'worlds') this.actions.worlds();
+      else if (a === 'history') {
+        const box = act.parentElement?.querySelector<HTMLElement>('.history-box');
+        const id = Number(act.dataset.nation);
+        if (box) { box.innerHTML = '<p class="hint">Loading…</p>'; void historyHtml(id, this.pol.nations.get(id)?.name ?? '').then((h) => { box.innerHTML = h; }); }
+      }
       else if (a === 'sound') this.setSound(this.actions.toggleSound());
       else if (a === 'mine' && this.game.mine) {
         const n = this.pol.nations.get(this.game.mine.id);
@@ -395,10 +416,10 @@ export class Hud {
     b.setAttribute('aria-pressed', String(on));
   }
 
-  private openPanel: 'economy' | 'army' | 'diplomacy' | 'research' | null = null;
+  private openPanel: 'economy' | 'army' | 'diplomacy' | 'research' | 'rankings' | null = null;
 
   /** Highlight the module whose window is open (or the map when none is). */
-  setOpenPanel(panel: 'economy' | 'army' | 'diplomacy' | 'research' | null) {
+  setOpenPanel(panel: 'economy' | 'army' | 'diplomacy' | 'research' | 'rankings' | null) {
     this.openPanel = panel;
     this.root.querySelectorAll<HTMLElement>('[data-module]').forEach((b) => {
       const active = b.dataset.module === (panel ?? 'map');
@@ -539,7 +560,8 @@ export class Hud {
       list.innerHTML = lines.length
         ? lines.map((l) => {
             const n = nationName(l.nation);
-            return `<li><time>${new Date(l.at).toTimeString().slice(0, 5)}</time><b>${esc(l.from)}${n ? ` · ${esc(n)}` : ''}</b><span>${esc(l.text)}</span></li>`;
+            const tag = l.channel === 'allies' ? '<em class="tag">ALLIES</em>' : l.channel === 'direct' ? `<em class="tag">TO ${esc(nationName(l.to) ?? '?')}</em>` : '';
+            return `<li class="${l.channel ?? 'world'}"><time>${new Date(l.at).toTimeString().slice(0, 5)}</time><b>${esc(l.from)}${n ? ` · ${esc(n)}` : ''}</b>${tag}<span>${esc(l.text)}</span></li>`;
           }).join('')
         : `<li class="empty-row">${this.game.status === 'online' ? 'Nobody has said anything yet.' : 'Sign in to chat with other players.'}</li>`;
       list.scrollTop = list.scrollHeight;
@@ -630,11 +652,11 @@ export class Hud {
     if (live.controller === 'human') {
       const state = live.autopilot ? 'away · advisers in charge' : live.online ? 'online' : 'offline';
       return `<div class="controller human"><b>Led by ${esc(live.player ?? 'a player')}</b><span class="mono">${state}</span></div>
-        <div class="kv mono">${focus}${army}</div>${diplomacy}`;
+        <div class="kv mono">${focus}${army}</div>${diplomacy}${this.historyButton(n.id)}`;
     }
     return `<div class="controller ai"><b>Run by the AI</b><span class="mono">${PERSONALITY_NAMES[live.personality ?? ''] ?? ''} government</span></div>
       <div class="kv mono">${focus}${army}</div>
-      ${g.mine ? diplomacy : `<button type="button" class="claim primary" data-act="claim" data-nation="${n.id}">Take command of this nation</button>`}`;
+      ${g.mine ? diplomacy : `<button type="button" class="claim primary" data-act="claim" data-nation="${n.id}">Take command of this nation</button>`}${this.historyButton(n.id)}`;
   }
 
   private occupationHtml(p: Province) {
@@ -658,6 +680,10 @@ export class Hud {
     if (r.days < 0.05) return ''; // already there
     const secs = Math.round(r.days * (86_400 / this.game.speed));
     return `<button type="button" class="claim primary" data-act="movehere" data-province="${p.id}">Move ${n} selected unit${n > 1 ? "s" : ""} here · ${r.days.toFixed(1)} days (~${secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`})</button>`;
+  }
+
+  private historyButton(id: number) {
+    return `<div class="history-wrap"><button type="button" class="link" data-act="history" data-nation="${id}">Show this nation's history</button><div class="history-box"></div></div>`;
   }
 
   /** Spy operations against another nation. */

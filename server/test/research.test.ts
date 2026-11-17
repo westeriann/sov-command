@@ -59,3 +59,29 @@ test('AI nations pick research on their own', () => {
   assert.ok(w.nations.get(2)!.tech.current, 'the AI chose something to research');
   assert.equal(w.nations.get(1)!.tech.current, undefined, 'players choose for themselves');
 });
+
+test('seasons: scores build up daily; the season ends into the hall of fame', () => {
+  const w = setup();
+  w.tick(Date.now() + realPerDay * 10);
+  const info = w.seasonInfo();
+  assert.equal(info.number, 1);
+  assert.equal(info.leaders.length, 2);
+  assert.ok(info.leaders[0].score > 0 && info.leaders[0].power > 0);
+  w.endSeason('test');
+  const next = w.seasonInfo();
+  assert.equal(next.number, 2, 'a new season starts');
+  assert.equal(next.leaders.length, 0, 'scores reset');
+  assert.equal(next.hallOfFame[0].season, 1, 'the winner is remembered');
+});
+
+test('private chat: direct lines reach only the two nations; allied lines only allies', () => {
+  const w = setup();
+  w.claim({ id: 2, name: 'bob', guest: false }, 2);
+  w.claim({ id: 3, name: 'eve', guest: false }, 3 as never); // no nation 3 in this world: eve watches
+  assert.equal(w.chat({ id: 1, name: 'alice', guest: false }, 'hi bob', 'direct', 2).ok, true);
+  const line = w.recent(1).chat.at(-1)!;
+  assert.equal(line.channel, 'direct');
+  assert.equal(w.canRead(line, 2), true);
+  assert.equal(w.canRead(line, 3), false, 'others cannot read it');
+  assert.equal(w.chat({ id: 1, name: 'alice', guest: false }, 'friends?', 'allies').ok, false, 'no allies yet');
+});

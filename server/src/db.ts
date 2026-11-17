@@ -35,7 +35,13 @@ export function openDb(file: string): DB {
       id integer primary key, at integer not null, user_id integer, name text not null,
       nation integer, text text not null
     );
+    create table if not exists seasons (number integer primary key, ended_at integer not null, standings text not null);
+    create table if not exists snapshots (day integer primary key, data text not null);
   `);
+  // columns added after the first release
+  const cols = (db.prepare('pragma table_info(chat)').all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes('channel')) db.exec("alter table chat add column channel text not null default 'world'");
+  if (!cols.includes('to_nation')) db.exec('alter table chat add column to_nation integer');
   return db;
 }
 

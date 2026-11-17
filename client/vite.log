@@ -85,3 +85,23 @@ Error: read ECONNRESET
 9:29:45 PM [vite] (client) page reload src/research-panel.ts
 9:29:45 PM [vite] (client) hmr update /src/styles.css
 9:29:52 PM [vite] (client) page reload src/diplomacy-panel.ts
+9:32:00 PM [vite] (client) page reload /home/user/sovereign-command/shared/protocol.ts
+9:33:46 PM [vite] (client) page reload src/game.ts
+9:33:46 PM [vite] (client) page reload src/political.ts
+9:33:46 PM [vite] (client) page reload src/ui.ts
+9:33:46 PM [vite] (client) page reload src/main.ts
+9:33:46 PM [vite] (client) hmr update /src/styles.css
+9:33:51 PM [vite] (client) page reload src/game.ts
+9:33:51 PM [vite] (client) page reload src/ui.ts
+9:34:39 PM [vite] ws proxy error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+9:34:39 PM [vite] ws proxy socket error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+9:36:05 PM [vite] ws proxy error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+9:36:05 PM [vite] ws proxy socket error:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)

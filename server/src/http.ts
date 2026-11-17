@@ -70,12 +70,22 @@ export function apiHandler(accounts: Accounts, world: World, onlineCount: () => 
         return json(res, 200, { ok: true });
       }
       if (req.method === 'GET' && url.pathname === '/api/world') {
+        res.setHeader('access-control-allow-origin', '*'); // the lobby on other worlds' sites reads this
         return json(res, 200, {
+          name: process.env.WORLD_NAME ?? 'Earth Prime',
           clock: { ...world.clock, serverNow: Date.now() },
           nations: world.nations.size,
           players: world.humanCount(),
           online: onlineCount(),
+          season: { number: world.season.number, endsAt: world.season.endsAt },
+          day: world.market.day,
         });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/history') {
+        return json(res, 200, { events: world.history(Number(url.searchParams.get('nation'))) });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/replay') {
+        return json(res, 200, { frames: world.replay() });
       }
       if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
         const ip = req.socket.remoteAddress ?? '?';

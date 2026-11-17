@@ -56,7 +56,8 @@ export class Hub implements WorldListener {
   }
 
   chat(line: ChatLine) {
-    this.broadcast({ t: 'chat', line });
+    if (!line.channel || line.channel === 'world') return this.broadcast({ t: 'chat', line });
+    for (const u of this.world.audience(line)) this.toUser(u, { t: 'chat', line });
   }
 
   units(userId: number, units: UnitView[]) {
@@ -125,7 +126,7 @@ export class Hub implements WorldListener {
       set.add(ws);
       if (first) this.world.setPresence(user.id, true);
       const mine = this.world.nationOf(user.id);
-      const { events, chat } = this.world.recent();
+      const { events, chat } = this.world.recent(user.id);
       this.send(ws, {
         t: 'welcome',
         you: { ...user, nation: mine?.id ?? null },
@@ -158,7 +159,7 @@ export class Hub implements WorldListener {
         const now = Date.now();
         if (now - conn.lastChat < CHAT_GAP_MS) return this.error(ws, 'rate_limited', 'Wait a moment before sending again.');
         conn.lastChat = now;
-        return this.reply(ws, this.world.chat(user, msg.text));
+        return this.reply(ws, this.world.chat(user, msg.text, msg.channel, msg.to));
       }
       default:
         return this.error(ws, 'bad_request', 'Unknown message.');

@@ -48,6 +48,8 @@ export class Political {
   provinces = new Map<number, Province>();
   nations = new Map<number, Nation>();
   nationProvinces = new Map<number, number[]>();
+  /** Owners when the map was made, before any land changed hands (for replays). */
+  original = new Map<number, number>();
   grid!: Uint16Array;
   width = 0;
   height = 0;
@@ -66,6 +68,7 @@ export class Political {
     const p = new Political();
     for (const pr of data.provinces) {
       p.provinces.set(pr.id, pr);
+      if (pr.nation) p.original.set(pr.id, pr.nation);
       if (pr.nation) {
         const list = p.nationProvinces.get(pr.nation) ?? [];
         list.push(pr.id);

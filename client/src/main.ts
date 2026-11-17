@@ -1,5 +1,7 @@
 import { DiplomacyPanel } from './diplomacy-panel';
 import { ResearchPanel } from './research-panel';
+import { RankingsPanel } from './rankings-panel';
+import { Lobby } from './lobby';
 import { Sound, type Cue } from './sound';
 import { Tutorial } from './tutorial';
 import './styles.css';
@@ -63,7 +65,7 @@ async function start() {
     release: () => conn.send({ t: 'release' }),
     policy: (policy) => conn.send({ t: 'order', order: { kind: 'policy', policy } }),
     autopilot: (on) => conn.send({ t: 'order', order: { kind: 'autopilot', on } }),
-    chat: (text) => conn.send({ t: 'chat', text }),
+    chat: (text, channel, to) => conn.send({ t: 'chat', text, channel, to }),
     signIn: () => login.open(),
     signOut: () => {
       const token = loadToken();
@@ -76,6 +78,7 @@ async function start() {
     guide: () => tutorial?.start(),
     toggleSound: () => { sound.toggle(); return sound.on; },
     toggleEconomy: () => {
+      rankings?.close();
       forces?.close();
       diplomacy?.close();
       research?.close();
@@ -87,10 +90,22 @@ async function start() {
       economy.close();
       diplomacy?.close();
       research?.close();
+      rankings?.close();
       forces.toggle();
       hud.setOpenPanel(forces.isOpen ? 'army' : null);
     },
+    worlds: () => void lobby?.open(),
+    toggleRankings: () => {
+      if (!rankings) return;
+      economy.close();
+      forces?.close();
+      diplomacy?.close();
+      research?.close();
+      rankings.toggle();
+      hud.setOpenPanel(rankings.isOpen ? 'rankings' : null);
+    },
     toggleResearch: () => {
+      rankings?.close();
       if (!research) return;
       economy.close();
       forces?.close();
@@ -100,6 +115,7 @@ async function start() {
     },
     toggleDiplomacy: () => {
       if (!diplomacy) return;
+      rankings?.close();
       economy.close();
       forces?.close();
       research?.close();
@@ -122,6 +138,8 @@ async function start() {
   let forces: Forces | null = null;
   let diplomacy: DiplomacyPanel | null = null;
   let research: ResearchPanel | null = null;
+  let rankings: RankingsPanel | null = null;
+  let lobby: Lobby | null = null;
   const economy = new EconomyPanel(hudRoot, game, pol, {
     budget: (budget) => conn.send({ t: 'order', order: { kind: 'budget', budget } }),
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
@@ -135,6 +153,26 @@ async function start() {
   document.addEventListener('forces-closed', () => hud.setOpenPanel(null));
   document.addEventListener('diplomacy-closed', () => hud.setOpenPanel(null));
   document.addEventListener('research-closed', () => hud.setOpenPanel(null));
+  document.addEventListener('rankings-closed', () => hud.setOpenPanel(null));
+  lobby = new Lobby(hudRoot);
+  rankings = new RankingsPanel(hudRoot, game, pol, {
+    goToNation: (id) => {
+      const n = pol.nations.get(id);
+      const p = n && pol.provinces.get(n.capital);
+      if (p) select(p.label[1], p.label[0], true);
+    },
+    showTerritory: (frame) => {
+      const live = new Map(Object.entries(game.war.occupied).map(([p, n]) => [Number(p), n]));
+      if (!frame) { gameMap.setOccupied(live, true); return; }
+      // colour each province by who held it then (owner by treaty, or occupier), relative to today's map
+      const shown = new Map<number, number>();
+      for (const [id, orig] of pol.original) {
+        const then = frame.x[id] ?? frame.o[id] ?? orig;
+        if (then !== pol.provinces.get(id)?.nation) shown.set(id, then);
+      }
+      gameMap.setOccupied(shown, true);
+    },
+  });
   hud.setSound(sound.on);
   hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.module, .claim, [data-r], [data-d]')) sound.play('click'); });
   tutorial = new Tutorial(hudRoot);
