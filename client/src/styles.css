@@ -242,7 +242,7 @@ input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color:
 
 /* ---- land forces ---- */
 .unit-marker {
-  position: relative; width: 30px; height: 30px; padding: 3px 3px 5px; border-radius: 7px; cursor: pointer; color: #f4f8fa;
+  position: absolute; width: 30px; height: 30px; padding: 3px 3px 5px; border-radius: 7px; cursor: pointer; color: #f4f8fa;
   background: radial-gradient(circle at 50% 35%, #1f3140, #0b1620 75%); border: 2px solid var(--nation);
   box-shadow: 0 0 0 1px rgba(2, 8, 14, 0.8), 0 2px 6px rgba(2, 8, 14, 0.75);
 }

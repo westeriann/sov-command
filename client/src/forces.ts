@@ -52,6 +52,29 @@ export interface ForcesActions {
 
 type Pos = [number, number];
 
+/** The point a fraction t of the way from a to b along the shortest path over the globe. */
+function greatCircle(a: Pos, b: Pos, t: number): Pos {
+  const r = Math.PI / 180;
+  const v = ([lon, lat]: Pos) => [Math.cos(lat * r) * Math.cos(lon * r), Math.cos(lat * r) * Math.sin(lon * r), Math.sin(lat * r)];
+  const A = v(a), B = v(b);
+  const d = Math.acos(Math.min(1, Math.max(-1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2])));
+  if (d < 1e-6) return a;
+  const s = Math.sin(d), ka = Math.sin((1 - t) * d) / s, kb = Math.sin(t * d) / s;
+  const x = ka * A[0] + kb * B[0], y = ka * A[1] + kb * B[1], z = ka * A[2] + kb * B[2];
+  return [Math.atan2(y, x) / r, Math.atan2(z, Math.hypot(x, y)) / r];
+}
+
+/**
+ * Set a marker's own classes without touching the map library's (maplibregl-marker
+ * and friends), which pin the element to its point. Overwriting className drops them,
+ * and the marker then floats in page flow, away from its province.
+ */
+function setClasses(el: HTMLElement, classes: string) {
+  const want = new Set(classes.split(' ').filter(Boolean));
+  for (const c of [...el.classList]) if (!c.startsWith('maplibregl-') && !want.has(c)) el.classList.remove(c);
+  for (const c of want) el.classList.add(c);
+}
+
 export class Forces {
   selected = new Set<number>();
   private markers = new Map<string, { marker: Marker; el: HTMLElement; units: UnitView[]; html?: string }>();
@@ -104,9 +127,7 @@ export class Forces {
     if (u.next === undefined || !u.legStart || !u.legEnd) return a;
     const b = this.label(u.next);
     const t = Math.min(1, Math.max(0, (this.game.gameNow().getTime() - u.legStart) / (u.legEnd - u.legStart)));
-    let dl = b[0] - a[0];
-    if (dl > 180) dl -= 360; else if (dl < -180) dl += 360;
-    return [a[0] + dl * t, a[1] + (b[1] - a[1]) * t];
+    return greatCircle(a, b, t);
   }
 
   private render() {
@@ -149,7 +170,7 @@ export class Forces {
       const shape = domains.size === 1 ? `d-${[...domains][0]}` : 'd-mixed';
       const cutOff = units.some((u) => u.supplied === false);
       const general = units.find((u) => u.general)?.general;
-      m.el.className = `unit-marker ${side} ${shape}${cutOff ? ' nosupply' : ''}${sel ? ' selected' : ''}${this.openStack === key ? ' open' : ''}${units.some((u) => u.status === 'fighting') ? ' fighting' : ''}`;
+      setClasses(m.el, `unit-marker ${side} ${shape}${cutOff ? ' nosupply' : ''}${sel ? ' selected' : ''}${this.openStack === key ? ' open' : ''}${units.some((u) => u.status === 'fighting') ? ' fighting' : ''}`);
       m.el.style.setProperty('--nation', nation?.color ?? '#888');
       const summary = counts.map(([t, c]) => `${c} ${UNIT_SPECS[t].name.toLowerCase()}`).join(', ');
       m.el.setAttribute('aria-label', `${nation?.short ?? ''} forces: ${summary}; ${strength}% strength${general ? `; led by ${general.name} (skill ${general.skill})` : ''}${cutOff ? '; OUT OF SUPPLY' : ''}`);
@@ -162,6 +183,17 @@ export class Forces {
         + `<i style="width:${strength}%"></i>`
         + (this.openStack === key && side === 'own' ? `<span class="stack-list" role="menu">${counts.map(([t, c]) => `<span role="menuitem" tabindex="0" data-pick="${t}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${c} × ${UNIT_SPECS[t].name}</span>`).join('')}</span>` : '');
       if (m.html !== inner) { m.html = inner; m.el.innerHTML = inner; } // redraw only what changed
+    }
+    // several nations' stacks in one province (a battle, allies side by side): spread them
+    // out around the province's point, ours first, so none hides another
+    const byProvince = new Map<number, string[]>();
+    for (const [key, units] of groups) {
+      if (units[0].next !== undefined) continue;
+      byProvince.set(units[0].province, [...(byProvince.get(units[0].province) ?? []), key]);
+    }
+    for (const keys of byProvince.values()) {
+      keys.sort((x, y) => Number(groups.get(y)![0].nation === mine) - Number(groups.get(x)![0].nation === mine) || x.localeCompare(y));
+      keys.forEach((key, i) => this.markers.get(key)!.marker.setOffset([(i - (keys.length - 1) / 2) * 42, 0]));
     }
     // battles
     const battles = new Set(this.game.war.battles);

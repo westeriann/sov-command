@@ -338,6 +338,8 @@ async function start() {
     }
   });
   const map = gameMap.map;
+  // ?debug in the address: expose the map and game state for tests and troubleshooting
+  if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { sovDebug: { map, pol, game } });
   const goTo = (id: number) => {
     const p = pol.provinces.get(id);
     if (p) select(p.label[1], p.label[0], true);
