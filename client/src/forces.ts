@@ -3,9 +3,10 @@
 import { Marker, type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import { money } from '../../shared/economy';
 import {
-  distanceKm, domainOf, findRoute, STRIKERS, UNIT_ROLE, UNIT_SPECS, UNIT_TECH, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
+  distanceKm, domainOf, findRoute, legDays, STRIKERS, UNIT_ROLE, UNIT_SPECS, UNIT_TECH, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
 } from '../../shared/military';
 import type { Game } from './game';
+import { seasonSlow } from '../../shared/seasons';
 import type { Political } from './political';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -252,7 +253,15 @@ export class Forces {
       }
       const r = findRoute(this.nodes, u.next ?? u.province, to, u.type, canEnter(domain));
       if (!r) return null;
-      days = Math.max(days, r.days);
+      // winter roads: the same slowdown the server applies, leg by leg
+      const now = this.game.gameNow().getTime();
+      let total = 0, at = u.next ?? u.province;
+      for (const q of r.path) {
+        const a = this.pol.provinces.get(at), b = this.pol.provinces.get(q);
+        if (a && b) total += legDays(a as never, b as never, u.type) * (domain === 'land' && b.kind === 'land' ? seasonSlow(now + total * 86_400_000, b.terrain, b.label[1]) : 1);
+        at = q;
+      }
+      days = Math.max(days, total || r.days);
     }
     return { days };
   }

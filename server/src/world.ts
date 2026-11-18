@@ -28,6 +28,7 @@ import { cleanFlag, isColor, type FlagSpec } from '../../shared/flags.ts';
 import type { GlobalEventKind, WorldState } from '../../shared/protocol.ts';
 import { ACHIEVEMENTS, MISSION_CASH, MISSION_KINDS, MISSION_REWARD_DAYS, type AchievementKey, type GoalKind, type SeasonMission } from '../../shared/goals.ts';
 import { EARNED_EMBLEMS } from '../../shared/flags.ts';
+import { HARVEST, WINTER_POWER, seasonAt } from '../../shared/seasons.ts';
 import { GOV_LIBERTY, PROPAGANDA_COST, type Faction, type Ideology, type PropagandaMode } from '../../shared/society.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { findRoute, type RouteNode } from '../../shared/military.ts';
@@ -1347,6 +1348,7 @@ export class World {
         plantPower: this.plants.get(n.id)?.share ?? 0,
         thermalPlants: this.plants.get(n.id)?.thermal ?? 0,
         extraUse: this.extraUse(n),
+        ...this.seasonFactors(n),
         bonusStability: this.effects(n.id).stability,
       }));
       runDay(inputs, this.market, this.market.day + 1);
@@ -1475,6 +1477,13 @@ export class World {
     d.short = n.custom?.short ?? original.original.short;
   }
 
+  /** The season at a nation's capital sets its harvest and its heating bill. */
+  seasonFactors(n: NationState) {
+    const lat = this.military.provinces.get(this.defs.get(n.id)?.capital ?? -1)?.label[1] ?? 0;
+    const s = seasonAt(this.worldStart + this.market.day * DAY, lat);
+    return { harvest: s ? HARVEST[s] : 1, powerDemand: s === 'winter' && Math.abs(lat) >= 30 ? WINTER_POWER : 1 };
+  }
+
   // ---- weather and shipping lanes ----------------------------------------------------------
   /** Storm systems drift with the prevailing winds; aircraft under them are grounded and ships battered. */
   private weatherDay() {
@@ -1485,7 +1494,12 @@ export class World {
       if (s.lon > 180) s.lon -= 360; if (s.lon < -180) s.lon += 360;
     }
     while (this.storms.length < 7 && this.rand() < 0.5) {
-      const lat = (this.rand() < 0.5 ? -1 : 1) * (8 + this.rand() * 50);
+      // storm seasons: hurricanes in each hemisphere's late summer and autumn, gales at high latitudes in winter
+      const month = new Date(this.worldStart + day * DAY).getUTCMonth();
+      const northSeason = month >= 6 && month <= 10 ? 0.75 : month <= 1 || month === 11 ? 0.55 : 0.5;
+      const hemi = this.rand() < northSeason ? 1 : -1;
+      const winterGale = (hemi > 0 ? month <= 1 || month === 11 : month >= 5 && month <= 7) && this.rand() < 0.5;
+      const lat = hemi * (winterGale ? 40 + this.rand() * 25 : 8 + this.rand() * 35);
       const westerly = Math.abs(lat) > 30;
       this.storms.push({
         lon: this.rand() * 360 - 180, lat, r: 400 + this.rand() * 600,

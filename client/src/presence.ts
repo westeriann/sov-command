@@ -4,9 +4,15 @@
 import type { GeoJSONSource, Map as MLMap } from 'maplibre-gl';
 import type { Game } from './game';
 import type { Political } from './political';
+import { seasonAt } from '../../shared/seasons';
 
 export class Presence {
   constructor(private map: MLMap, private game: Game, private pol: Political) {
+    // a light snow tint over the hemisphere in winter, beyond 40 degrees, where armies slow and invaders freeze
+    map.addSource('winter', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'winter', type: 'fill', source: 'winter', paint: { 'fill-color': '#eaf3f8', 'fill-opacity': 0.13, 'fill-antialias': false } });
+    window.setInterval(() => this.renderWinter(), 5000);
+    this.renderWinter();
     map.addSource('lanes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('storms', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
@@ -31,6 +37,19 @@ export class Presence {
     });
     game.on((c) => { if (c.has('war') || c.has('mine')) this.render(); });
     this.render();
+  }
+
+  private winterNorth: boolean | null = null;
+
+  private renderWinter() {
+    const now = this.game.gameNow().getTime();
+    const north = seasonAt(now, 45) === 'winter', south = seasonAt(now, -45) === 'winter';
+    const key = north ? true : south ? false : null;
+    if (key === this.winterNorth && this.map.getSource('winter')) return;
+    this.winterNorth = key;
+    const band = (a: number, b: number): GeoJSON.Feature => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[-180, a], [180, a], [180, b], [-180, b], [-180, a]]] } });
+    const features = [...(north ? [band(40, 84)] : []), ...(south ? [band(-84, -40)] : [])];
+    (this.map.getSource('winter') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features });
   }
 
   private render() {

@@ -513,3 +513,5 @@ body.cb .up { color: #6bb8ff; }
 .axis-bar i { position: absolute; top: -4px; width: 4px; height: 14px; margin-left: -2px; background: #fff; border-radius: 2px; }
 .faction { display: grid; grid-template-columns: 110px 1fr 30px; align-items: center; gap: 8px; margin: 8px 0 2px; font-size: 12px; }
 .faction .hint { grid-column: 1 / -1; font-size: 11px; }
+
+.season-note b { color: var(--fg); }

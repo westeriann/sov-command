@@ -1,5 +1,6 @@
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO } from '../../shared/research';
+import { HARVEST, SEASON_NAMES, coldLand, seasonAt } from '../../shared/seasons';
 import { historyHtml } from './rankings-panel';
 import { flagSvg } from '../../shared/flags';
 import { flagOf } from './customize';
@@ -628,7 +629,9 @@ export class Hud {
   private tick() {
     const d = this.game.gameNow();
     const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
-    this.clock.textContent = `${date} · ${d.toISOString().slice(11, 16)}Z`;
+    const n = seasonAt(d.getTime(), 45), s = seasonAt(d.getTime(), -45);
+    this.clock.textContent = `${date} · ${d.toISOString().slice(11, 16)}Z · ${SEASON_NAMES[n!].toUpperCase()} N / ${SEASON_NAMES[s!].toUpperCase()} S`;
+    this.clock.title = 'Winter in cold lands: armies move 50% slower and troops on foreign soil lose strength; more electricity is needed. Harvests peak in autumn and fall in winter.';
   }
 
   // ---- map hover and selection ----------------------------------------------------------
@@ -692,6 +695,16 @@ export class Hud {
     return `<div class="controller ai"><b>Run by the AI</b><span class="mono">${PERSONALITY_NAMES[live.personality ?? ''] ?? ''} government</span></div>
       <div class="kv mono">${focus}${army}</div>
       ${g.mine ? diplomacy : `<button type="button" class="claim primary" data-act="claim" data-nation="${n.id}">Take command of this nation</button>${this.revoltHtml(n.id)}`}${this.historyButton(n.id)}`;
+  }
+
+  /** What the season means here, now. */
+  private seasonHtml(p: Province) {
+    const now = this.game.gameNow().getTime(), lat = p.label[1];
+    const s = seasonAt(now, lat);
+    if (!s) return '';
+    const cold = coldLand(p.terrain, lat);
+    const effects = s === 'winter' && cold ? 'armies move 50% slower; foreign troops lose strength daily' : s === 'winter' ? 'mild winter: no penalties' : '';
+    return `<p class="hint season-note"><b>${SEASON_NAMES[s]}</b>${effects ? ` · ${effects}` : ''} · harvests at ${Math.round(HARVEST[s] * 100)}%</p>`;
   }
 
   private occupationHtml(p: Province) {
@@ -838,6 +851,7 @@ export class Hud {
         ${p.lake ? `<span>Lakes</span><span>${km2(p.lake)}</span>` : ''}
         <span>Movement</span><span>${movementCost(p.terrain)}${(p.river ?? 0) >= 3 ? ' · river crossing' : ''}</span>
       </div>
+      ${this.seasonHtml(p)}
       ${this.occupationHtml(p)}
       ${this.moveHereHtml(p)}
       ${this.strikeHtml(p)}

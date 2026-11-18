@@ -145,6 +145,10 @@ Depth (each feature changes play):
   factions (military, business, public) with bonuses and penalties,
   propaganda at home or abroad, civil wars that split nations, and players
   founding new nations by leading a revolt
+- Weather seasons: spring, summer, autumn and winter each game year (15 real
+  minutes each, opposite in the two hemispheres). Winter in cold lands slows
+  armies 50%, wears down troops on foreign soil and raises electricity
+  demand; harvests peak in autumn; hurricane and gale seasons
 - On the map: storms (aircraft grounded, ships battered), shipping lanes that
   enemy warships can raid, a Night lights mode showing power and blackouts,
   port cities on the coast

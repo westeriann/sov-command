@@ -242,3 +242,24 @@ test('storms ground aircraft and batter ships; weather is shared with players', 
   for (let i = 0; i < 5; i++) v.military.fight(() => true, () => undefined, []);
   assert.equal(v.nations.get(2)!.econ.gdp, gdp, 'grounded: no bombing');
 });
+
+test('weather seasons: winter slows armies and wears down invaders in cold lands; harvests follow the year', async () => {
+  const { seasonAt, seasonSlow, HARVEST } = await import('../../shared/seasons.ts');
+  const jan = Date.UTC(2027, 0, 15), jul = Date.UTC(2027, 6, 15);
+  assert.equal(seasonAt(jan, 50), 'winter');
+  assert.equal(seasonAt(jan, -50), 'summer', 'opposite in the south');
+  assert.equal(seasonAt(jan, 5), null, 'no seasons in the tropics');
+  assert.equal(seasonSlow(jan, 'grassland', 50), 1.5);
+  assert.equal(seasonSlow(jul, 'grassland', 50), 1);
+  assert.ok(HARVEST.autumn > HARVEST.winter);
+  // a cold-land strip: invaders freeze in winter, defenders at home do not
+  const cold = (): Province[] => provinces().map((p) => ({ ...p, label: [p.label[0], 55] as [number, number] }));
+  const w = new World(openDb(':memory:'), 1, defs, opts, cold());
+  w.military.units.clear();
+  w.submit(1, { kind: 'war', target: 2 }, 'ai');
+  w.military.now = jan;
+  const invader = w.military.spawn(1, 'infantry', 7), home = w.military.spawn(2, 'infantry', 8);
+  w.military.fight(() => true, () => undefined, []);
+  assert.ok(invader.strength < 100, 'the invader loses strength');
+  assert.equal(home.strength, 100, 'the defender at home does not');
+});

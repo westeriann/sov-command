@@ -4,6 +4,7 @@
 // through orders that players and AI submit the same way.
 import { DAY } from '../../shared/clock.ts';
 import type { BuildingState, BuildingType } from '../../shared/buildings.ts';
+import { WINTER_ATTRITION, coldLand, seasonAt, seasonSlow } from '../../shared/seasons.ts';
 import {
   BEACHHEAD, GENERAL_BONUS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, distanceKm, domainOf, findRoute, legDays,
   type Domain, type General, type Mission, type QueueItem, type RouteNode, type UnitType, type UnitView, type War,
@@ -353,7 +354,9 @@ export class Military {
     }
     u.next = next;
     u.legStart = at;
-    u.legEnd = at + legDays(this.provinces.get(u.province)!, this.provinces.get(next)!, u.type) * DAY;
+    const to = this.provinces.get(next)!;
+    const slow = domainOf(u.type) === 'land' && to.kind === 'land' ? seasonSlow(at, to.terrain, to.label[1]) : 1; // winter roads
+    u.legEnd = at + legDays(this.provinces.get(u.province)!, to, u.type) * DAY * slow;
   }
 
   declareWar(a: number, b: number, day: number) {
@@ -448,6 +451,14 @@ export class Military {
     const all = [...this.units.values()];
     const air = all.filter((u) => domainOf(u.type) === 'air');
     const ships = all.filter((u) => domainOf(u.type) === 'sea');
+
+    // winter: troops on foreign soil in cold lands lose strength; defenders at home are housed and supplied
+    for (const u of all) {
+      if (!this.units.has(u.id) || domainOf(u.type) !== 'land') continue;
+      const p = this.provinces.get(u.province);
+      if (!p || p.kind !== 'land' || p.owner === u.nation || this.allied(u.nation, p.owner ?? -1)) continue;
+      if (seasonAt(this.now, p.label[1]) === 'winter' && coldLand(p.terrain, p.label[1])) u.strength = Math.max(10, u.strength - WINTER_ATTRITION);
+    }
 
     // storms at sea: ships are battered, troops on transports suffer worst
     for (const u of all) {

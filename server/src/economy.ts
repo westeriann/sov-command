@@ -134,6 +134,8 @@ export interface DayInput {
   plantPower?: number; // share of electricity demand covered by power stations
   thermalPlants?: number; // the part of that which burns coal or gas
   factoryGrowth?: number; // growth from factories, if they get metals and electricity
+  harvest?: number; // seasonal food output factor
+  powerDemand?: number; // seasonal electricity demand factor
 }
 
 /**
@@ -155,7 +157,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     const e = n.econ;
     for (const c of COMMODITIES) {
       const use = ((usePerYear(c, e.gdp, e.pop) + (n.extraUse?.[c] ?? 0)) / 365) * thrift(c);
-      let net = (e.capacity[c] / 365) * utilisation(c) * (n.control ?? 1) - use;
+      let net = (e.capacity[c] / 365) * utilisation(c) * (n.control ?? 1) * (c === 'food' ? n.harvest ?? 1 : 1) - use;
       e.trade[c] = 0;
       e.short[c] = 0;
       if (net < 0) {
@@ -229,7 +231,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
 
     // electricity: the base grid comes from coal and gas too, so fuel shortages dim it
     e.grid ??= e.gdp * 1.08;
-    const demandE = e.gdp;
+    const demandE = e.gdp * (n.powerDemand ?? 1);
     const fuelShort = Math.min(1, (e.short.coal + e.short.gas) / 2);
     const supplyE = e.grid * (1 - 0.6 * fuelShort) + demandE * ((n.plantPower ?? 0) - (n.thermalPlants ?? 0) * fuelShort);
     e.blackout = Math.max(0, Math.min(1, 1 - supplyE / Math.max(1, demandE)));
