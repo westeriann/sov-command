@@ -1,6 +1,7 @@
 import type { AuthResponse } from '../../shared/protocol';
 import { DiplomacyPanel } from './diplomacy-panel';
 import { Cities } from './cities';
+import { Presence } from './presence';
 import { AccountDialog } from './account';
 import { AdminPanel } from './admin';
 import { CustomizeDialog } from './customize';
@@ -55,8 +56,9 @@ async function start() {
   let alerts = false;
   try { alerts = localStorage.getItem('sov.alerts') === 'on'; } catch { /* storage blocked */ }
   let tutorial: Tutorial | null = null;
+  let citiesRef: Cities | null = null;
   const hud = new Hud(hudRoot, world, pol, game, {
-    onMode: (m, opacity) => gameMap.setMode(m, opacity),
+    onMode: (m, opacity) => { gameMap.setMode(m, opacity); citiesRef?.setLights(m === 'lights'); },
     onOpacity: (v) => gameMap.setOverlayOpacity(v),
     onGrid: (on) => gameMap.setGrid(on),
     onBorders: (on) => gameMap.setBorders(on),
@@ -261,7 +263,10 @@ async function start() {
   conn.onAuthFailed = () => login.open();
 
   await gameMap.ready();
-  new Cities(gameMap.map, pol, game);
+  const cities = new Cities(gameMap.map, pol, game);
+  citiesRef = cities;
+  new Presence(gameMap.map, game, pol);
+  game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
   gameMap.setMode('political', 0.3);
   gameMap.addNationLabels();
   let lastHeard: unknown = null;

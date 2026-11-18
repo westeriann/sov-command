@@ -94,6 +94,8 @@ export class Military {
   buildings = new Map<number, BuildingState[]>();
   /** Current game time, set by the World before each day's fighting. */
   now = 0;
+  /** Set by the World: provinces and sea zones under a storm today. */
+  storm: (p: number) => boolean = () => false;
   /** Set by the World: damage a nation's economy by a share of GDP (strategic bombing). */
   onEconomicDamage: (nation: number, share: number) => void = () => {};
 
@@ -447,6 +449,13 @@ export class Military {
     const air = all.filter((u) => domainOf(u.type) === 'air');
     const ships = all.filter((u) => domainOf(u.type) === 'sea');
 
+    // storms at sea: ships are battered, troops on transports suffer worst
+    for (const u of all) {
+      if (!this.units.has(u.id) || this.provinces.get(u.province)?.kind !== 'sea' || !this.storm(u.province)) continue;
+      u.strength -= domainOf(u.type) === 'land' ? 4 : 1.5;
+      if (u.strength < DESTROYED_AT) { this.units.delete(u.id); events.push({ kind: 'destroyed', province: u.province, nation: u.nation }); }
+    }
+
     // troops caught at sea by enemy warships
     for (const u of all) {
       if (domainOf(u.type) !== 'land') continue;
@@ -500,6 +509,7 @@ export class Military {
       if (land) {
         for (const w of air) {
           if (!isSide(w.nation) || !this.units.has(w.id)) continue;
+          if (this.storm(w.province) || (w.mission && this.storm(w.mission.target))) continue; // grounded by weather
           const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air')) * (airDefense && side(w.nation) === 'a' ? 0.5 : 1);
           if (w.type === 'fighters' && w.mission?.kind === 'patrol' && this.inRange(w, p, PATROL_RADIUS)) cover[side(w.nation)] += power;
           if (STRIKERS.includes(w.type) && w.mission?.kind === 'support' && this.inRange(w, p, SUPPORT_RADIUS)) strike[side(w.nation)] += power * (w.type === 'bombers' ? 0.5 : 1);
@@ -570,6 +580,7 @@ export class Military {
     // strategic bombing: strike wings hit industry in enemy provinces
     for (const w of air) {
       if (!this.units.has(w.id) || !STRIKERS.includes(w.type) || w.mission?.kind !== 'bomb' || w.next !== undefined) continue;
+      if (this.storm(w.province) || this.storm(w.mission.target)) continue;
       const t = w.mission.target, owner = this.controller(t);
       if (!this.atWar(w.nation, owner) || distanceKm(this.label(w.province), this.label(t)) > this.rangeOf(w)) continue;
       const defended = this.built(t, 'air_defense');

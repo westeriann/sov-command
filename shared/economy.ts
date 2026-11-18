@@ -111,6 +111,7 @@ export interface EconomyPublic {
   growth: number;
   gdppc: number;
   stability: number; // public approval, 0..100
+  blackout: number; // share of electricity demand unmet (it shows from space)
 }
 
 export interface MarketSnapshot {

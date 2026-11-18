@@ -30,7 +30,7 @@ export class Game {
   season: SeasonInfo | null = null;
   world: WorldState | null = null;
   units: UnitView[] = [];
-  war: WarState = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {}, blocs: [], council: [], vassals: {} };
+  war: WarState = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {}, blocs: [], council: [], vassals: {}, storms: [], lanes: [] };
 
   treaty(kind: 'alliance' | 'trade', a: number | undefined, b: number | undefined) {
     return !!a && !!b && this.war.treaties.some((t) => t.kind === kind && ((t.a === a && t.b === b) || (t.a === b && t.b === a)));
@@ -67,7 +67,7 @@ export class Game {
     this.clock = null;
     this.economy.clear();
     this.units = [];
-    this.war = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {}, blocs: [], council: [], vassals: {} };
+    this.war = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {}, blocs: [], council: [], vassals: {}, storms: [], lanes: [] };
     this.market = null;
     this.emit('me', 'mine', 'nations', 'events', 'chat', 'online', 'economy');
   }

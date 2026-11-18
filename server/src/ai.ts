@@ -283,7 +283,9 @@ export class AiBrain {
       if (ours > theirs * 1.2) {
         const coast = [...m.provinces.values()].find((prov) => prov.kind === 'land' && enemies.includes(prov.owner ?? -1)
           && prov.adj.some((q) => m.provinces.get(q)?.kind === 'sea'));
-        const zone = coast?.adj.find((q) => m.provinces.get(q)?.kind === 'sea');
+        // raid their trade: a warship anywhere on a shipping lane cuts that deal, or blockade the coast
+        const lane = w.lanes.find((l) => enemies.includes(l.a) || enemies.includes(l.b));
+        const zone = lane && this.random() < 0.5 ? lane.path[Math.floor(lane.path.length / 2)] : coast?.adj.find((q) => m.provinces.get(q)?.kind === 'sea');
         if (zone !== undefined && !fleet.every((u) => u.province === zone)) orders.push({ kind: 'move', units: fleet.map((u) => u.id), to: zone });
       }
     }

@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Political } from './political';
 import { BIOME_INFO, mercatorCanvas, type World } from './world';
 
-export type MapMode = 'political' | 'wealth' | 'satellite' | 'terrain' | 'elevation' | 'climate';
+export type MapMode = 'political' | 'wealth' | 'satellite' | 'terrain' | 'elevation' | 'climate' | 'lights';
 
 /** Income per person ($/yr) colour scale, read on a log scale. */
 export const WEALTH_STOPS: [number, string][] = [
@@ -364,6 +364,13 @@ export class GameMap {
       const colours = new Map<number, [number, number, number]>();
       for (const n of this.pol.nations.values()) colours.set(n.id, hex(n.color));
       canvas = this.nationCanvas((id) => colours.get(id));
+    } else if (mode === 'lights') {
+      // the world from orbit at night: dark land, lit cities
+      canvas = document.createElement('canvas');
+      canvas.width = 4; canvas.height = 2;
+      const g = canvas.getContext('2d')!;
+      g.fillStyle = 'rgb(3, 7, 16)';
+      g.fillRect(0, 0, 4, 2);
     } else if (mode === 'wealth') {
       const logStops = WEALTH_STOPS.map(([v, c]) => [Math.log10(v), c] as [number, string]);
       canvas = this.nationCanvas((id) => {

@@ -87,8 +87,9 @@ const MODES: [MapMode, string][] = [
   ['terrain', 'Terrain types'],
   ['elevation', 'Elevation'],
   ['climate', 'Temperature'],
+  ['lights', 'Night lights (power)'],
 ];
-const DEFAULT_OPACITY: Record<MapMode, number> = { political: 30, wealth: 60, satellite: 0, terrain: 70, elevation: 70, climate: 70 };
+const DEFAULT_OPACITY: Record<MapMode, number> = { political: 30, wealth: 60, satellite: 0, terrain: 70, elevation: 70, climate: 70, lights: 85 };
 const FOCUS_NAMES: Record<Focus, string> = { economy: 'Economy', military: 'Military', research: 'Research', diplomacy: 'Diplomacy' };
 const PERSONALITY_NAMES: Record<string, string> = {
   expansionist: 'Expansionist', trader: 'Trader', turtle: 'Defensive', opportunist: 'Opportunist', idealist: 'Idealist',

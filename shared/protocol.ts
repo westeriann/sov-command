@@ -96,6 +96,8 @@ export interface WarState {
   blocs: Bloc[];
   council: Resolution[]; // open resolutions and the most recent results
   vassals: Record<number, number>; // vassal -> overlord
+  storms: { lon: number; lat: number; r: number }[]; // r in km: aircraft grounded, ships battered
+  lanes: { a: number; b: number; path: number[]; raided: boolean }[]; // sea routes of trade agreements
 }
 
 /** Daily economy broadcast: world market plus every nation's public figures. */

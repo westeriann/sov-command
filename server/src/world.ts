@@ -30,6 +30,7 @@ import { ACHIEVEMENTS, MISSION_CASH, MISSION_KINDS, MISSION_REWARD_DAYS, type Ac
 import { EARNED_EMBLEMS } from '../../shared/flags.ts';
 import { GOV_LIBERTY, PROPAGANDA_COST, type Faction, type Ideology, type PropagandaMode } from '../../shared/society.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
+import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import {
@@ -187,6 +188,10 @@ export class World {
   private factories = new Map<number, number>();
   globe: WorldState & { lastClimateDay: number; low: number[]; oilCut?: Record<number, number> } = { warming: 0, lastClimateDay: 0, low: [] };
   private migrants = new Map<number, { in: number; out: number }>();
+  storms: { lon: number; lat: number; r: number; vlon: number; vlat: number; until: number }[] = [];
+  private stormy = new Set<number>();
+  lanes: { a: number; b: number; path: number[]; raided: boolean }[] = [];
+  private laneCache = new Map<string, number[] | null>();
   private plants = new Map<number, { share: number; thermal: number; coal: number; gas: number }>();
   nuked: number[] = [];
   private warDirty = false;
@@ -303,6 +308,8 @@ export class World {
     this.recomputeNeighbours();
     for (const n of this.nations.values()) n.soc ??= this.initialSociety(n);
     this.military.bonus = (nation, kind) => this.effects(nation)[kind];
+    this.military.storm = (p) => this.stormy.has(p);
+    this.storms = JSON.parse(getMeta(db, 'storms') ?? '[]');
     this.military.onEconomicDamage = (nation, share) => {
       const e = this.nations.get(nation)?.econ;
       if (!e) return;
@@ -489,6 +496,8 @@ export class World {
       buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked, embargoes: this.diplomacy.embargoes,
       unrest: Object.fromEntries([...this.diplomacy.unrest].map(([p, u]) => [p, Math.round(u)])),
       blocs: this.diplomacy.blocs, council: this.diplomacy.council, vassals: Object.fromEntries(this.diplomacy.overlords),
+      storms: this.storms.map((s) => ({ lon: Math.round(s.lon * 10) / 10, lat: Math.round(s.lat * 10) / 10, r: Math.round(s.r) })),
+      lanes: this.lanes,
     };
   }
 
@@ -503,6 +512,7 @@ export class World {
     setMeta(this.db, 'nuked', JSON.stringify(this.nuked));
     setMeta(this.db, 'season', JSON.stringify(this.season));
     setMeta(this.db, 'globe', JSON.stringify(this.globe));
+    setMeta(this.db, 'storms', JSON.stringify(this.storms));
     setMeta(this.db, 'migrants', JSON.stringify(Object.fromEntries(this.migrants)));
   }
 
@@ -1331,7 +1341,7 @@ export class World {
         control: Math.max(0, this.military.controlShare(n.id, this.ownedPop.get(n.id) ?? 0) - this.unrestLoss(n.id)),
         atWar: this.military.enemiesOf(n.id).length > 0,
         blockade: Math.min(0.9, this.military.blockade(n.id) + this.embargoPressure(n.id)),
-        tradeDeals: this.diplomacy.partners('trade', n.id).length,
+        tradeDeals: this.diplomacy.partners('trade', n.id).length - this.lanes.filter((l) => l.raided && (l.a === n.id || l.b === n.id)).length,
         bonusGrowth: this.effects(n.id).growth + this.eventGrowth(n),
         factoryGrowth: Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * FACTORY_GROWTH,
         plantPower: this.plants.get(n.id)?.share ?? 0,
@@ -1345,6 +1355,8 @@ export class World {
       this.goalsDay();
       this.worldDay(this.market.day);
       this.societyDay();
+      this.weatherDay();
+      this.lanesDay();
       if (this.market.day % HISTORY_EVERY_DAYS === 0) weekly = true;
     }
     if (this.warDirty) { this.warDirty = false; this.warChanged(); }
@@ -1461,6 +1473,70 @@ export class World {
     original.original ??= { name: d.name, short: d.short };
     d.name = n.custom?.name ?? original.original.name;
     d.short = n.custom?.short ?? original.original.short;
+  }
+
+  // ---- weather and shipping lanes ----------------------------------------------------------
+  /** Storm systems drift with the prevailing winds; aircraft under them are grounded and ships battered. */
+  private weatherDay() {
+    const day = this.market.day;
+    this.storms = this.storms.filter((s) => s.until > day);
+    for (const s of this.storms) {
+      s.lon += s.vlon; s.lat = Math.max(-70, Math.min(70, s.lat + s.vlat));
+      if (s.lon > 180) s.lon -= 360; if (s.lon < -180) s.lon += 360;
+    }
+    while (this.storms.length < 7 && this.rand() < 0.5) {
+      const lat = (this.rand() < 0.5 ? -1 : 1) * (8 + this.rand() * 50);
+      const westerly = Math.abs(lat) > 30;
+      this.storms.push({
+        lon: this.rand() * 360 - 180, lat, r: 400 + this.rand() * 600,
+        vlon: (westerly ? 1 : -1) * (3 + this.rand() * 4), vlat: Math.sign(lat) * this.rand() * 0.6, until: day + 5 + Math.floor(this.rand() * 10),
+      });
+    }
+    this.stormy.clear();
+    for (const p of this.military.provinces.values()) {
+      if (this.storms.some((s) => distanceKm([s.lon, s.lat], p.label) < s.r)) this.stormy.add(p.id);
+    }
+    this.warDirty = true;
+  }
+
+  /** Trade agreements between coastal nations sail a sea route; an enemy warship on it cuts the deal's value. */
+  private lanesDay() {
+    const m = this.military, lanes: typeof this.lanes = [];
+    const sea = m.provinces as unknown as Map<number, RouteNode>;
+    const portOf = (id: number) => {
+      const cap = m.provinces.get(this.defs.get(id)?.capital ?? -1)?.label;
+      let best: number | undefined, bestD = Infinity;
+      for (const p of m.provinces.values()) {
+        if (p.kind !== 'land' || p.owner !== id || m.controller(p.id) !== id) continue;
+        const zone = p.adj.find((q) => m.provinces.get(q)?.kind === 'sea');
+        if (zone === undefined) continue;
+        const d = (m.built(p.id, 'port') ? 0 : 1) * 1e6 + (cap ? distanceKm(cap, p.label) : 0);
+        if (d < bestD) { bestD = d; best = zone; }
+      }
+      return best;
+    };
+    const fleets = new Map<number, Set<number>>(); // sea zone -> nations with warships there
+    for (const u of m.units.values()) {
+      if (UNIT_SPECS[u.type].domain !== 'sea') continue;
+      if (!fleets.has(u.province)) fleets.set(u.province, new Set());
+      fleets.get(u.province)!.add(u.nation);
+    }
+    for (const t of this.diplomacy.treaties) {
+      if (t.kind !== 'trade') continue;
+      const key = `${Math.min(t.a, t.b)}-${Math.max(t.a, t.b)}`;
+      let path = this.laneCache.get(key);
+      if (path === undefined) {
+        const za = portOf(t.a), zb = portOf(t.b);
+        const r = za !== undefined && zb !== undefined ? findRoute(sea, za, zb, 'destroyers', (q) => m.provinces.get(q)?.kind === 'sea') : null;
+        path = r ? [za!, ...r.path] : null;
+        this.laneCache.set(key, path);
+      }
+      if (!path || path.length < 2) continue; // neighbours trading overland
+      const raided = path.some((z) => [...(fleets.get(z) ?? [])].some((x) => m.atWar(x, t.a) || m.atWar(x, t.b)));
+      lanes.push({ a: t.a, b: t.b, path, raided });
+    }
+    if (this.market.day % 30 === 0) this.laneCache.clear(); // ports and coasts change hands
+    this.lanes = lanes;
   }
 
   // ---- society: ideology, factions, propaganda; new nations ----------------------------------

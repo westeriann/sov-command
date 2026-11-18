@@ -144,6 +144,18 @@ function buildingIcon(type: BuildingType): ImageData {
 const SLOTS: [number, number][] = [[-34, 30], [0, 38], [34, 30], [-56, 10], [56, 10], [0, 62]]; // clear of unit markers
 
 export class Cities {
+  private at = new Map<number, [number, number]>(); // where each city stands
+
+  /** Night lights: brightness by electricity supply (and wealth). */
+  setLights(on: boolean) {
+    this.map.setLayoutProperty('city-lights', 'visibility', on ? 'visible' : 'none');
+    if (!on) return;
+    const match: unknown[] = ['match', ['get', 'nation']];
+    for (const e of this.game.economy.values()) match.push(e.id, Math.max(0.05, (1 - (e.blackout ?? 0) * 3) * Math.min(1, 0.35 + Math.log10(Math.max(1000, e.gdppc)) / 8)));
+    match.push(0.5);
+    this.map.setPaintProperty('city-lights', 'circle-opacity', match as never);
+  }
+
   constructor(private map: MLMap, private pol: Political, private game: Game) {
     for (const st of STYLES) for (const cl of Object.keys(PALETTE) as Climate[]) for (let v = 0; v < VARIANTS; v++) {
       map.addImage(`u-${st}-${cl}-${v}`, urbanTexture(st, cl, v), { pixelRatio: 2 });
@@ -159,7 +171,14 @@ export class Cities {
       const pop = p.pop ?? 0;
       if (pop < MIN_POP && !capital) continue;
       const rand = rng(p.id * 7919);
-      const [lon, lat] = p.label;
+      // port cities sit toward the shore
+      let [lon, lat] = p.label;
+      const sea = p.adj.map((q) => pol.provinces.get(q)).find((q) => q?.kind === 'sea');
+      if (sea) {
+        const dl = Math.max(-1.2, Math.min(1.2, (sea.label[0] - lon) * 0.3)), dt = Math.max(-1.2, Math.min(1.2, (sea.label[1] - lat) * 0.3));
+        lon += dl; lat += dt;
+      }
+      this.at.set(p.id, [lon, lat]);
       const km = (5 + 14 * Math.sqrt(pop / 1e7)) * (capital ? 1.35 : 1);
       // each city gets its own look: layout by size and luck, palette by climate
       const style: Style = pop > 8e6 || capital ? (rand() < 0.5 ? 'grid' : 'old') : pop > 3e6 ? STYLES[Math.floor(rand() * 2)] : (rand() < 0.6 ? 'sprawl' : 'old');
@@ -177,7 +196,7 @@ export class Cities {
         rings.push(blob(lon + (d / 111) * Math.cos(a) / cos, lat + (d / 111) * Math.sin(a), km * (0.25 + rand() * 0.3), rand));
       }
       rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8 }, geometry: { type: 'Polygon', coordinates: [r] } }));
-      cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1) }, geometry: { type: 'Point', coordinates: [lon, lat] } });
+      cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1), nation: p.nation ?? 0 }, geometry: { type: 'Point', coordinates: [lon, lat] } });
     }
     map.addSource('cities', { type: 'geojson', data: { type: 'FeatureCollection', features: areas } });
     map.addSource('city-cores', { type: 'geojson', data: { type: 'FeatureCollection', features: cores } });
@@ -202,6 +221,16 @@ export class Cities {
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0, 4.2, ['*', 0.55, ['get', 'w']], 6, ['*', 0.8, ['get', 'w']], 8, ['get', 'w']],
       },
     }, below);
+    // Night lights mode: every city glows unless its nation is in blackout
+    map.addLayer({
+      id: 'city-lights', type: 'circle', source: 'city-cores', layout: { visibility: 'none' },
+      paint: {
+        'circle-color': '#ffd98a',
+        'circle-blur': 0.6,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, ['*', 2.2, ['get', 'size']], 5, ['*', 9, ['get', 'size']]],
+        'circle-opacity': 0.85,
+      },
+    });
     map.addLayer({
       id: 'buildings', type: 'symbol', source: 'buildings', minzoom: 3.8,
       layout: {
@@ -226,7 +255,7 @@ export class Cities {
         features.push({
           type: 'Feature',
           properties: { t: b.type, done: b.progress >= 1, off: SLOTS[i] },
-          geometry: { type: 'Point', coordinates: p.label },
+          geometry: { type: 'Point', coordinates: this.at.get(p.id) ?? p.label },
         });
       });
     }

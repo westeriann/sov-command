@@ -123,6 +123,32 @@ Expansion (all done):
   ?), a colour-blind friendly mode
 - Settings: SEASON_DAYS (real days per season, default 28), WORLD_NAME
 
+Depth (each feature changes play):
+
+- Identity: rename your nation, pick its map colour, design its flag; every
+  nation has a flag; history pages chart GDP, forces and territory
+- Production chains: electricity demand outgrows the grid, so growing nations
+  build coal, gas, nuclear or renewable power stations (coal and gas burn
+  fuel bought on the market); blackouts cut growth and stability; armies burn
+  oil and fight weaker without it; metal shortages slow production, rare-earth
+  shortages slow research
+- Living world: global crashes, pandemics, oil shocks and booms; refugees flee
+  occupation to neighbours with open borders (a policy choice); climate change
+  driven by the world's coal and gas floods low coasts and moves farmland
+- Goals: three season missions per player (points and cash), achievements
+  that unlock flag emblems and badges; AI plans offensives, lands troops by
+  sea, and gangs up on a dominant power
+- Military: marines (no beachhead penalty), special forces (hidden, never
+  out of supply, sabotage), drones, bombers, missile defense, insurgency in
+  occupied land, satellites and anti-satellite strikes, cyber operations
+- Society: ideology (liberty, openness) that must suit the government,
+  factions (military, business, public) with bonuses and penalties,
+  propaganda at home or abroad, civil wars that split nations, and players
+  founding new nations by leading a revolt
+- On the map: storms (aircraft grounded, ships battered), shipping lanes that
+  enemy warships can raid, a Night lights mode showing power and blackouts,
+  port cities on the coast
+
 Launch readiness:
 
 - Phones: long-press the map to give orders (the touch version of right-click)

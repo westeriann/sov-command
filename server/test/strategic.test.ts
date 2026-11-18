@@ -221,3 +221,24 @@ test('society: a government must suit its people; factions judge the budget; civ
   assert.ok(mine.born && w2.military.atWar(mine.id, 2));
   assert.equal(w2.military.provinces.get(6)!.owner, mine.id);
 });
+
+test('storms ground aircraft and batter ships; weather is shared with players', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  const ship = w.military.spawn(1, 'destroyers', 9);
+  (w as unknown as { storms: unknown[] }).storms = [{ lon: -1, lat: 0, r: 300, vlon: 0, vlat: 0, until: w.market.day + 50 }];
+  (w as unknown as { weatherDay: () => void }).weatherDay();
+  assert.ok(w.warState().storms.length >= 1);
+  w.military.fight(() => true, () => undefined, []);
+  assert.ok(ship.strength < 100, 'the storm batters the ship');
+  // a strike wing under the storm cannot fly
+  const v = setup();
+  v.submit(1, { kind: 'war', target: 2 }, 'human');
+  v.military.storm = (p) => p === 1;
+  const wing = v.military.spawn(1, 'strike', 1);
+  wing.mission = { kind: 'bomb', target: 6 };
+  v.military.buildings.set(6, [{ type: 'factory', progress: 1 }]);
+  const gdp = v.nations.get(2)!.econ.gdp;
+  for (let i = 0; i < 5; i++) v.military.fight(() => true, () => undefined, []);
+  assert.equal(v.nations.get(2)!.econ.gdp, gdp, 'grounded: no bombing');
+});
