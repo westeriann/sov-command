@@ -1,0 +1,675 @@
+// 3D models on the map: troops, ships and aircraft under their counters, city
+// skylines, and province buildings, all animated. Drawn with three.js into the
+// map's own WebGL context as a MapLibre custom layer.
+//
+// Models are built from simple shapes in code (no model files), one instanced
+// mesh per part, so a whole theatre of war costs a few dozen draw calls.
+//
+// Placement: MapLibre's main matrix projects the globe as a unit sphere (or,
+// on the flat map, web mercator 0..1). Each object gets its own frame on that
+// surface (east, up, and south or north), raised to the terrain under it, and
+// is drawn relative to a frame at the view centre for float precision.
+import { MercatorCoordinate, type CustomLayerInterface, type CustomRenderMethodInput, type Map as MLMap } from 'maplibre-gl';
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { BuildingType } from '../../shared/buildings';
+import { domainOf, UNIT_SPECS, UNIT_TYPES, type UnitType, type UnitView } from '../../shared/military';
+import type { Forces } from './forces';
+import type { Game } from './game';
+import type { Political } from './political';
+
+type Pos = [number, number];
+const R = 6371008.8; // MapLibre's globe radius, metres
+const RAD = Math.PI / 180;
+
+/** Zoom where models start to appear, and where they are fully grown. */
+export const MODELS_FROM = 3.3;
+const MODELS_FULL = 3.8;
+
+// ---- geometry -------------------------------------------------------------------
+
+type Part = { g: THREE.BufferGeometry; color: string };
+
+/** A shape, coloured, moved into place: [x, y, z] position, optional rotation (radians, XYZ). */
+function part(g: THREE.BufferGeometry, color: string, at: [number, number, number] = [0, 0, 0], rot: [number, number, number] = [0, 0, 0]): Part {
+  g.rotateX(rot[0]); g.rotateY(rot[1]); g.rotateZ(rot[2]);
+  g.translate(at[0], at[1], at[2]);
+  return { g, color };
+}
+const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
+const cyl = (rt: number, rb: number, h: number, seg = 10) => new THREE.CylinderGeometry(rt, rb, h, seg);
+const ball = (r: number, seg = 8) => new THREE.SphereGeometry(r, seg, Math.max(4, seg - 2));
+const cone = (r: number, h: number, seg = 10) => new THREE.ConeGeometry(r, h, seg);
+
+/** Merge parts into one geometry with per-vertex colour. */
+function build(parts: Part[]): THREE.BufferGeometry {
+  const gs = parts.map(({ g, color }) => {
+    const c = new THREE.Color(color);
+    const n = g.getAttribute('position').count;
+    const cols = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    g.deleteAttribute('uv');
+    return g;
+  });
+  const merged = mergeGeometries(gs.map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
+  merged.computeVertexNormals();
+  return merged;
+}
+
+// Paint colours: PAINT parts take the nation's colour (tinted per instance), the
+// rest are multiplied by it too, so they are kept dark or neutral.
+const PAINT = '#ffffff';
+const DARK = '#2a2c2e';
+const STEEL = '#7d8288';
+const CONCRETE = '#b9b4aa';
+const GLASS = '#5d7d93';
+
+// Model space: +X forward, +Y up, about one unit long for a vehicle.
+const GEOMETRY = {
+  // --- land
+  soldier: () => build([
+    part(box(0.07, 0.16, 0.08), PAINT, [0, 0.2, 0]),
+    part(ball(0.045), '#d9b48f', [0, 0.32, 0]),
+    part(cyl(0.05, 0.05, 0.03, 8), PAINT, [0, 0.365, 0]),
+    part(box(0.05, 0.13, 0.03), DARK, [0, 0.065, 0.025]),
+    part(box(0.05, 0.13, 0.03), DARK, [0, 0.065, -0.025]),
+    part(box(0.16, 0.02, 0.02), DARK, [0.07, 0.24, 0.05], [0, 0, 0.5]),
+  ]),
+  apcHull: () => build([
+    part(box(0.78, 0.2, 0.4), PAINT, [0, 0.2, 0]),
+    part(box(0.25, 0.12, 0.38), PAINT, [0.3, 0.17, 0], [0, 0, -0.5]),
+    part(cyl(0.05, 0.05, 0.12, 8), DARK, [0.05, 0.35, 0]),
+    part(box(0.26, 0.025, 0.025), DARK, [0.2, 0.38, 0]),
+    ...[-0.25, 0, 0.25].flatMap((x) => [-1, 1].map((s) => part(cyl(0.08, 0.08, 0.06, 10), DARK, [x, 0.09, s * 0.21], [Math.PI / 2, 0, 0]))),
+  ]),
+  tankHull: () => build([
+    part(box(0.9, 0.16, 0.46), PAINT, [0, 0.18, 0]),
+    part(box(0.22, 0.1, 0.44), PAINT, [0.48, 0.16, 0], [0, 0, -0.6]),
+    part(box(0.96, 0.14, 0.12), DARK, [0, 0.08, 0.2]),
+    part(box(0.96, 0.14, 0.12), DARK, [0, 0.08, -0.2]),
+  ]),
+  tankTurret: () => build([
+    part(cyl(0.17, 0.2, 0.13, 8), PAINT, [0, 0, 0]),
+    part(box(0.2, 0.1, 0.26), PAINT, [-0.12, 0, 0]),
+    part(cyl(0.025, 0.03, 0.62, 8), DARK, [0.4, 0.02, 0], [0, 0, Math.PI / 2]),
+  ]),
+  // --- sea
+  destroyer: () => build([
+    part(box(1.2, 0.16, 0.24), PAINT, [0, 0.08, 0]),
+    part(cone(0.12, 0.3, 4), PAINT, [0.74, 0.08, 0], [Math.PI / 4, 0, -Math.PI / 2]),
+    part(box(0.3, 0.18, 0.16), '#c9ccd0', [0.1, 0.25, 0]),
+    part(box(0.12, 0.1, 0.12), '#c9ccd0', [-0.25, 0.21, 0]),
+    part(cyl(0.012, 0.012, 0.3, 4), DARK, [0.12, 0.45, 0]),
+    part(cyl(0.035, 0.035, 0.2, 8), DARK, [0.45, 0.2, 0], [0, 0, Math.PI / 2]),
+  ]),
+  submarine: () => build([
+    part(cyl(0.09, 0.09, 1.0, 10), '#3a4046', [0, 0.04, 0], [0, 0, Math.PI / 2]),
+    part(ball(0.09), '#3a4046', [0.5, 0.04, 0]),
+    part(cone(0.09, 0.2, 10), '#3a4046', [-0.6, 0.04, 0], [0, 0, Math.PI / 2]),
+    part(box(0.18, 0.16, 0.06), PAINT, [0.15, 0.17, 0]),
+  ]),
+  carrier: () => build([
+    part(box(1.5, 0.16, 0.36), PAINT, [0, 0.08, 0]),
+    part(box(1.6, 0.03, 0.46), '#5c6166', [0, 0.18, 0.02]),
+    part(box(0.22, 0.24, 0.08), '#c9ccd0', [-0.1, 0.32, -0.19]),
+    part(box(1.2, 0.005, 0.02), '#e6e0cf', [0, 0.196, 0.02]),
+  ]),
+  // --- air
+  jet: () => build([
+    part(cyl(0.04, 0.05, 0.7, 8), PAINT, [0, 0, 0], [0, 0, Math.PI / 2]),
+    part(cone(0.04, 0.16, 8), PAINT, [0.43, 0, 0], [0, 0, -Math.PI / 2]),
+    part(box(0.26, 0.015, 0.8), PAINT, [-0.02, 0, 0]),
+    part(box(0.12, 0.012, 0.3), PAINT, [-0.3, 0, 0]),
+    part(box(0.12, 0.16, 0.012), PAINT, [-0.3, 0.07, 0]),
+    part(ball(0.035), GLASS, [0.2, 0.04, 0]),
+  ]),
+  bomber: () => build([
+    part(cyl(0.06, 0.07, 1.0, 8), PAINT, [0, 0, 0], [0, 0, Math.PI / 2]),
+    part(cone(0.06, 0.18, 8), PAINT, [0.59, 0, 0], [0, 0, -Math.PI / 2]),
+    part(box(0.3, 0.02, 1.4), PAINT, [0.05, 0, 0]),
+    part(box(0.14, 0.015, 0.45), PAINT, [-0.45, 0, 0]),
+    part(box(0.16, 0.2, 0.015), PAINT, [-0.45, 0.1, 0]),
+    ...[-0.4, -0.22, 0.22, 0.4].map((z) => part(cyl(0.03, 0.03, 0.14, 6), DARK, [0.08, -0.04, z], [0, 0, Math.PI / 2])),
+  ]),
+  drone: () => build([
+    part(box(0.14, 0.05, 0.14), PAINT, [0, 0, 0]),
+    ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([x, z]) => part(box(0.24, 0.02, 0.02), DARK, [x * 0.08, 0, z * 0.08], [0, Math.atan2(z, x) * -1, 0])),
+    ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([x, z]) => part(cyl(0.07, 0.07, 0.01, 12), '#8c9196', [x * 0.15, 0.03, z * 0.15])),
+  ]),
+  // --- cities
+  tower: () => build([part(box(1, 1, 1), PAINT, [0, 0.5, 0])]),
+  roofCap: () => build([part(box(1.04, 0.04, 1.04), '#6b6f73', [0, 1.0, 0])]),
+  dome: () => build([
+    part(box(1, 0.5, 1), PAINT, [0, 0.25, 0]),
+    part(cyl(0.3, 0.32, 0.18, 14), PAINT, [0, 0.59, 0]),
+    part(new THREE.SphereGeometry(0.3, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#b7a46a', [0, 0.68, 0]),
+    part(cyl(0.015, 0.015, 0.2, 4), DARK, [0, 1.05, 0]),
+  ]),
+  // --- buildings
+  factory: () => build([
+    ...[0, 1, 2].map((i) => part(box(0.32, 0.28, 0.8), '#a59d90', [i * 0.34 - 0.34, 0.14, 0])),
+    ...[0, 1, 2].map((i) => part(box(0.05, 0.16, 0.8), '#5f6a72', [i * 0.34 - 0.27, 0.34, 0], [0, 0, 0.6])),
+    part(cyl(0.05, 0.07, 0.9, 10), '#8a5a4a', [0.42, 0.45, 0.26]),
+    part(cyl(0.05, 0.07, 0.9, 10), '#8a5a4a', [0.42, 0.45, -0.1]),
+  ]),
+  coalPlant: () => build([
+    part(box(0.7, 0.36, 0.5), '#9b968c', [0, 0.18, 0]),
+    part(box(0.3, 0.5, 0.3), '#8f8a80', [-0.15, 0.25, 0.28]),
+    part(cyl(0.06, 0.1, 1.3, 10), '#b9b2a4', [0.36, 0.65, -0.12]),
+    part(cyl(0.065, 0.065, 0.06, 10), '#a3412f', [0.36, 1.22, -0.12]),
+    part(cone(0.22, 0.18, 8), '#2b2b2b', [-0.35, 0.09, -0.35]),
+  ]),
+  gasPlant: () => build([
+    part(box(0.6, 0.3, 0.42), '#c2bdb3', [0, 0.15, 0]),
+    part(cyl(0.05, 0.05, 0.7, 10), '#d2cec6', [0.25, 0.35, 0.1]),
+    part(cyl(0.05, 0.05, 0.7, 10), '#d2cec6', [0.25, 0.35, -0.1]),
+    ...[-0.2, 0.05].map((x) => part(cyl(0.12, 0.12, 0.2, 12), '#e0dcd2', [x, 0.1, 0.38])),
+  ]),
+  coolingTower: () => build([
+    part(new THREE.LatheGeometry([0.42, 0.34, 0.28, 0.26, 0.28, 0.31].map((r, i) => new THREE.Vector2(r, i * 0.18)), 18), '#d8d4ca'),
+    part(box(0.3, 0.22, 0.3), '#a7a296', [0.62, 0.11, 0]),
+    part(cyl(0.12, 0.12, 0.24, 12), '#8f97a0', [0.62, 0.34, 0]),
+  ]),
+  turbineMast: () => build([
+    part(cyl(0.012, 0.025, 0.9, 6), '#e9e9e4', [0, 0.45, 0]),
+    part(box(0.08, 0.04, 0.04), '#e9e9e4', [0.02, 0.9, 0]),
+  ]),
+  // three blades round the hub, turning about the X axis (into the wind)
+  turbineRotor: () => build([0, 1, 2].map((i) => ({ g: box(0.012, 0.42, 0.03).translate(0, 0.21, 0).rotateX((i * Math.PI * 2) / 3), color: '#f2f2ee' }))),
+  solar: () => build([...[-1, 0, 1].map((i) => part(box(0.5, 0.02, 0.16), '#2b3d5c', [0, 0.06, i * 0.2], [0.35, 0, 0]))]),
+  mine: () => build([
+    part(cone(0.42, 0.34, 7), '#7d7466', [-0.3, 0.17, 0.2]),
+    part(box(0.36, 0.2, 0.3), '#958c80', [0.25, 0.1, -0.15]),
+    ...[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([x, z]) => part(cyl(0.012, 0.012, 0.62, 4), STEEL, [0.22 + x * 0.06, 0.31, 0.22 + z * 0.06], [z * 0.08, 0, x * 0.08])),
+  ]),
+  mineWheel: () => build([
+    part(new THREE.TorusGeometry(0.09, 0.012, 4, 14), '#5b6066'),
+    part(box(0.18, 0.012, 0.012), '#5b6066'),
+    part(box(0.012, 0.18, 0.012), '#5b6066'),
+  ]),
+  port: () => build([
+    part(box(1.1, 0.06, 0.24), CONCRETE, [0, 0.03, 0]),
+    part(box(0.24, 0.06, 0.7), CONCRETE, [0.4, 0.03, 0.35]),
+    ...[[-0.3, '#b1442f'], [-0.12, '#2f6a8a'], [0.06, '#c7a23a']].map(([x, c]) => part(box(0.14, 0.08, 0.1), c as string, [x as number, 0.1, -0.05])),
+    part(box(0.07, 0.5, 0.07), '#c9a23a', [-0.4, 0.25, 0.08]),
+  ]),
+  craneBoom: () => build([
+    part(box(0.6, 0.04, 0.05), '#d4aa3c', [0.18, 0, 0]),
+    part(box(0.12, 0.08, 0.1), '#a9852e', [-0.14, 0, 0]),
+  ]),
+  airbase: () => build([
+    part(box(1.4, 0.015, 0.18), '#4a4d50', [0, 0.008, 0]),
+    part(box(1.3, 0.002, 0.012), '#e8e2d0', [0, 0.017, 0]),
+    part(new THREE.CylinderGeometry(0.16, 0.16, 0.4, 10, 1, false, 0, Math.PI), '#8d9298', [-0.2, 0, -0.32], [Math.PI / 2, 0, Math.PI / 2]),
+    part(cyl(0.04, 0.05, 0.3, 8), '#c6c1b6', [0.35, 0.15, -0.3]),
+    part(cyl(0.07, 0.06, 0.06, 8), GLASS, [0.35, 0.32, -0.3]),
+  ]),
+  fort: () => build([
+    ...Array.from({ length: 6 }, (_, i) => {
+      const a = (i / 6) * Math.PI * 2;
+      return part(box(0.36, 0.12, 0.06), '#8e8a78', [Math.cos(a) * 0.36, 0.06, Math.sin(a) * 0.36], [0, -a + Math.PI / 2, 0]);
+    }),
+    part(cyl(0.16, 0.2, 0.14, 8), '#7f7b6b', [0, 0.07, 0]),
+    part(box(0.2, 0.02, 0.03), DARK, [0.15, 0.12, 0]),
+  ]),
+  launcher: () => build([
+    part(box(0.36, 0.08, 0.2), '#5f6a52', [0, 0.04, 0]),
+    part(box(0.34, 0.12, 0.18), '#6f7a62', [-0.02, 0.16, 0], [0, 0, 0.6]),
+  ]),
+  radarBase: () => build([part(cyl(0.03, 0.05, 0.3, 6), STEEL, [0, 0.15, 0]), part(box(0.2, 0.08, 0.16), '#5f6a52', [0, 0.04, 0])]),
+  radarDish: () => build([part(box(0.025, 0.12, 0.26), '#c9ccd0', [0, 0, 0], [0, 0, 0.2])]),
+  // --- effects
+  puff: () => build([part(new THREE.IcosahedronGeometry(1, 1), '#ffffff')]),
+  flash: () => build([part(new THREE.IcosahedronGeometry(1, 1), '#ffffff')]),
+};
+type Kind = keyof typeof GEOMETRY;
+
+/** Effects use their own, unlit and see-through, materials. */
+const EFFECTS: Partial<Record<Kind, THREE.Material>> = {
+  puff: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false }),
+  flash: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
+};
+
+// ---- deterministic randomness ---------------------------------------------------
+function rng(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+
+// ---- the layer ------------------------------------------------------------------
+
+const MAX_INSTANCES = 4096;
+const OLIVE = new THREE.Color('#5d6b45');
+const WHITE = new THREE.Color('#ffffff');
+const _m = new THREE.Matrix4(), _l = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
+
+interface City { id: number; at: Pos; pop: number; capital: boolean; towers: { x: number; z: number; w: number; d: number; h: number; color: THREE.Color }[] }
+
+export class Models3D implements CustomLayerInterface {
+  id = 'models-3d';
+  type = 'custom' as const;
+  renderingMode = '3d' as const;
+  private renderer!: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera = new THREE.Camera();
+  private meshes = new Map<Kind, THREE.InstancedMesh>();
+  /** Instances drawn last frame, by model (for tests). */
+  counts = new Map<Kind, number>();
+  private sun = new THREE.DirectionalLight('#fff4e0', 2.2);
+  private cities: City[] = [];
+  private enabled = true;
+  private start = performance.now();
+  /** Pixels a vehicle model spans on screen right now; 0 while models are hidden. */
+  sizePx = 0;
+  onSize: (px: number) => void = () => {};
+
+  constructor(private map: MLMap, private game: Game, private pol: Political, private forces: Forces, cityAt: Map<number, Pos>) {
+    const capitals = new Set([...pol.nations.values()].map((n) => n.capital));
+    for (const [id, at] of cityAt) {
+      const p = pol.provinces.get(id);
+      if (!p) continue;
+      this.cities.push(this.planCity(id, at, p.pop ?? 0, capitals.has(id), p.terrain));
+    }
+  }
+
+  setEnabled(on: boolean) {
+    this.enabled = on;
+    this.map.triggerRepaint();
+    if (!on) { this.sizePx = 0; this.onSize(0); }
+  }
+
+  /** A city's skyline, laid out once: towers in the middle, low blocks around. */
+  private planCity(id: number, at: Pos, pop: number, capital: boolean, terrain: string): City {
+    const rand = rng(id * 2654435761);
+    // towns get a few low blocks; cities a skyline that grows with their people
+    const town = pop < 2.5e6 && !capital;
+    const n = town ? 3 + Math.floor(rand() * 3) : Math.min(24, 6 + Math.round(pop / 7e5));
+    const big = pop > 4e6 || capital;
+    const arid = ['desert_sand', 'desert_rock', 'savanna', 'shrubland', 'steppe'].includes(terrain);
+    const tones = arid ? ['#c9b48f', '#d8c7a5', '#b59f7c', '#e2d6bd'] : ['#a9a59e', '#bdb8ae', '#8f949a', '#cfc8ba', '#9aa3ab'];
+    const towers: City['towers'] = [];
+    for (let i = 0; i < n; i++) {
+      const r = Math.sqrt(rand()) * (town ? 0.28 : 0.4 + n / 60);
+      const a = rand() * Math.PI * 2;
+      const central = 1 - Math.min(1, r / 1.1);
+      const tall = big && central > 0.45 && rand() < 0.6;
+      const h = tall ? 0.45 + rand() * 0.7 * (pop > 9e6 ? 1.4 : 1) : 0.06 + rand() * 0.12 + central * 0.12;
+      const w = tall ? 0.08 + rand() * 0.05 : (town ? 0.07 : 0.08) + rand() * 0.08;
+      const color = new THREE.Color(tall && rand() < 0.5 ? GLASS : tones[Math.floor(rand() * tones.length)]);
+      towers.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, w, d: w * (0.7 + rand() * 0.6), h, color });
+    }
+    return { id, at, pop, capital, towers };
+  }
+
+  onAdd(map: MLMap, gl: WebGLRenderingContext | WebGL2RenderingContext) {
+    this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
+    this.renderer.autoClear = false;
+    this.scene.add(new THREE.HemisphereLight('#e8eef2', '#3a3328', 1.1));
+    this.scene.add(this.sun);
+    this.scene.add(this.sun.target);
+    const lit = new THREE.MeshLambertMaterial({ vertexColors: true });
+    for (const kind of Object.keys(GEOMETRY) as Kind[]) {
+      const mesh = new THREE.InstancedMesh(GEOMETRY[kind](), EFFECTS[kind] ?? lit, MAX_INSTANCES);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.setColorAt(0, WHITE);
+      mesh.instanceColor!.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      if (EFFECTS[kind]) mesh.renderOrder = 2;
+      this.meshes.set(kind, mesh);
+      this.scene.add(mesh);
+    }
+  }
+
+  onRemove() { this.renderer?.dispose(); }
+
+  // ---- frames on the planet -----------------------------------------------------
+  private flat = false;
+  private origin = new THREE.Matrix4();
+  private originInv = new THREE.Matrix4();
+
+  /**
+   * Object frame at a point: X east, Y up, Z south, scaled to metres. On the flat map
+   * mercator y already runs south; the frame matches the globe's handedness on screen,
+   * so faces keep their winding and their light.
+   */
+  private frame(lon: number, lat: number, alt: number, out: THREE.Matrix4, metres = 1) {
+    if (this.flat) {
+      const c = MercatorCoordinate.fromLngLat([lon, lat], alt);
+      const u = c.meterInMercatorCoordinateUnits() * metres;
+      return out.set(u, 0, 0, c.x, 0, 0, u, c.y, 0, u, 0, c.z, 0, 0, 0, 1);
+    }
+    const la = lat * RAD, lo = lon * RAD;
+    const cl = Math.cos(la), sl = Math.sin(la), co = Math.cos(lo), so = Math.sin(lo);
+    const k = 1 + alt / R, s = metres / R;
+    // up = (sin lo cos la, sin la, cos lo cos la); east = (cos lo, 0, -sin lo); south = -north
+    return out.set(
+      co * s, so * cl * s, so * sl * s, so * cl * k,
+      0, sl * s, -cl * s, sl * k,
+      -so * s, co * cl * s, co * sl * s, co * cl * k,
+      0, 0, 0, 1,
+    );
+  }
+
+  /** Model rotation about the vertical so +X points along a bearing (dEast, dNorth). */
+  private heading(dEast: number, dNorth: number) {
+    return Math.atan2(dNorth, dEast);
+  }
+
+  private ground(lon: number, lat: number) {
+    return Math.max(0, this.map.queryTerrainElevation([lon, lat]) ?? 0);
+  }
+
+  // ---- instances ----------------------------------------------------------------
+  private base = new THREE.Matrix4();
+
+  /** Start drawing an object at a point; later puts are relative to it, in model units. */
+  private at(lon: number, lat: number, unitMetres: number, alt = this.ground(lon, lat)) {
+    this.frame(lon, lat, alt, _m, unitMetres);
+    this.base.multiplyMatrices(this.originInv, _m);
+  }
+
+  private put(kind: Kind, x: number, y: number, z: number, ry = 0, sx = 1, sy = sx, sz = sx, color: THREE.Color = WHITE, rx = 0, rz = 0) {
+    const mesh = this.meshes.get(kind)!;
+    const i = this.counts.get(kind) ?? 0;
+    if (i >= MAX_INSTANCES) return;
+    _q.setFromEuler(_e.set(rx, ry, rz, 'YXZ'));
+    _l.compose(_v.set(x, y, z), _q, _s.set(sx, sy, sz));
+    mesh.setMatrixAt(i, _m.multiplyMatrices(this.base, _l));
+    mesh.setColorAt(i, color);
+    this.counts.set(kind, i + 1);
+  }
+
+  // ---- what is visible ----------------------------------------------------------
+  private centre = new THREE.Vector3();
+  private visible(lon: number, lat: number) {
+    if (!this.flat) {
+      const la = lat * RAD, lo = lon * RAD;
+      if (Math.sin(lo) * Math.cos(la) * this.centre.x + Math.sin(la) * this.centre.y + Math.cos(lo) * Math.cos(la) * this.centre.z < 0.35) return false;
+    }
+    const p = this.map.project([lon, lat]);
+    const c = this.map.getCanvas();
+    return p.x > -120 && p.y > -120 && p.x < c.clientWidth + 120 && p.y < c.clientHeight + 160;
+  }
+
+  // ---- drawing ------------------------------------------------------------------
+  render(_gl: WebGLRenderingContext | WebGL2RenderingContext, args: CustomRenderMethodInput) {
+    const z = this.map.getZoom();
+    const grow = Math.min(1, Math.max(0, (z - MODELS_FROM) / (MODELS_FULL - MODELS_FROM)));
+    const on = this.enabled && grow > 0;
+    const px = on ? Math.min(66, 30 + (z - MODELS_FULL) * 11) * grow : 0;
+    if (Math.abs(px - this.sizePx) > 0.5) { this.sizePx = px; this.onSize(px); }
+    if (!on) return;
+
+    this.flat = this.map.getProjection()?.type === 'mercator';
+    const c = this.map.getCenter();
+    { const la = c.lat * RAD, lo = c.lng * RAD; this.centre.set(Math.sin(lo) * Math.cos(la), Math.sin(la), Math.cos(lo) * Math.cos(la)); }
+    this.frame(c.lng, c.lat, 0, this.origin);
+    this.originInv.copy(this.origin).invert();
+    this.camera.projectionMatrix.fromArray(args.defaultProjectionData.mainMatrix as unknown as number[]).multiply(this.origin);
+    this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
+    this.sun.position.set(-0.6, 1, -0.5).multiplyScalar(1e6); // from the north-west, like the hill shading
+
+    // metres per pixel here, measured on screen
+    const a = this.map.project([c.lng, c.lat]), b = this.map.project([c.lng + 0.5 / Math.max(0.2, Math.cos(c.lat * RAD)), c.lat]);
+    const mpp = 55_660 / Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+    const unit = px * mpp; // metres in one model unit
+    const t = (performance.now() - this.start) / 1000;
+    for (const k of this.meshes.keys()) this.counts.set(k, 0);
+
+    this.drawCities(unit * 1.25, t);
+    this.drawBuildings(unit * 1.05, t);
+    this.drawForces(unit * 1.6, t, px * 1.6);
+
+    for (const [k, mesh] of this.meshes) {
+      mesh.count = this.counts.get(k) ?? 0;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+    this.renderer.resetState();
+    this.renderer.clearDepth();
+    this.renderer.render(this.scene, this.camera);
+    this.map.triggerRepaint(); // keep animating
+  }
+
+  private drawCities(unit: number, t: number) {
+    for (const city of this.cities) {
+      const [lon, lat] = city.at;
+      if (!this.visible(lon, lat)) continue;
+      this.at(lon, lat, unit);
+      for (const b of city.towers) {
+        this.put('tower', b.x, 0, b.z, 0, b.w, b.h, b.d, b.color);
+        if (b.h > 0.45) this.put('roofCap', b.x, 0, b.z, 0, b.w, b.h, b.d);
+      }
+      if (city.capital) this.put('dome', 0, 0, 0.05, 0.3, 0.32, 0.32, 0.32);
+      // traffic of light along the ground is too small to see: a slow blink of rooftop beacons instead
+      if (city.pop > 4e6 && Math.sin(t * 3 + city.id) > 0.6) {
+        const top = city.towers.reduce((m, x) => (x.h > m.h ? x : m), city.towers[0]);
+        this.put('flash', top.x, top.h + 0.02, top.z, 0, 0.015, 0.015, 0.015, new THREE.Color('#ff4a3a'));
+      }
+    }
+  }
+
+  private drawBuildings(unit: number, t: number) {
+    for (const [pid, list] of Object.entries(this.game.war.buildings)) {
+      const done = list.filter((x) => x.progress >= 1).map((x) => x.type);
+      if (!done.length) continue;
+      const p = this.pol.provinces.get(Number(pid));
+      if (!p || !this.visible(p.label[0], p.label[1])) continue;
+      const types = [...new Set(done)];
+      types.forEach((type, i) => {
+        // around the province's point, clear of the troops and the city
+        const ang = 3.6 + i * 0.95;
+        const r = 1.45 + Math.floor(i / 6) * 0.7;
+        const [lon, lat] = p.label;
+        const dLon = (Math.cos(ang) * r * unit) / (111_320 * Math.max(0.2, Math.cos(lat * RAD)));
+        const dLat = (Math.sin(ang) * r * unit) / 110_540;
+        this.at(lon + dLon, lat + dLat, unit);
+        this.drawBuilding(type, done.filter((x) => x === type).length, t, Number(pid) * 31 + i);
+      });
+    }
+  }
+
+  private smoke(x: number, y: number, z: number, t: number, seed: number, color: string, size = 1) {
+    const col = new THREE.Color(color);
+    for (let k = 0; k < 5; k++) {
+      const ph = (t * 0.22 + k / 5 + (seed % 97) / 97) % 1;
+      const s = (0.05 + ph * 0.16) * size * (1 - ph * ph);
+      this.put('puff', x + ph * 0.35 * size, y + ph * 0.9 * size, z + Math.sin(ph * 6 + seed) * 0.05, 0, s, s, s, col);
+    }
+  }
+
+  private drawBuilding(type: BuildingType, n: number, t: number, seed: number) {
+    switch (type) {
+      case 'factory':
+        this.put('factory', 0, 0, 0, 0.4);
+        this.smoke(0.42 * Math.cos(0.4), 0.92, -0.42 * Math.sin(0.4) + 0.26, t, seed, '#8b8580');
+        if (n > 3) this.put('factory', -0.6, 0, 0.7, 0.4, 0.8);
+        break;
+      case 'coal_plant':
+        this.put('coalPlant', 0, 0, 0);
+        this.smoke(0.36, 1.28, -0.12, t, seed, '#4a4744', 1.3);
+        break;
+      case 'gas_plant':
+        this.put('gasPlant', 0, 0, 0);
+        this.smoke(0.25, 0.72, 0.1, t, seed, '#cfcac2', 0.7);
+        break;
+      case 'nuclear_plant':
+        this.put('coolingTower', 0, 0, 0);
+        this.put('coolingTower', -0.75, 0, 0.35, 0, 0.9);
+        this.smoke(0, 0.95, 0, t, seed, '#f2f2f0', 1.6);
+        this.smoke(-0.75, 0.85, 0.35, t + 1.7, seed + 5, '#f2f2f0', 1.4);
+        break;
+      case 'renewables':
+        for (let i = 0; i < 3; i++) {
+          const x = (i - 1) * 0.45, zz = (i % 2) * 0.25;
+          this.put('turbineMast', x, 0, zz);
+          this.put('turbineRotor', x + 0.05, 0.9, zz, 0, 1, 1, 1, WHITE, t * 2.2 + i, 0);
+        }
+        this.put('solar', 0.1, 0, -0.55);
+        break;
+      case 'mine':
+        this.put('mine', 0, 0, 0);
+        this.put('mineWheel', 0.22, 0.64, 0.22, Math.PI / 2, 1, 1, 1, WHITE, 0, t * 2.5);
+        break;
+      case 'port':
+        this.put('port', 0, 0, 0);
+        this.put('craneBoom', -0.4, 0.5, 0.08, Math.sin(t * 0.35 + seed) * 1.2);
+        break;
+      case 'airbase': {
+        this.put('airbase', 0, 0, 0);
+        // a jet taking off down the runway, again and again
+        const ph = (t * 0.18 + (seed % 10) / 10) % 1;
+        this.put('jet', -0.6 + ph * 1.4, 0.03 + Math.max(0, ph - 0.6) * 0.8, 0, 0, 0.35, 0.35, 0.35, new THREE.Color('#9aa1a8'), 0, Math.max(0, ph - 0.6) * 0.6);
+        break;
+      }
+      case 'fort':
+        this.put('fort', 0, 0, 0);
+        break;
+      case 'air_defense':
+        this.put('launcher', -0.15, 0, 0, 0.5);
+        this.put('radarBase', 0.25, 0, 0.1);
+        this.put('radarDish', 0.25, 0.32, 0.1, t * 1.6);
+        break;
+      case 'missile_defense':
+        this.put('launcher', -0.2, 0, -0.15, 0.2, 1.2);
+        this.put('launcher', -0.2, 0, 0.2, 0.2, 1.2);
+        this.put('radarBase', 0.3, 0, 0, 0, 1.3);
+        this.put('radarDish', 0.3, 0.42, 0, t * 0.9, 1.6, 1.6, 1.6);
+        break;
+    }
+  }
+
+  private drawForces(unit: number, t: number, px: number) {
+    const tint = new Map<number, THREE.Color>();
+    const colourOf = (nation: number) => {
+      let c = tint.get(nation);
+      if (!c) {
+        c = new THREE.Color(this.pol.nations.get(nation)?.color ?? '#888888').lerp(OLIVE, 0.35);
+        tint.set(nation, c);
+      }
+      return c;
+    };
+    const slotKm = (42 / Math.max(1, px)) * unit; // counters are 42 px apart: models follow them
+    for (const s of this.forces.stacks()) {
+      let [lon, lat] = s.at;
+      if (s.slot) lon += (s.slot * slotKm) / (111_320 * Math.max(0.2, Math.cos(lat * RAD)));
+      if (!this.visible(lon, lat)) continue;
+      const u0 = s.units[0];
+      const sea = this.pol.provinces.get(u0.province)?.kind === 'sea';
+      // facing: toward the next province, or toward the enemy's side of the map at rest
+      let ry = (hash(s.key) % 628) / 100;
+      if (s.toward) {
+        const dE = (s.toward[0] - lon) * Math.cos(lat * RAD), dN = s.toward[1] - lat;
+        if (Math.abs(dE) + Math.abs(dN) > 1e-6) ry = this.heading(dE, dN);
+      }
+      this.at(lon, lat, unit, sea ? 0 : undefined);
+      const colour = colourOf(u0.nation);
+      const moving = !!s.toward;
+      const seed = hash(s.key);
+      const lead = this.leadType(s.units);
+      const n = Math.min(3, s.units.length);
+      const dom = domainOf(lead);
+      if (dom === 'air') this.drawAir(lead, n, colour, t, seed);
+      else if (dom === 'sea' || sea) this.drawSea(lead, n, colour, t, seed, ry, moving);
+      else this.drawLand(lead, n, colour, t, seed, ry, moving, s.fighting);
+      if (s.fighting) this.drawBattle(t, seed);
+    }
+  }
+
+  private leadType(units: UnitView[]): UnitType {
+    const counts = new Map<UnitType, number>();
+    for (const u of units) counts.set(u.type, (counts.get(u.type) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] * UNIT_SPECS[b[0]].attack - a[1] * UNIT_SPECS[a[0]].attack || UNIT_TYPES.indexOf(a[0]) - UNIT_TYPES.indexOf(b[0]))[0][0];
+  }
+
+  /** Formation slots behind the leader, in model units, rotated to the stack's heading. */
+  private slot(i: number, ry: number): [number, number] {
+    const pos: [number, number][] = [[0, 0], [-0.75, 0.55], [-0.75, -0.55]];
+    const [x, z] = pos[i];
+    return [x * Math.cos(ry) + z * Math.sin(ry), -x * Math.sin(ry) + z * Math.cos(ry)];
+  }
+
+  private drawLand(lead: UnitType, n: number, colour: THREE.Color, t: number, seed: number, ry: number, moving: boolean, fighting: boolean) {
+    for (let i = 0; i < n; i++) {
+      const [x, z] = this.slot(i, ry);
+      const bob = moving ? Math.abs(Math.sin(t * 9 + i * 1.3 + seed)) * 0.03 : 0;
+      if (lead === 'armored') {
+        const sweep = moving ? 0 : Math.sin(t * 0.45 + seed + i) * 0.7;
+        this.put('tankHull', x, bob, z, ry, 1, 1, 1, colour, moving ? Math.sin(t * 7 + i) * 0.02 : 0);
+        this.put('tankTurret', x, 0.32 + bob, z, ry + sweep, 1, 1, 1, colour);
+        if (fighting && Math.sin(t * 5 + seed + i * 2) > 0.85) {
+          const a = ry + sweep;
+          this.put('flash', x + Math.cos(a) * 0.75, 0.34, z - Math.sin(a) * 0.75, 0, 0.08, 0.08, 0.08, new THREE.Color('#ffc65a'));
+        }
+      } else if (lead === 'mechanized') {
+        this.put('apcHull', x, bob, z, ry, 0.95, 0.95, 0.95, colour);
+      } else {
+        // infantry, marines, special forces: a squad of three per slot, marching when on the move
+        const squad = [[0.1, 0], [-0.12, 0.16], [-0.12, -0.16]];
+        squad.forEach(([sx, sz], k) => {
+          const c = Math.cos(ry), sn = Math.sin(ry);
+          const hop = moving ? Math.abs(Math.sin(t * 10 + k * 2.1 + i)) * 0.05 : 0;
+          const lean = moving ? 0.12 : fighting ? Math.sin(t * 6 + k) * 0.1 : 0;
+          this.put('soldier', x + sx * c + sz * sn, hop, z - sx * sn + sz * c, ry, 1.7, 1.7, 1.7, colour, 0, -lean);
+          if (fighting && Math.sin(t * 9 + k * 2 + seed) > 0.9) {
+            this.put('flash', x + sx * c + sz * sn + Math.cos(ry) * 0.38, 0.42, z - sx * sn + sz * c - Math.sin(ry) * 0.38, 0, 0.04, 0.04, 0.04, new THREE.Color('#ffd27a'));
+          }
+        });
+      }
+    }
+  }
+
+  private drawSea(lead: UnitType, n: number, colour: THREE.Color, t: number, seed: number, ry: number, moving: boolean) {
+    const kind: Kind = lead === 'carrier' ? 'carrier' : lead === 'submarines' ? 'submarine' : lead === 'destroyers' ? 'destroyer' : 'destroyer';
+    for (let i = 0; i < n; i++) {
+      const [x, z] = this.slot(i, ry);
+      const roll = Math.sin(t * 1.1 + seed + i) * 0.06, pitch = Math.sin(t * 0.8 + seed * 0.3 + i) * 0.03;
+      const heave = Math.sin(t * 1.3 + i) * 0.015 - (kind === 'submarine' ? 0.04 : 0);
+      this.put(i === 0 ? kind : kind === 'carrier' ? 'destroyer' : kind, x, heave, z, ry, i ? 0.8 : 1, i ? 0.8 : 1, i ? 0.8 : 1, colour, roll, pitch);
+      if (moving && kind !== 'submarine') {
+        // a short wake of white foam behind each ship
+        for (let k = 1; k <= 3; k++) {
+          const ph = ((t * 0.8 + k / 3) % 1);
+          const d = 0.55 + ph * 0.6;
+          this.put('puff', x - Math.cos(ry) * d, 0.01, z + Math.sin(ry) * d, 0, 0.05 + ph * 0.06, 0.012, 0.05 + ph * 0.06, WHITE);
+        }
+      }
+    }
+  }
+
+  private drawAir(lead: UnitType, n: number, colour: THREE.Color, t: number, seed: number) {
+    const kind: Kind = lead === 'bombers' ? 'bomber' : lead === 'drones' ? 'drone' : 'jet';
+    const speed = kind === 'bomber' ? 0.35 : kind === 'drone' ? 0.5 : 0.7;
+    for (let i = 0; i < n; i++) {
+      // circle over the base, each plane a third of the way round from the last
+      const a = t * speed + (seed % 628) / 100 + (i * Math.PI * 2) / Math.max(1, n);
+      const r = 0.9 + i * 0.12;
+      const x = Math.cos(a) * r, z = -Math.sin(a) * r;
+      const yaw = a + Math.PI / 2; // tangent to the circle
+      const s = kind === 'bomber' ? 1.1 : kind === 'drone' ? 1 : 0.9;
+      this.put(kind, x, 1.0 + i * 0.12 + Math.sin(t + i) * 0.04, z, yaw, s, s, s, colour, kind === 'drone' ? 0 : -0.45);
+    }
+  }
+
+  private drawBattle(t: number, seed: number) {
+    // shell bursts landing around the fight
+    const fire = new THREE.Color('#ff8a3a'), dust = new THREE.Color('#8f8070');
+    for (let k = 0; k < 4; k++) {
+      const ph = (t * 0.9 + k / 4 + (seed % 13) / 13) % 1;
+      const r = rng(seed + k + Math.floor(t * 0.9 + k / 4));
+      const x = (r() - 0.5) * 1.8, z = (r() - 0.5) * 1.8;
+      if (ph < 0.25) { const s = 0.06 + ph * 0.5; this.put('flash', x, 0.05, z, 0, s, s, s, fire); }
+      const ds = 0.08 + ph * 0.18;
+      this.put('puff', x, 0.05 + ph * 0.3, z, 0, ds, ds, ds, dust);
+    }
+  }
+}

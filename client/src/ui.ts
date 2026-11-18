@@ -159,6 +159,13 @@ export class Hud {
     this.onGame(new Set<Change>(['status', 'me', 'mine', 'nations', 'events', 'chat', 'online']));
   }
 
+  /** Set by main: the 3D models switch in the View menu. */
+  onModels: (on: boolean) => void = () => {};
+  setModels(on: boolean) {
+    const box = this.root.querySelector<HTMLInputElement>('#models3d');
+    if (box) box.checked = on;
+  }
+
   private render() {
     const meta = this.world.meta;
     const landCells = Object.entries(meta.biome_cells).filter(([b]) => b !== 'ocean') as [BiomeId, number][];
@@ -216,6 +223,7 @@ export class Hud {
         <label class="check"><input type="checkbox" id="labels" checked>Names</label>
         <label class="check"><input type="checkbox" id="grid">Grid lines</label>
         <label class="check"><input type="checkbox" id="colorBlind">Colour-blind friendly</label>
+        <label class="check" title="Animated troops, ships, aircraft, cities and buildings when zoomed in"><input type="checkbox" id="models3d" checked>3D models</label>
         <label class="check" title="The camera leans over the map as you zoom in. Right-drag or Ctrl-drag tilts it by hand."><input type="checkbox" id="tilt" checked>Tilt with zoom</label>
         <div class="slider">
           <label for="relief"><span>RELIEF (3D)</span><output id="reliefOut">100%</output></label>
@@ -315,6 +323,7 @@ export class Hud {
     toggle('labels', (on) => this.events.onLabels(on));
     toggle('rivers', (on) => this.events.onRivers(on));
     toggle('tilt', (on) => this.events.onTilt(on));
+    toggle('models3d', (on) => this.onModels(on));
     {
       const relief = this.root.querySelector<HTMLInputElement>('#relief')!;
       const out = this.root.querySelector<HTMLOutputElement>('#reliefOut')!;

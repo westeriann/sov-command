@@ -194,6 +194,17 @@ Desktop edition (3D, single player):
   trim, a full-width command bar, condensed military lettering, and unit
   counters as squared plates edged in the nation's colour. Fonts are bundled
   (Oswald, Barlow, IBM Plex Mono), so nothing loads from the web
+- 3D models once you zoom in (View > 3D models turns them off): troops,
+  armour and carriers under their counters, which float above them; squads
+  march and vehicles turn toward where they are going, turrets sweep, ships
+  roll on the swell with a wake, aircraft circle their base, and battles
+  flash with gunfire and shell bursts. City skylines grow with population
+  (capitals get a domed seat of government), and every province building has
+  a model: factories and power stations with smoke or steam, spinning wind
+  turbines, a mine's winding wheel, port cranes, a jet taking off from each
+  air base, forts, and air and missile defense with turning radars. All are
+  built from simple shapes in code (three.js) and drawn as instances, so a
+  whole front costs a few dozen draw calls
 - F11 or Alt+Enter: full screen
 
 ## Run it

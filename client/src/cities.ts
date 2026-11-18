@@ -144,7 +144,7 @@ function buildingIcon(type: BuildingType): ImageData {
 const SLOTS: [number, number][] = [[-34, 30], [0, 38], [34, 30], [-56, 10], [56, 10], [0, 62]]; // clear of unit markers
 
 export class Cities {
-  private at = new Map<number, [number, number]>(); // where each city stands
+  readonly at = new Map<number, [number, number]>(); // where each city stands
 
   /** Night lights: brightness by electricity supply (and wealth). */
   setLights(on: boolean) {

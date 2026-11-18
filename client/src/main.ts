@@ -26,6 +26,7 @@ import './styles.css';
 import './theme-command.css';
 import { EconomyPanel } from './economy-panel';
 import { Forces } from './forces';
+import { Models3D } from './models3d';
 import { Game } from './game';
 import { LoginDialog } from './login';
 import { GameMap } from './map';
@@ -356,6 +357,20 @@ async function start() {
     goToProvince: goTo,
   });
   forces.onSelectionChange = () => hud.refreshSelection();
+  // 3D troops, cities and buildings once zoomed in; counters float above their models
+  const models = new Models3D(map, game, pol, forces, cities.at);
+  models.onSize = (px) => { forces?.setLift(px ? px * 0.8 + 12 : 0); map.setLayoutProperty('buildings', 'visibility', px && models3dOn ? 'none' : 'visible'); };
+  let models3dOn = true;
+  try { models3dOn = localStorage.getItem('sov.models') !== 'off'; } catch { /* storage blocked */ }
+  map.addLayer(models);
+  if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { sovDebug: { map, pol, game, models } });
+  models.setEnabled(models3dOn);
+  hud.onModels = (on) => {
+    models3dOn = on;
+    models.setEnabled(on);
+    try { localStorage.setItem('sov.models', on ? 'on' : 'off'); } catch { /* storage blocked */ }
+  };
+  hud.setModels(models3dOn);
   const goToProvince = (p: { label: [number, number] }) => select(p.label[1], p.label[0], true);
   const buildAt = (id: number) => {
     const p = pol.provinces.get(id);

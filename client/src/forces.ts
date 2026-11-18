@@ -191,10 +191,12 @@ export class Forces {
       if (units[0].next !== undefined) continue;
       byProvince.set(units[0].province, [...(byProvince.get(units[0].province) ?? []), key]);
     }
+    this.spread.clear();
     for (const keys of byProvince.values()) {
       keys.sort((x, y) => Number(groups.get(y)![0].nation === mine) - Number(groups.get(x)![0].nation === mine) || x.localeCompare(y));
-      keys.forEach((key, i) => this.markers.get(key)!.marker.setOffset([(i - (keys.length - 1) / 2) * 42, 0]));
+      keys.forEach((key, i) => this.spread.set(key, (i - (keys.length - 1) / 2)));
     }
+    this.applyOffsets();
     // battles
     const battles = new Set(this.game.war.battles);
     for (const [p, mk] of this.battleMarkers) if (!battles.has(p)) { mk.remove(); this.battleMarkers.delete(p); }
@@ -205,6 +207,36 @@ export class Forces {
       this.battleMarkers.set(p, new Marker({ element: el, opacityWhenCovered: '0' }).setLngLat(this.label(p)).addTo(this.map));
     }
     this.renderRoutes();
+  }
+
+  /** Slot of each stack sharing a province: 0 alone, else -1, 0, 1... from left to right. */
+  private spread = new Map<string, number>();
+  private lift = 0;
+
+  private applyOffsets() {
+    for (const [key, m] of this.markers) m.marker.setOffset([(this.spread.get(key) ?? 0) * 42, -this.lift]);
+  }
+
+  /** Raise the counters this many pixels, so they float over the 3D models beneath them. */
+  setLift(px: number) {
+    px = Math.round(px);
+    if (px === this.lift) return;
+    this.lift = px;
+    this.applyOffsets();
+  }
+
+  /** Every stack on the map now, where it is and where it is heading, for the 3D layer. */
+  stacks(): { key: string; units: UnitView[]; at: Pos; toward?: Pos; slot: number; fighting: boolean }[] {
+    const out = [];
+    for (const [key, m] of this.markers) {
+      const u = m.units[0];
+      out.push({
+        key, units: m.units, at: this.position(u), slot: this.spread.get(key) ?? 0,
+        toward: u.next !== undefined ? this.label(u.next) : undefined,
+        fighting: m.units.some((x) => x.status === 'fighting'),
+      });
+    }
+    return out;
   }
 
   private animate() {
