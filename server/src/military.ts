@@ -45,6 +45,8 @@ export interface MilitaryState {
 export interface Province extends RouteNode {
   owner?: number; // nation that owns it (land only)
   pop: number;
+  elev?: number; // mean metres
+  coastal?: boolean;
   name?: string;
 }
 

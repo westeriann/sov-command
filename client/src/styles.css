@@ -497,3 +497,6 @@ body.cb .up { color: #6bb8ff; }
 .energy-bar .grid { background: #5fd4ea; }
 .energy-bar .plants { background: #7be08a; }
 .supply-warnings { margin: 6px 0; padding-left: 18px; font-size: 12px; line-height: 1.5; }
+
+.world-state { margin: 4px 0 10px; font-size: 12px; }
+.world-state p { margin: 2px 0; }

@@ -1,7 +1,7 @@
 // Client-side copy of what the server has told us. The server is the
 // authority; this store only applies its messages and notifies the HUD.
 import { gameTimeAt } from '../../shared/clock';
-import type { SeasonInfo } from '../../shared/protocol';
+import type { SeasonInfo, WorldState } from '../../shared/protocol';
 import type { EconomyPublic, MarketSnapshot  } from '../../shared/economy';
 import type { UnitView } from '../../shared/military';
 import type {
@@ -28,6 +28,7 @@ export class Game {
   economy = new Map<number, EconomyPublic>();
   market: MarketSnapshot | null = null;
   season: SeasonInfo | null = null;
+  world: WorldState | null = null;
   units: UnitView[] = [];
   war: WarState = { wars: [], occupied: {}, battles: [], treaties: [], owners: {}, buildings: {}, nuked: [], embargoes: [], unrest: {}, blocs: [], council: [], vassals: {} };
 
@@ -159,6 +160,7 @@ export class Game {
     }
     this.economy = new Map(u.nations.map((n) => [n.id, n]));
     if (u.season) this.season = u.season;
+    if (u.world) this.world = u.world;
   }
 
   humanNations() {

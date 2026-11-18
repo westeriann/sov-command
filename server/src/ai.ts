@@ -162,6 +162,8 @@ export class AiBrain {
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
     orders.push(...this.strategicOrders(n, enemies.length > 0));
     orders.push(...this.covertOrders(n, enemies));
+    const wantOpen = (n.personality === 'idealist' || n.personality === 'trader') ? n.econ.stability > 35 : n.econ.stability > 65 && n.personality !== 'expansionist';
+    if ((n.policy.openBorders !== false) !== wantOpen) orders.push({ kind: 'borders', open: wantOpen });
     for (const foe of enemies) if (!w.diplomacy.embargoed(me, foe) && this.random() < 0.3) orders.push({ kind: 'embargo', target: foe, on: true });
     for (const e of w.diplomacy.embargoes) if (e.from === me && !enemies.includes(e.to) && this.random() < 0.1) orders.push({ kind: 'embargo', target: e.to, on: false });
 

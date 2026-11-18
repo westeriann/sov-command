@@ -30,6 +30,14 @@ export const LIMITS = {
 export interface Policy {
   focus: Focus;
   tax: number; // percent of GDP, LIMITS.taxMin..taxMax
+  openBorders?: boolean; // take in refugees (default yes)
+}
+
+/** What is happening to the whole world. */
+export type GlobalEventKind = 'crash' | 'pandemic' | 'oil_shock' | 'tech_boom';
+export interface WorldState {
+  warming: number; // °C above the start
+  event?: { kind: GlobalEventKind; until: number; text: string }; // until: game day
 }
 
 /** What every player may know about a nation. */
@@ -63,6 +71,7 @@ export interface NationPrivate extends NationPublic {
   research?: ResearchPrivate;
   reports?: string[]; // intelligence reports, newest first
   spyOps?: number; // operations under way
+  openBorders?: boolean;
 }
 
 /** Front lines and wars are public knowledge. */
@@ -86,6 +95,7 @@ export interface EconomyUpdate {
   market: MarketSnapshot;
   nations: EconomyPublic[];
   season?: SeasonInfo;
+  world?: WorldState;
 }
 
 /** Lets the client run the world clock locally between messages. */
@@ -159,6 +169,7 @@ export type Order =
   | { kind: 'spy'; target: number; mission: SpyMission }
   | { kind: 'release'; target: number } // free a vassal
   | { kind: 'rally'; province: number | null } // new land units march here
+  | { kind: 'borders'; open: boolean }
   | { kind: 'customize'; name?: string; short?: string; color?: string; flag?: FlagSpec }
   | { kind: 'nuke'; province: number }
   | { kind: 'government'; government: Government };

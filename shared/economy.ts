@@ -77,6 +77,8 @@ export interface EnergyStats {
   militaryOil: number; // bn barrels a year burned by the armed forces
 }
 
+export interface MigrationStats { refugeesIn: number; refugeesOut: number } // people, last game year
+
 export interface EconomyPrivate {
   day: number;
   gdp: number; // $bn per year
@@ -96,6 +98,7 @@ export interface EconomyPrivate {
   fuelDays: number; // oil in storage, days of use
   shortage: number; // weighted unmet need, 0..1
   energy: EnergyStats;
+  migration?: MigrationStats;
   goods: Record<Commodity, CommodityStats>;
   history: HistoryPoint[];
 }

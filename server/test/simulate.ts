@@ -30,6 +30,8 @@ function report(label: string) {
   const by = (d: string) => [...m.units.values()].filter((u) => ['infantry','mechanized','armored'].includes(u.type) === (d === 'land') && (d === 'land' || (d === 'sea') === ['destroyers','submarines','carrier'].includes(u.type))).length;
   console.log(`   forces: ${by('land')} land, ${by('sea')} naval, ${by('air')} air; ${m.wars.length} wars now; ${m.occupied.size} provinces occupied`);
   const d = w.diplomacy; console.log(`   diplomacy: ${d.treaties.filter((t) => t.kind === 'alliance').length} alliances, ${d.treaties.filter((t) => t.kind === 'trade').length} trade deals, ${d.owners.size} provinces changed hands, ${[...w.nations.values()].filter((n) => n.annexedBy).length} nations annexed`);
+  { const g = w.globe; const refugees = [...w.nations.values()].reduce((s, n) => s + (w.privateView(n).econ?.migration?.refugeesIn ?? 0), 0);
+    console.log(`   world: ${g.warming.toFixed(2)} °C warmer; event now: ${g.event?.kind ?? 'none'}; refugees taken in over the last year: ${(refugees / 1e6).toFixed(2)} m`); }
   { const live = [...w.nations.values()].filter((n) => !n.annexedBy);
     const dark = live.filter((n) => (n.econ.blackout ?? 0) > 0.01);
     const plants = [...w.military.buildings.values()].flat().filter((b) => ['coal_plant', 'gas_plant', 'nuclear_plant', 'renewables'].includes(b.type) && b.progress >= 1).length;

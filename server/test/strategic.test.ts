@@ -139,3 +139,19 @@ test('electricity: a growing economy outgrows its grid; power stations and fuel 
   (w as unknown as { effectCache: Map<number, unknown> }).effectCache.clear();
   assert.ok(w.effects(1).landAttack < full - 0.3);
 });
+
+test('the wider world: border policy; global events hit nations by their circumstances', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  // the border policy is a player's choice
+  assert.equal(w.submit(2, { kind: 'borders', open: false }, 'human').ok, true);
+  assert.equal(w.nations.get(2)!.policy.openBorders, false);
+  // global events: a crash hurts the indebted more
+  const a = w.nations.get(1)!, b = w.nations.get(2)!;
+  a.econ.treasury = -a.econ.gdp; b.econ.treasury = b.econ.gdp * 0.1;
+  w.globe.event = { kind: 'crash', until: w.market.day + 100, text: '' };
+  assert.ok(w.eventGrowth(a) < w.eventGrowth(b), 'debt makes a crash worse');
+  w.globe.event = { kind: 'pandemic', until: w.market.day + 100, text: '' };
+  a.econ.budget.welfare = 50; b.econ.budget.welfare = 20;
+  assert.ok(w.eventGrowth(a) > w.eventGrowth(b), 'welfare blunts a pandemic');
+});

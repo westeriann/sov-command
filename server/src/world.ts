@@ -15,7 +15,7 @@ import { COMMODITIES, COMMODITY_INFO, normalizeBudget, type Commodity, type Ener
 import type { EconomyUpdate } from '../../shared/protocol.ts';
 import { AiBrain, personalityFor } from './ai.ts';
 import {
-  HISTORY_EVERY_DAYS, SPEND_RATE, initEconomies, initMarket, marketSnapshot, privateEcon, publicEcon, runDay,
+  HISTORY_EVERY_DAYS, SPEND_RATE, initEconomies, usePerYear, initMarket, marketSnapshot, privateEcon, publicEcon, runDay,
   type EconSeed, type MarketState, type NationEcon,
 } from './economy.ts';
 import type { User } from './auth.ts';
@@ -25,6 +25,7 @@ import { UNIT_SPECS, UNIT_TYPES, type MilitaryPrivate, type UnitType, type UnitV
 import type { WarState } from '../../shared/protocol.ts';
 import { Diplomacy } from './diplomacy.ts';
 import { cleanFlag, isColor, type FlagSpec } from '../../shared/flags.ts';
+import type { GlobalEventKind, WorldState } from '../../shared/protocol.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, UNITS_PER_GENERAL, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import {
@@ -112,7 +113,7 @@ export function loadNationDefs(worldDir: string): { seed: number; nations: Natio
     nations: Omit<NationDef, 'seed'>[];
     provinces: {
       id: number; kind: 'land' | 'sea'; nation?: number; area: number; coastal?: boolean; res?: Record<string, number>;
-      label: [number, number]; terrain: string; river?: number; adj: number[]; pop?: number; name: string;
+      label: [number, number]; terrain: string; river?: number; adj: number[]; pop?: number; name: string; elev?: number;
     }[];
   };
   // aggregate each nation's provinces into its economic potential
@@ -142,7 +143,7 @@ export function loadNationDefs(worldDir: string): { seed: number; nations: Natio
     }),
     provinces: raw.provinces.map((p) => ({
       id: p.id, kind: p.kind, label: p.label, terrain: p.terrain, river: p.river, adj: p.adj,
-      owner: p.kind === 'land' ? p.nation : undefined, pop: p.pop ?? 0, name: p.name,
+      owner: p.kind === 'land' ? p.nation : undefined, pop: p.pop ?? 0, name: p.name, elev: p.elev, coastal: p.coastal,
     })),
   };
 }
@@ -175,6 +176,8 @@ export class World {
   private rand: () => number;
   private effectCache = new Map<number, Effects>();
   private factories = new Map<number, number>();
+  globe: WorldState & { lastClimateDay: number; low: number[]; oilCut?: Record<number, number> } = { warming: 0, lastClimateDay: 0, low: [] };
+  private migrants = new Map<number, { in: number; out: number }>();
   private plants = new Map<number, { share: number; thermal: number; coal: number; gas: number }>();
   nuked: number[] = [];
   private warDirty = false;
@@ -253,12 +256,19 @@ export class World {
     const seasonMs = opts.seasonMs ?? 28 * 86_400_000;
     this.season = JSON.parse(getMeta(db, 'season') ?? 'null') ?? { number: 1, startedAt: Date.now(), endsAt: Date.now() + seasonMs, scores: {}, history: [], dominance: 0 };
     this.nuked = JSON.parse(getMeta(db, 'nuked') ?? '[]');
+    this.globe = { ...this.globe, ...JSON.parse(getMeta(db, 'globe') ?? '{}') };
+    this.migrants = new Map(Object.entries(JSON.parse(getMeta(db, 'migrants') ?? '{}')).map(([k, v]) => [Number(k), v as { in: number; out: number }]));
     for (const p of this.nuked) { const prov = byId.get(p); if (prov) prov.pop *= 0.7; }
     const storedMil = getMeta(db, 'military');
     this.military = new Military(byId, storedMil ? JSON.parse(storedMil) : null, mulberry(seed + 99));
     this.military.allied = (a, b) => this.diplomacy.allied(a, b);
     this.military.intelOn = (nation) => Object.entries(this.nations.get(nation)?.intel ?? {}).filter(([, until]) => until >= this.market.day).map(([id]) => Number(id));
     this.countOwnedPop();
+    // the lowest-lying coastal provinces are the first to flood as the seas rise
+    if (!this.globe.low.length) {
+      const coast = [...byId.values()].filter((p) => p.kind === 'land' && p.coastal && p.elev !== undefined).sort((a, b) => a.elev! - b.elev!);
+      this.globe.low = coast.slice(0, Math.ceil(coast.length * 0.15)).map((p) => p.id);
+    }
     for (const n of this.nations.values()) {
       n.mil ??= { funds: 0, queue: [] };
       // peace offers saved before diplomacy existed become white-peace proposals
@@ -458,6 +468,8 @@ export class World {
     setMeta(this.db, 'diplomacy', JSON.stringify(this.diplomacy.serialize()));
     setMeta(this.db, 'nuked', JSON.stringify(this.nuked));
     setMeta(this.db, 'season', JSON.stringify(this.season));
+    setMeta(this.db, 'globe', JSON.stringify(this.globe));
+    setMeta(this.db, 'migrants', JSON.stringify(Object.fromEntries(this.migrants)));
   }
 
   /** Units visible to a user's nation (none for players without a nation). */
@@ -494,7 +506,8 @@ export class World {
   privateView(n: NationState): NationPrivate {
     return {
       ...this.publicView(n), tax: n.policy.tax, claimedAt: n.claimedAt,
-      econ: privateEcon(n.econ, n.policy.tax, this.market.day, this.energyStats(n)), mil: this.milPrivate(n),
+      econ: { ...privateEcon(n.econ, n.policy.tax, this.market.day, this.energyStats(n)), migration: { refugeesIn: Math.round(this.migrants.get(n.id)?.in ?? 0), refugeesOut: Math.round(this.migrants.get(n.id)?.out ?? 0) } },
+      mil: this.milPrivate(n), openBorders: n.policy.openBorders !== false,
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
       research: this.researchView(n),
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
@@ -506,6 +519,7 @@ export class World {
       market: marketSnapshot(this.market),
       nations: [...this.nations.values()].filter((n) => !n.annexedBy).map((n) => publicEcon(n.id, n.econ)),
       season: this.seasonInfo(),
+      world: { warming: Math.round(this.globe.warming * 100) / 100, event: this.globe.event },
     };
   }
 
@@ -984,6 +998,11 @@ export class World {
         this.touch(n, false);
         return ok;
       }
+      case 'borders': {
+        n.policy.openBorders = !!order.open;
+        this.touch(n);
+        return ok;
+      }
       case 'customize': {
         if (actor !== 'human') return fail('not_allowed', 'Only players customise nations.');
         const c = { ...(n.custom ?? {}) };
@@ -1217,7 +1236,7 @@ export class World {
         atWar: this.military.enemiesOf(n.id).length > 0,
         blockade: Math.min(0.9, this.military.blockade(n.id) + this.embargoPressure(n.id)),
         tradeDeals: this.diplomacy.partners('trade', n.id).length,
-        bonusGrowth: this.effects(n.id).growth,
+        bonusGrowth: this.effects(n.id).growth + this.eventGrowth(n),
         factoryGrowth: Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * FACTORY_GROWTH,
         plantPower: this.plants.get(n.id)?.share ?? 0,
         thermalPlants: this.plants.get(n.id)?.thermal ?? 0,
@@ -1227,6 +1246,7 @@ export class World {
       runDay(inputs, this.market, this.market.day + 1);
       this.politicsDay(this.market.day);
       this.scoreDay();
+      this.worldDay(this.market.day);
       if (this.market.day % HISTORY_EVERY_DAYS === 0) weekly = true;
     }
     if (this.warDirty) { this.warDirty = false; this.warChanged(); }
@@ -1336,6 +1356,118 @@ export class World {
     original.original ??= { name: d.name, short: d.short };
     d.name = n.custom?.name ?? original.original.name;
     d.short = n.custom?.short ?? original.original.short;
+  }
+
+  // ---- the wider world: global events, refugees, climate ---------------------------------
+  /** How today's global event changes a nation's growth (per year). */
+  eventGrowth(n: NationState) {
+    const ev = this.globe.event;
+    if (!ev) return 0;
+    const e = n.econ;
+    if (ev.kind === 'crash') return -0.04 - Math.max(0, -e.treasury / e.gdp) * 0.05; // the indebted suffer most
+    if (ev.kind === 'pandemic') return -0.03 * (1 - Math.min(0.7, (e.budget.welfare - 20) / 40)); // health systems blunt it
+    if (ev.kind === 'tech_boom') return 0.012 + (e.budget.research / 100) * 0.04; // research spenders gain most
+    return 0;
+  }
+
+  private worldDay(day: number) {
+    const g = this.globe;
+    // global events: about one a game year, lasting a few months
+    if (g.event && day >= g.event.until) {
+      if (g.event.kind === 'oil_shock' && g.oilCut) {
+        for (const [id, cut] of Object.entries(g.oilCut)) { const n = this.nations.get(Number(id)); if (n) n.econ.capacity.oil /= cut; }
+        g.oilCut = undefined;
+      }
+      this.event('world', undefined, `The ${g.event.kind === 'crash' ? 'financial crisis' : g.event.kind === 'pandemic' ? 'pandemic' : g.event.kind === 'oil_shock' ? 'oil shock' : 'technology boom'} is over.`);
+      g.event = undefined;
+    } else if (!g.event && this.rand() < 1 / 365) {
+      const kinds: GlobalEventKind[] = ['crash', 'pandemic', 'oil_shock', 'tech_boom'];
+      const kind = kinds[Math.floor(this.rand() * kinds.length)];
+      const days = 90 + Math.floor(this.rand() * 90);
+      const text = {
+        crash: 'A global financial crisis: growth collapses everywhere, worst for nations in debt.',
+        pandemic: 'A pandemic sweeps the world: growth falls and people die; strong welfare systems limit the damage.',
+        oil_shock: 'An oil shock: the largest producers cut output by a third and prices soar.',
+        tech_boom: 'A technology boom: growth accelerates, most of all where research is funded.',
+      }[kind];
+      g.event = { kind, until: day + days, text };
+      if (kind === 'oil_shock') {
+        const top = [...this.nations.values()].filter((n) => !n.annexedBy).sort((a, b) => b.econ.capacity.oil - a.econ.capacity.oil).slice(0, 8);
+        g.oilCut = Object.fromEntries(top.map((n) => [n.id, 0.67]));
+        for (const n of top) n.econ.capacity.oil *= 0.67;
+      }
+      if (kind === 'pandemic') {
+        for (const n of this.nations.values()) {
+          if (n.annexedBy) continue;
+          const shield = Math.min(0.7, (n.econ.budget.welfare - 20) / 40);
+          n.econ.pop *= 1 - 0.004 * (1 - shield);
+          n.econ.stability = Math.max(0, n.econ.stability - 6 * (1 - shield));
+        }
+      }
+      this.event('world', undefined, text);
+    }
+    this.migrationDay();
+    // climate: once a game year, warming from the world's coal and gas, then its effects
+    if (day - g.lastClimateDay >= 365) {
+      g.lastClimateDay = day;
+      const live = [...this.nations.values()].filter((n) => !n.annexedBy);
+      const burn = live.reduce((s, n) => s + usePerYear('coal', n.econ.gdp, n.econ.pop) + usePerYear('gas', n.econ.gdp, n.econ.pop) * 0.6
+        + (this.extraUse(n).coal ?? 0) + (this.extraUse(n).gas ?? 0) * 0.6, 0);
+      const start = COMMODITY_INFO.coal.worldUse + COMMODITY_INFO.gas.worldUse * 0.6;
+      g.warming += 0.025 * (burn / start) * Math.max(0, 1 - g.warming / 5); // a quarter of a degree a decade at today's burning, levelling off
+      const w = g.warming;
+      // rising seas: the lowest coasts lose people
+      if (w > 0.15) {
+        for (const id of g.low) {
+          const p = this.military.provinces.get(id);
+          if (!p || !p.owner) continue;
+          const lost = p.pop * Math.min(0.03, (w - 0.15) * 0.02);
+          p.pop -= lost;
+          const n = this.nations.get(p.owner);
+          if (n) { const f = lost / Math.max(1, this.ownedPop.get(n.id) ?? 1); n.econ.pop *= 1 - f; n.econ.gdp *= 1 - f * 0.7; }
+        }
+        this.countOwnedPop();
+      }
+      // farmland moves poleward
+      for (const n of live) {
+        const provs = [...this.military.provinces.values()].filter((p) => p.owner === n.id);
+        const hot = provs.filter((p) => ['savanna', 'desert_sand', 'desert_rock', 'shrubland', 'rainforest'].includes(p.terrain)).length;
+        const cold = provs.filter((p) => ['boreal', 'tundra'].includes(p.terrain)).length;
+        const shift = (cold - hot) / Math.max(1, provs.length);
+        n.econ.capacity.food *= 1 + shift * w * 0.02;
+      }
+      if (w > 0.1) this.event('world', undefined, `Climate: the world is now ${w.toFixed(2)} °C warmer than in 2026${w > 0.15 ? '; low-lying coasts are flooding' : ''}.`);
+    }
+  }
+
+  /** People flee occupied land to neighbours who will take them in. */
+  private migrationDay() {
+    for (const n of this.nations.values()) {
+      if (n.annexedBy) continue;
+      const loss = 1 - this.controlOf(n.id) + this.unrestLoss(n.id) * 0.5;
+      if (loss <= 0.01) continue;
+      const flow = n.econ.pop * loss * 0.0003; // people a day
+      const hosts = (this.defs.get(n.id)?.neighbours ?? []).map((id) => this.nations.get(id)!)
+        .filter((h) => h && !h.annexedBy && h.policy.openBorders !== false && !this.military.atWar(h.id, n.id) && !this.military.enemiesOf(n.id).includes(h.id));
+      if (!hosts.length) continue;
+      const weight = hosts.map((h) => h.econ.gdp / h.econ.pop);
+      const total = weight.reduce((a, b) => a + b, 0);
+      n.econ.pop -= flow;
+      const out = this.migrants.get(n.id) ?? { in: 0, out: 0 };
+      out.out = out.out * (1 - 1 / 365) + flow;
+      this.migrants.set(n.id, out);
+      hosts.forEach((h, i) => {
+        const r = flow * weight[i] / total;
+        const gdppc = h.econ.gdp / h.econ.pop;
+        h.econ.pop += r;
+        h.econ.gdp += r * gdppc * 0.25; // newcomers work, at first in lower-paid jobs
+        h.econ.treasury -= r * 3e-6; // $3,000 per person to house and settle
+        h.econ.stability = Math.max(0, h.econ.stability - (r / h.econ.pop) * 2000);
+        const m = this.migrants.get(h.id) ?? { in: 0, out: 0 };
+        m.in = m.in * (1 - 1 / 365) + r;
+        this.migrants.set(h.id, m);
+      });
+    }
   }
 
   // ---- strategic warfare -----------------------------------------------------------

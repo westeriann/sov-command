@@ -11,6 +11,7 @@ export interface EconomyActions {
   budget(b: Partial<Budget>): void;
   tax(t: number): void;
   goToNation(id: number): void;
+  borders(open: boolean): void;
 }
 
 const BUDGET_NAMES: Record<keyof Budget, [string, string]> = {
@@ -75,6 +76,8 @@ export class EconomyPanel {
     this.el.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-econ="close"]')) this.close();
+      const b = t.closest<HTMLElement>('[data-borders]');
+      if (b) { this.actions.borders(b.dataset.borders === 'open'); return; }
       const go = t.closest<HTMLElement>('[data-goto]');
       if (go) this.actions.goToNation(Number(go.dataset.goto));
     });
@@ -166,6 +169,22 @@ export class EconomyPanel {
       </div>
       <p class="hint">Supply ${Math.round(cover * 100)}% of demand · national grid ${Math.round((en.grid / Math.max(1, en.demand)) * 100)}% · power stations ${Math.round((en.plants / Math.max(1, en.demand)) * 100)}%. Demand grows with the economy; the grid alone grows more slowly (faster with infrastructure spending). Armed forces burn ${en.militaryOil}bn barrels of oil a year.</p>
       ${problems ? `<ul class="supply-warnings">${problems}</ul>` : '<p class="hint up">All supply chains running.</p>'}
+    </section>
+    ${this.migrationHtml(e)}`;
+  }
+
+  /** Refugees: who takes them in is a choice with costs now and gains later. */
+  private migrationHtml(e: EconomyPrivate) {
+    const open = this.game.mine?.openBorders !== false;
+    const m = e.migration ?? { refugeesIn: 0, refugeesOut: 0 };
+    const people = (x: number) => x >= 1e6 ? `${(x / 1e6).toFixed(1)} m` : `${Math.round(x / 1e3)}k`;
+    return `<section class="energy">
+      <span class="label">BORDERS AND REFUGEES</span>
+      <p class="hint">Last year: ${people(m.refugeesIn)} refugees arrived, ${people(m.refugeesOut)} fled abroad. War and occupation drive people to neighbours with open borders. Taking them in costs money and some stability now; they join the workforce and add to growth.</p>
+      <div class="seg" role="group" aria-label="Border policy">
+        <button type="button" data-borders="open" aria-pressed="${open}">Open borders</button>
+        <button type="button" data-borders="closed" aria-pressed="${!open}">Closed borders</button>
+      </div>
     </section>`;
   }
 
@@ -228,12 +247,24 @@ export class EconomyPanel {
       <td>${qty(g.prod, u)}</td><td>${qty(g.use, u)}</td><td>${trade}</td><td>${days} days</td></tr>`;
   }
 
+  /** What is happening to everyone: the current global event and the climate. */
+  private worldHtml() {
+    const w = this.game.world;
+    if (!w) return '';
+    const day = this.game.market?.day ?? 0;
+    return `<div class="world-state">
+      ${w.event ? `<p class="down"><b>${esc(w.event.text)}</b> ${Math.max(0, w.event.until - day)} days left.</p>` : ''}
+      <p class="hint">Climate: ${w.warming.toFixed(2)} °C warmer than in 2026, driven by the coal and gas the world burns.${w.warming > 0.15 ? ' Low-lying coasts are losing people to the sea; farmland is moving toward the poles.' : ' Above 0.15 °C, low coasts start to flood.'}</p>
+    </div>`;
+  }
+
   private marketHtml() {
     const m = this.game.market;
     if (!m) return '';
     return `
       <section class="market">
         <span class="label">WORLD MARKET · DAY ${m.day}</span>
+        ${this.worldHtml()}
         <div class="market-grid">
           ${COMMODITIES.map((c) => {
             const info = COMMODITY_INFO[c];

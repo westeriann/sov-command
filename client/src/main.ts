@@ -172,6 +172,7 @@ async function start() {
   const economy = new EconomyPanel(hudRoot, game, pol, {
     budget: (budget) => conn.send({ t: 'order', order: { kind: 'budget', budget } }),
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
+    borders: (open) => conn.send({ t: 'order', order: { kind: 'borders', open } }),
     goToNation: (id) => {
       const n = pol.nations.get(id);
       const p = n && pol.provinces.get(n.capital);
