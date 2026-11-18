@@ -129,7 +129,7 @@ export class Hub implements WorldListener {
       const { events, chat } = this.world.recent(user.id);
       this.send(ws, {
         t: 'welcome',
-        you: { ...user, nation: mine?.id ?? null, admin: this.accounts.isAdmin(user.name) || undefined },
+        you: { ...user, nation: mine?.id ?? null, admin: this.accounts.isAdmin(user.name) || undefined, achievements: this.accounts.achievements(user.id) as never },
         clock: { ...this.world.clock, serverNow: Date.now() },
         nations: this.world.allPublic(),
         mine: mine ? this.world.privateView(mine) : null,

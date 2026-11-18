@@ -189,6 +189,15 @@ export class Accounts {
     this.db.prepare('update reports set handled = 1 where id = ?').run(id);
   }
 
+  achievements(userId: number): string[] {
+    return (this.db.prepare('select key from achievements where user_id = ? order by at').all(userId) as { key: string }[]).map((r) => r.key);
+  }
+
+  /** Record an achievement; returns true the first time. */
+  award(userId: number, key: string) {
+    return Number(this.db.prepare('insert or ignore into achievements (user_id, key, at) values (?, ?, ?)').run(userId, key, Date.now()).changes) > 0;
+  }
+
   logout(token: string) {
     this.db.prepare('delete from sessions where token = ?').run(sha256(token));
   }

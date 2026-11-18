@@ -3,6 +3,8 @@ import {
   EMBLEM_NAMES, FLAG_EMBLEMS, FLAG_PATTERNS, PATTERN_NAMES, defaultFlag, flagSvg, type FlagEmblem, type FlagPattern, type FlagSpec,
 } from '../../shared/flags';
 import type { Order } from '../../shared/protocol';
+import { ACHIEVEMENTS } from '../../shared/goals';
+import { EARNED_EMBLEMS } from '../../shared/flags';
 import type { Nation } from './political';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -45,7 +47,8 @@ export class CustomizeDialog {
     if (box) box.innerHTML = flagSvg(this.values().flag, 150);
   }
 
-  open(n: Nation) {
+  open(n: Nation, achievements: string[] = []) {
+    const earned = new Set(Object.entries(ACHIEVEMENTS).filter(([k]) => achievements.includes(k)).map(([, a]) => a.emblem));
     this.nation = n;
     const f = flagOf(n);
     this.el.hidden = false;
@@ -60,7 +63,7 @@ export class CustomizeDialog {
           <label for="czPattern">Flag pattern</label>
           <select id="czPattern">${FLAG_PATTERNS.map((p) => `<option value="${p}"${p === f.pattern ? ' selected' : ''}>${PATTERN_NAMES[p]}</option>`).join('')}</select>
           <label for="czEmblem">Emblem</label>
-          <select id="czEmblem">${FLAG_EMBLEMS.map((e) => `<option value="${e}"${e === f.emblem ? ' selected' : ''}>${EMBLEM_NAMES[e]}</option>`).join('')}</select>
+          <select id="czEmblem">${FLAG_EMBLEMS.filter((e) => !EARNED_EMBLEMS.includes(e) || earned.has(e)).map((e) => `<option value="${e}"${e === f.emblem ? ' selected' : ''}>${EMBLEM_NAMES[e]}</option>`).join('')}</select>
           <div class="cz-colors"><label>Flag colours</label>
             <input id="czC1" type="color" value="${f.colors[0]}" aria-label="Field colour">
             <input id="czC2" type="color" value="${f.colors[1]}" aria-label="Second colour">

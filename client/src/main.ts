@@ -103,7 +103,7 @@ async function start() {
     },
     worlds: () => void lobby?.open(),
     account: () => account.openChangePassword(),
-    customize: () => { const n = game.mine && pol.nations.get(game.mine.id); if (n) customize.open(n); },
+    customize: () => { const n = game.mine && pol.nations.get(game.mine.id); if (n) customize.open(n, game.me?.achievements ?? []); },
     admin: () => adminPanel?.toggle(),
     report: async (from, text) => {
       const r = await fetch('/api/report', {

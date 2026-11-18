@@ -38,6 +38,7 @@ export function start(cfg = config) {
     seasonMs: cfg.seasonMs,
   }, provinces);
   const accounts = new Accounts(db);
+  world.achievements = { list: (u) => accounts.achievements(u), award: (u, k) => accounts.award(u, k) };
   let hub: Hub | null = null;
   const api = apiHandler(accounts, world, () => hub?.onlineCount ?? 0, (id, reason) => hub?.kick(id, reason));
   const server = createServer((req, res) => { void api(req, res); });

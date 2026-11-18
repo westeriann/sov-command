@@ -26,6 +26,8 @@ import type { WarState } from '../../shared/protocol.ts';
 import { Diplomacy } from './diplomacy.ts';
 import { cleanFlag, isColor, type FlagSpec } from '../../shared/flags.ts';
 import type { GlobalEventKind, WorldState } from '../../shared/protocol.ts';
+import { ACHIEVEMENTS, MISSION_CASH, MISSION_KINDS, MISSION_REWARD_DAYS, type AchievementKey, type GoalKind, type SeasonMission } from '../../shared/goals.ts';
+import { EARNED_EMBLEMS } from '../../shared/flags.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, UNITS_PER_GENERAL, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import {
@@ -68,6 +70,9 @@ export interface NationState {
   mil: NationMil;
   annexedBy?: number; // conquered: the nation no longer exists
   custom?: { name?: string; short?: string; color?: string; flag?: FlagSpec; renamedAt?: number };
+  missions?: SeasonMission[];
+  missionSeason?: number;
+  missionsDone?: number; // all-time, for the achievement
   reports?: string[]; // intelligence reports for the player
   spyOps?: { target: number; mission: SpyMission; day: number }[];
   intel?: Record<number, number>; // nation -> game day our view of its forces lasts until
@@ -184,6 +189,8 @@ export class World {
   season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number> }[]; dominance: number };
   private power = new Map<number, number>();
   listener: WorldListener | null = null;
+  /** Set by the server: achievements are kept on the account, not the nation. */
+  achievements: { list(userId: number): string[]; award(userId: number, key: string): boolean } = { list: () => [], award: () => false };
 
   constructor(private db: DB, seed: number, defs: NationDef[], private opts: WorldOptions, provinces?: Province[]) {
     for (const d of defs) this.defs.set(d.id, d);
@@ -507,7 +514,7 @@ export class World {
     return {
       ...this.publicView(n), tax: n.policy.tax, claimedAt: n.claimedAt,
       econ: { ...privateEcon(n.econ, n.policy.tax, this.market.day, this.energyStats(n)), migration: { refugeesIn: Math.round(this.migrants.get(n.id)?.in ?? 0), refugeesOut: Math.round(this.migrants.get(n.id)?.out ?? 0) } },
-      mil: this.milPrivate(n), openBorders: n.policy.openBorders !== false,
+      mil: this.milPrivate(n), openBorders: n.policy.openBorders !== false, missions: n.missions,
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
       research: this.researchView(n),
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
@@ -581,7 +588,8 @@ export class World {
 
   seasonInfo(): SeasonInfo {
     const s = this.season;
-    const leaders = Object.entries(s.scores).map(([id, score]) => ({ nation: Number(id), score: Math.round(score), power: Math.round((this.power.get(Number(id)) ?? 0) * 1000) / 10 }))
+    const badges = (id: number) => { const n = this.nations.get(id); return n?.controller === 'human' && n.userId ? this.achievements.list(n.userId).length || undefined : undefined; };
+    const leaders = Object.entries(s.scores).map(([id, score]) => ({ nation: Number(id), score: Math.round(score), power: Math.round((this.power.get(Number(id)) ?? 0) * 1000) / 10, badges: badges(Number(id)) }))
       .sort((a, b) => b.score - a.score).slice(0, 20);
     const hallOfFame = (this.db.prepare('select number, ended_at, standings from seasons order by number desc limit 10').all() as { number: number; ended_at: number; standings: string }[])
       .map((r) => ({ season: r.number, endedAt: r.ended_at, ...(JSON.parse(r.standings)[0] ?? {}) }));
@@ -628,6 +636,12 @@ export class World {
       return { nation: n.id, name: this.defs.get(n.id)!.name, player: n.player, score: Math.round(score) };
     });
     this.db.prepare('insert or replace into seasons (number, ended_at, standings) values (?, ?, ?)').run(s.number, Date.now(), JSON.stringify(standings));
+    standings.forEach((st, i) => {
+      const n = this.nations.get(st.nation);
+      if (n?.controller !== 'human' || !n.userId) return;
+      this.achievements.award(n.userId, 'top10');
+      if (i === 0) this.achievements.award(n.userId, 'champion');
+    });
     const w = standings[0];
     if (w) this.event('world', w.nation, `Season ${s.number} ends (${reason}). Victory to the ${w.name}${w.player ? ` led by ${w.player}` : ''} with ${w.score.toLocaleString('en-US')} points.`);
     const length = s.endsAt - s.startedAt;
@@ -1030,6 +1044,11 @@ export class World {
         if (order.flag !== undefined) {
           const f = cleanFlag(order.flag);
           if (!f) return fail('bad_request', 'That flag is not valid.');
+          if (EARNED_EMBLEMS.includes(f.emblem)) {
+            const mine = n.userId ? this.achievements.list(n.userId) : [];
+            const earned = (Object.entries(ACHIEVEMENTS) as [AchievementKey, { emblem?: string }][]).some(([k, a]) => a.emblem === f.emblem && mine.includes(k));
+            if (!earned) return fail('not_allowed', 'That emblem is earned through an achievement.');
+          }
           c.flag = f;
         }
         n.custom = c;
@@ -1246,6 +1265,7 @@ export class World {
       runDay(inputs, this.market, this.market.day + 1);
       this.politicsDay(this.market.day);
       this.scoreDay();
+      this.goalsDay();
       this.worldDay(this.market.day);
       if (this.market.day % HISTORY_EVERY_DAYS === 0) weekly = true;
     }
@@ -1356,6 +1376,91 @@ export class World {
     original.original ??= { name: d.name, short: d.short };
     d.name = n.custom?.name ?? original.original.name;
     d.short = n.custom?.short ?? original.original.short;
+  }
+
+  // ---- goals: season missions and achievements ---------------------------------------
+  powerOf(nation: number) {
+    return this.power.get(nation) ?? 0;
+  }
+
+  private provincesHeld(id: number) {
+    let c = 0;
+    for (const p of this.military.provinces.values()) if (p.kind === 'land' && this.military.controller(p.id) === id) c++;
+    return c;
+  }
+
+  private measure(n: NationState, kind: GoalKind): number {
+    const m = this.military, d = this.diplomacy, id = n.id;
+    const builtHere = (types: string[]) => [...m.buildings].filter(([p]) => m.provinces.get(p)?.owner === id).reduce((s, [, l]) => s + l.filter((b) => b.progress >= 1 && types.includes(b.type)).length, 0);
+    switch (kind) {
+      case 'grow': return n.econ.gdp;
+      case 'industry': return builtHere(['factory']);
+      case 'power': return (n.econ.blackout ?? 0) < 0.005 ? builtHere(['coal_plant', 'gas_plant', 'nuclear_plant', 'renewables']) : 0;
+      case 'bloc': { const b = d.blocOf(id); return b ? b.members.length : 0; }
+      case 'trade': return d.partners('trade', id).length;
+      case 'tech': return n.tech.done.length;
+      case 'territory': return this.provincesHeld(id);
+      case 'stability': return n.econ.stability;
+      case 'navy': return m.unitsOf(id).filter((u) => UNIT_SPECS[u.type].domain === 'sea').length;
+      case 'allies': return d.allies(id).length;
+    }
+  }
+
+  /** Three goals for the season, sized to what this nation has now. */
+  private assignMissions(n: NationState) {
+    const pool = [...MISSION_KINDS].sort(() => this.rand() - 0.5);
+    const out: SeasonMission[] = [];
+    for (const kind of pool) {
+      if (out.length >= 3) break;
+      const now = this.measure(n, kind);
+      const goal: Record<GoalKind, [number, string]> = {
+        grow: [now * 1.15, 'Grow the economy by 15%'],
+        industry: [now + 3, `Run ${now + 3} factory complexes`],
+        power: [Math.max(3, now + 2), `Keep the lights on with ${Math.max(3, now + 2)} power stations`],
+        bloc: [Math.max(4, now + 2), `Belong to a bloc of ${Math.max(4, now + 2)} nations`],
+        trade: [Math.min(6, now + 2), `Hold ${Math.min(6, now + 2)} trade agreements`],
+        tech: [now + 3, 'Research three more technologies'],
+        territory: [now + 3, `Hold ${now + 3} provinces`],
+        stability: [Math.min(90, Math.max(70, now + 10)), `Raise stability to ${Math.min(90, Math.max(70, Math.round(now + 10)))}%`],
+        navy: [now + 4, `Field ${now + 4} naval units`],
+        allies: [now + 2, `Have ${now + 2} allies`],
+      };
+      if (kind === 'trade' && now >= 6) continue;
+      if (kind === 'stability' && now >= 88) continue;
+      out.push({ kind, target: goal[kind][0], base: now, text: goal[kind][1] });
+    }
+    n.missions = out;
+    n.missionSeason = this.season.number;
+  }
+
+  private goalsDay() {
+    for (const n of this.nations.values()) {
+      if (n.controller !== 'human' || n.annexedBy || !n.userId) continue;
+      if (n.missionSeason !== this.season.number || !n.missions) this.assignMissions(n);
+      for (const ms of n.missions!) {
+        if (ms.done || this.measure(n, ms.kind) < ms.target) continue;
+        ms.done = true;
+        const reward = MISSION_REWARD_DAYS * (this.power.get(n.id) ?? 0) * 100;
+        this.season.scores[n.id] = (this.season.scores[n.id] ?? 0) + reward;
+        n.econ.treasury += n.econ.gdp * MISSION_CASH;
+        n.missionsDone = (n.missionsDone ?? 0) + 1;
+        this.event('politics', n.id, `${this.defs.get(n.id)!.short} completes a season mission: ${ms.text} (+${Math.round(reward).toLocaleString('en-US')} points).`);
+        this.touch(n, false);
+      }
+      // achievements, kept by the player's account
+      const award = (key: AchievementKey) => {
+        if (this.achievements.award(n.userId!, key)) {
+          this.event('politics', n.id, `${n.player} earns the ${ACHIEVEMENTS[key].name} achievement: ${ACHIEVEMENTS[key].text}.`);
+          this.touch(n, false);
+        }
+      };
+      if ((n.missionsDone ?? 0) >= 9) award('missions');
+      if ((n.mil.warheads ?? 0) > 0) award('nuclear_power');
+      if (n.tech.done.length >= TECHS_LIST.length) award('full_tree');
+      const bloc = this.diplomacy.blocOf(n.id);
+      if (bloc && bloc.leader === n.id && bloc.members.length >= 5) award('bloc_founder');
+      if (this.market.day % 30 === 0 && this.provincesHeld(n.id) >= 60) award('empire');
+    }
   }
 
   // ---- the wider world: global events, refugees, climate ---------------------------------
@@ -1716,6 +1821,7 @@ export class World {
     if (!taken.length) return 0;
     this.transfer(taken, lose, win);
     for (const p of taken) { this.diplomacy.unrest.set(p, 60); this.diplomacy.formerOwner.set(p, loser); }
+    if (win.controller === 'human' && win.userId) this.achievements.award(win.userId, 'first_victory');
     if (![...m.provinces.values()].some((p) => p.kind === 'land' && p.owner === loser)) this.annex(lose, win.id);
     return taken.length;
   }

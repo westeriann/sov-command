@@ -500,3 +500,8 @@ body.cb .up { color: #6bb8ff; }
 
 .world-state { margin: 4px 0 10px; font-size: 12px; }
 .world-state p { margin: 2px 0; }
+
+.badge { font-size: 10px; color: #ffd27a; }
+.achievements { margin: 6px 0; padding-left: 16px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.achievements .got { color: var(--fg); }
+.achievements .got b { color: #ffd27a; }

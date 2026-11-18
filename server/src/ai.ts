@@ -197,23 +197,48 @@ export class AiBrain {
     for (const prov of m.provinces.values()) {
       if (prov.kind === 'land' && m.controller(prov.id) === me && prov.adj.some(isEnemyLand)) front.push(prov.id);
     }
-    if (!front.length) return orders;
+    if (!front.length) {
+      // no land front: land on the weakest enemy coast if our fleet can cover the crossing
+      orders.push(...this.amphibious(n, enemies, units, enemyPower));
+      return orders;
+    }
     const stacks = new Map<number, number[]>();
     for (const u of units) {
       if (u.next !== undefined || u.fighting) continue;
       stacks.set(u.province, [...(stacks.get(u.province) ?? []), u.id]);
     }
-    for (const [prov, ids] of stacks) {
-      if (!front.includes(prov)) continue;
-      const atk = ids.reduce((s, id) => { const u = m.units.get(id)!; return s + (u.strength / 100) * UNIT_SPECS[u.type].attack; }, 0);
-      const targets = m.provinces.get(prov)!.adj.filter((q) => isEnemyLand(q) && m.provinces.get(q)?.kind === 'land');
-      const weakest = targets.sort((a, b) => (enemyPower.get(a) ?? 0) - (enemyPower.get(b) ?? 0))[0];
-      if (weakest !== undefined && atk >= 1.4 * (enemyPower.get(weakest) ?? 0) + 0.5) {
-        orders.push({ kind: 'move', units: ids.length > 1 ? ids.slice(1) : ids, to: weakest }); // leave a guard behind
+    // a planned offensive: pick a valuable, weakly held target, mass on the border facing it, then strike
+    const power = (ids: number[]) => ids.reduce((s, id) => { const u = m.units.get(id)!; return s + (u.strength / 100) * UNIT_SPECS[u.type].attack; }, 0);
+    let plan = this.plans.get(me);
+    if (plan && (!isEnemyLand(plan.target) || !front.includes(plan.staging) || w.market.day - plan.since > 60)) plan = undefined;
+    if (!plan) {
+      let best: { target: number; staging: number; score: number } | undefined;
+      for (const f of front) {
+        for (const q of m.provinces.get(f)!.adj) {
+          const tp = m.provinces.get(q);
+          if (!tp || tp.kind !== 'land' || !isEnemyLand(q)) continue;
+          const capital = [...w.defs.values()].some((d) => d.capital === q) ? 2 : 1;
+          const score = (tp.pop / 1e6 + 1) * capital / (1 + (enemyPower.get(q) ?? 0));
+          if (!best || score > best.score) best = { target: q, staging: f, score };
+        }
+      }
+      if (best) { plan = { target: best.target, staging: best.staging, since: w.market.day }; this.plans.set(me, plan); }
+    }
+    if (plan) {
+      const atStaging = stacks.get(plan.staging) ?? [];
+      const defence = enemyPower.get(plan.target) ?? 0;
+      if (atStaging.length && power(atStaging) >= 1.6 * defence + 0.5) {
+        orders.push({ kind: 'move', units: atStaging.length > 1 ? atStaging.slice(1) : atStaging, to: plan.target });
+        this.plans.delete(me);
+      } else {
+        // gather: everything not guarding another front province heads for the staging area
+        for (const [prov, ids] of stacks) {
+          if (prov === plan.staging) continue;
+          const spare = front.includes(prov) ? ids.slice(1) : ids;
+          if (spare.length) orders.push({ kind: 'move', units: spare.slice(0, 12), to: plan.staging });
+        }
       }
     }
-    const rear = units.filter((u) => u.next === undefined && !u.fighting && !front.includes(u.province)).slice(0, 10);
-    for (const u of rear) orders.push({ kind: 'move', units: [u.id], to: front[u.id % front.length] });
 
     // air: fighters cover the front, strike wings back the main thrust (rebasing forward if out of range)
     const battle = [...m.battles].find((b) => front.includes(b) || isEnemyLand(b));
@@ -271,7 +296,8 @@ export class AiBrain {
     const them = w.nations.get(from);
     if (!them || w.dealProblem(from, me, deal)) return false;
     const friendly = them.policy.focus === 'diplomacy' ? 0.2 : 0;
-    if (deal.kind === 'trade') return TRADE_WILL[p] + friendly >= 0.5;
+    const dominant = w.powerOf(from) > 0.15 && w.powerOf(from) > w.powerOf(me) * 3 ? 0.35 : 0; // wary of a power that could swallow us
+    if (deal.kind === 'trade') return TRADE_WILL[p] + friendly - dominant >= 0.5;
     if (deal.kind === 'alliance' || deal.kind === 'bloc') {
       const m = w.military;
       const myEnemies = m.enemiesOf(me), theirEnemies = m.enemiesOf(from);
@@ -279,7 +305,11 @@ export class AiBrain {
       const trades = w.diplomacy.has('trade', me, from) ? 0.1 : 0;
       const strong = (w.publicView(them).army ?? 0) >= m.unitsOf(me).length * 0.5 ? 0.1 : 0;
       const neighbour = w.defs.get(me)?.neighbours.includes(from) ? 0.05 : 0;
-      return ALLY_WILL[p] + friendly + shared + trades + strong + neighbour + (deal.kind === 'bloc' ? 0.1 : 0) >= 0.5;
+      // balance of power: nations next to the strongest power band together
+      const leader = [...w.nations.values()].reduce((a, b) => (w.powerOf(b.id) > w.powerOf(a.id) ? b : a)).id;
+      const nearLeader = (x: number) => !!w.defs.get(leader)?.neighbours.includes(x);
+      const balance = w.powerOf(leader) > 0.12 && leader !== from && leader !== me && nearLeader(me) && nearLeader(from) ? 0.3 : 0;
+      return ALLY_WILL[p] + friendly + shared + trades + strong + neighbour + balance - dominant + (deal.kind === 'bloc' ? 0.1 : 0) >= 0.5;
     }
     // peace: weigh what each side holds of the other's people
     const days = this.warDays(me, from);
@@ -307,6 +337,24 @@ export class AiBrain {
       if (pool.length) orders.push({ kind: 'propose', target: pool[Math.floor(this.random() * pool.length)], deal: { kind: 'alliance' } });
     }
     return orders;
+  }
+
+  private plans = new Map<number, { target: number; staging: number; since: number }>();
+
+  /** Troops by sea, when the enemy cannot be reached by land. */
+  private amphibious(n: NationState, enemies: number[], units: { id: number; province: number; next?: number; fighting?: boolean; strength: number; type: UnitType }[], enemyPower: Map<number, number>): Order[] {
+    const w = this.world, m = w.military, me = n.id;
+    if (this.random() > 0.3) return [];
+    const seen = m.visibleProvinces(me);
+    const fleet = m.unitsOf(me).filter((u) => domainOf(u.type) === 'sea').reduce((s, u) => s + UNIT_SPECS[u.type].attack * u.strength / 100, 0);
+    const theirFleet = [...m.units.values()].filter((u) => enemies.includes(u.nation) && domainOf(u.type) === 'sea' && seen.has(u.province))
+      .reduce((s, u) => s + UNIT_SPECS[u.type].defense * u.strength / 100, 0);
+    if (fleet < theirFleet * 1.2 + 2) return [];
+    const coasts = [...m.provinces.values()].filter((p) => p.kind === 'land' && enemies.includes(m.controller(p.id) ?? -1) && p.adj.some((q) => m.provinces.get(q)?.kind === 'sea'));
+    const target = coasts.sort((a, b) => (enemyPower.get(a.id) ?? 0) - (enemyPower.get(b.id) ?? 0))[0];
+    const idle = units.filter((u) => u.next === undefined && !u.fighting);
+    const force = idle.slice(0, Math.ceil(idle.length * 0.6)).map((u) => u.id);
+    return target && force.length >= 3 ? [{ kind: 'move', units: force, to: target.id }] : [];
   }
 
   /** Next technology: cheapest tier first, this personality's favourite branches first within a tier. */
@@ -344,6 +392,13 @@ export class AiBrain {
     } else if (bloc?.leader === me && bloc.members.length < MAX_BLOC && this.random() < 0.08) {
       const pick = d.allies(me).concat(d.partners('trade', me)).find((x) => !d.blocOf(x) && !d.pending(me, x, 'bloc'));
       if (pick !== undefined) orders.push({ kind: 'propose', target: pick, deal: { kind: 'bloc' } });
+    }
+    // sanction a dominant power that keeps expanding
+    if (this.random() < 0.02) {
+      const leader = [...w.nations.values()].reduce((a, b) => (w.powerOf(b.id) > w.powerOf(a.id) ? b : a));
+      if (leader.id !== me && w.powerOf(leader.id) > 0.15 && w.military.enemiesOf(leader.id).length && !d.allied(me, leader.id)) {
+        orders.push({ kind: 'resolution', resolution: 'sanction', target: leader.id });
+      }
     }
     // condemn those who attacked our friends
     if (this.random() < 0.03) {

@@ -101,3 +101,23 @@ test('players rename and recolour their nation, design a flag; names are unique 
   w.release(1);
   assert.equal(w.defs.get(1)!.name, 'Nation 1', 'a released nation gets its own name back');
 });
+
+test('season missions: three goals per player; completing one pays points and cash; achievements unlock emblems', () => {
+  const w = setup();
+  const awarded: string[] = [];
+  w.achievements = { list: () => awarded, award: (_u, k) => (awarded.includes(k) ? false : (awarded.push(k), true)) };
+  w.tick(Date.now() + realPerDay * 2);
+  const n = w.nations.get(1)!;
+  assert.equal(n.missions?.length, 3);
+  const goal = n.missions![0];
+  goal.target = 0; // make it already met
+  const score = w.season.scores[1] ?? 0, cash = n.econ.treasury;
+  w.tick(Date.now() + realPerDay * 4);
+  assert.equal(goal.done, true);
+  assert.ok((w.season.scores[1] ?? 0) > score + 1, 'points');
+  assert.ok(n.econ.treasury > cash, 'cash');
+  const eagle = { pattern: 'solid' as const, colors: ['#000000', '#ffffff', '#ffd700'] as [string, string, string], emblem: 'eagle' as const };
+  assert.equal(w.submit(1, { kind: 'customize', flag: eagle }, 'human').ok, false, 'the eagle is earned by winning a season');
+  awarded.push('champion');
+  assert.equal(w.submit(1, { kind: 'customize', flag: eagle }, 'human').ok, true);
+});

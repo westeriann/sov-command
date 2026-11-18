@@ -2,15 +2,18 @@
 // (generated from its id and map colour) and players can design their own.
 
 export type FlagPattern = 'solid' | 'bicolor_h' | 'bicolor_v' | 'tricolor_h' | 'tricolor_v' | 'cross' | 'nordic' | 'diagonal' | 'canton' | 'border';
-export type FlagEmblem = 'none' | 'star' | 'circle' | 'crescent' | 'diamond' | 'sun' | 'stars3';
+export type FlagEmblem = 'none' | 'star' | 'circle' | 'crescent' | 'diamond' | 'sun' | 'stars3' | 'laurel' | 'shield' | 'atom' | 'crown' | 'eagle';
+/** Emblems earned through achievements. */
+export const EARNED_EMBLEMS: FlagEmblem[] = ['laurel', 'shield', 'atom', 'crown', 'eagle'];
 export const FLAG_PATTERNS: FlagPattern[] = ['solid', 'bicolor_h', 'bicolor_v', 'tricolor_h', 'tricolor_v', 'cross', 'nordic', 'diagonal', 'canton', 'border'];
-export const FLAG_EMBLEMS: FlagEmblem[] = ['none', 'star', 'circle', 'crescent', 'diamond', 'sun', 'stars3'];
+export const FLAG_EMBLEMS: FlagEmblem[] = ['none', 'star', 'circle', 'crescent', 'diamond', 'sun', 'stars3', 'laurel', 'shield', 'atom', 'crown', 'eagle'];
 export const PATTERN_NAMES: Record<FlagPattern, string> = {
   solid: 'Plain', bicolor_h: 'Two bands', bicolor_v: 'Two stripes', tricolor_h: 'Three bands', tricolor_v: 'Three stripes',
   cross: 'Cross', nordic: 'Nordic cross', diagonal: 'Diagonal', canton: 'Canton', border: 'Border',
 };
 export const EMBLEM_NAMES: Record<FlagEmblem, string> = {
   none: 'No emblem', star: 'Star', circle: 'Disc', crescent: 'Crescent', diamond: 'Diamond', sun: 'Sun', stars3: 'Three stars',
+  laurel: 'Laurel (Victor)', shield: 'Shield (Founder)', atom: 'Atom (Deterrent)', crown: 'Crown (Imperial)', eagle: 'Eagle (Champion)',
 };
 
 export interface FlagSpec {
@@ -40,7 +43,7 @@ export function defaultFlag(id: number, color: string): FlagSpec {
   let second = pick();
   if (second.toLowerCase() === color.toLowerCase()) second = '#ffffff';
   const pattern = FLAG_PATTERNS[1 + Math.floor(r() * (FLAG_PATTERNS.length - 1))];
-  const emblem = r() < 0.45 ? FLAG_EMBLEMS[1 + Math.floor(r() * (FLAG_EMBLEMS.length - 1))] : 'none';
+  const emblem = r() < 0.45 ? FLAG_EMBLEMS[1 + Math.floor(r() * 6)] : 'none'; // earned emblems are never handed out
   return { pattern, colors: [isColor(color) ? color : '#556677', second, pick() === second ? '#ffffff' : pick()], emblem };
 }
 
@@ -62,6 +65,11 @@ function emblemSvg(e: FlagEmblem, cx: number, cy: number, s: number, c: string) 
       return `<line x1="${cx + Math.cos(a) * s * 0.6}" y1="${cy + Math.sin(a) * s * 0.6}" x2="${cx + Math.cos(a) * s}" y2="${cy + Math.sin(a) * s}" stroke="${c}" stroke-width="${s * 0.16}"/>`;
     }).join('')}`;
     case 'stars3': return star(cx - s * 1.1, cy, s * 0.5) + star(cx, cy, s * 0.5) + star(cx + s * 1.1, cy, s * 0.5);
+    case 'laurel': return `<path d="M${cx - s * 0.2} ${cy + s} C${cx - s} ${cy + s * 0.4} ${cx - s} ${cy - s * 0.5} ${cx - s * 0.3} ${cy - s}" stroke="${c}" stroke-width="${s * 0.25}" fill="none"/><path d="M${cx + s * 0.2} ${cy + s} C${cx + s} ${cy + s * 0.4} ${cx + s} ${cy - s * 0.5} ${cx + s * 0.3} ${cy - s}" stroke="${c}" stroke-width="${s * 0.25}" fill="none"/>`;
+    case 'shield': return `<path d="M${cx - s * 0.7} ${cy - s * 0.8}h${s * 1.4}v${s * 0.8}c0 ${s * 0.6} -${s * 0.4} ${s * 0.9} -${s * 0.7} ${s * 1.1}c-${s * 0.3} -${s * 0.2} -${s * 0.7} -${s * 0.5} -${s * 0.7} -${s * 1.1}z" fill="${c}"/>`;
+    case 'atom': return `<circle cx="${cx}" cy="${cy}" r="${s * 0.22}" fill="${c}"/>${[0, 60, 120].map((r) => `<ellipse cx="${cx}" cy="${cy}" rx="${s}" ry="${s * 0.36}" transform="rotate(${r} ${cx} ${cy})" stroke="${c}" stroke-width="${s * 0.12}" fill="none"/>`).join('')}`;
+    case 'crown': return `<path d="M${cx - s} ${cy + s * 0.6}L${cx - s} ${cy - s * 0.5}L${cx - s * 0.5} ${cy}L${cx} ${cy - s * 0.8}L${cx + s * 0.5} ${cy}L${cx + s} ${cy - s * 0.5}L${cx + s} ${cy + s * 0.6}z" fill="${c}"/>`;
+    case 'eagle': return `<path d="M${cx} ${cy - s * 0.3}L${cx - s * 1.1} ${cy - s * 0.8}L${cx - s * 0.7} ${cy + s * 0.1}L${cx - s * 0.3} ${cy + s * 0.2}L${cx} ${cy + s}L${cx + s * 0.3} ${cy + s * 0.2}L${cx + s * 0.7} ${cy + s * 0.1}L${cx + s * 1.1} ${cy - s * 0.8}z" fill="${c}"/><circle cx="${cx}" cy="${cy - s * 0.55}" r="${s * 0.25}" fill="${c}"/>`;
     default: return '';
   }
 }

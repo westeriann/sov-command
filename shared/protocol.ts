@@ -10,6 +10,7 @@ import type { Bloc, Deal, DealKind, Pact, Proposal, Resolution, ResolutionKind, 
 import type { Government, ResearchPrivate, TechId } from './research';
 import type { BuildingState, BuildingType } from './buildings';
 import type { FlagSpec } from './flags';
+import type { AchievementKey, SeasonMission } from './goals';
 
 export type Focus = 'economy' | 'military' | 'research' | 'diplomacy';
 export type Personality = 'expansionist' | 'trader' | 'turtle' | 'opportunist' | 'idealist';
@@ -72,6 +73,7 @@ export interface NationPrivate extends NationPublic {
   reports?: string[]; // intelligence reports, newest first
   spyOps?: number; // operations under way
   openBorders?: boolean;
+  missions?: SeasonMission[]; // this season's goals
 }
 
 /** Front lines and wars are public knowledge. */
@@ -130,7 +132,7 @@ export interface SeasonInfo {
   number: number;
   startedAt: number; // real ms
   endsAt: number; // real ms
-  leaders: { nation: number; score: number; power: number }[]; // top 20; power = share of world strength now
+  leaders: { nation: number; score: number; power: number; badges?: number }[]; // top 20; power = share of world strength now; badges: the leader's achievements
   history: { d: number; s: Record<number, number> }[]; // weekly scores of the current top nations
   hallOfFame: { season: number; endedAt: number; nation: number; name: string; player?: string; score: number }[];
 }
@@ -141,6 +143,7 @@ export interface Me {
   guest: boolean;
   nation: number | null;
   admin?: boolean; // may use the moderation tools
+  achievements?: AchievementKey[];
 }
 
 export type Order =

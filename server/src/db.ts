@@ -47,6 +47,7 @@ export function openDb(file: string): DB {
     ['failed', 'integer not null default 0'], ['locked_until', 'integer not null default 0']]) {
     if (!ucols.includes(col)) db.exec(`alter table users add column ${col} ${def}`);
   }
+  db.exec('create table if not exists achievements (user_id integer not null, key text not null, at integer not null, primary key (user_id, key))');
   db.exec(`create table if not exists reports (
     id integer primary key, at integer not null, reporter integer not null, target text not null, text text not null,
     reason text not null, handled integer not null default 0
