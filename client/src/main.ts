@@ -14,7 +14,16 @@ import { RankingsPanel } from './rankings-panel';
 import { Lobby } from './lobby';
 import { Sound, type Cue } from './sound';
 import { Tutorial } from './tutorial';
+import '@fontsource/oswald/400.css';
+import '@fontsource/oswald/500.css';
+import '@fontsource/oswald/600.css';
+import '@fontsource/barlow/400.css';
+import '@fontsource/barlow/500.css';
+import '@fontsource/barlow/600.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
 import './styles.css';
+import './theme-command.css';
 import { EconomyPanel } from './economy-panel';
 import { Forces } from './forces';
 import { Game } from './game';
@@ -78,6 +87,8 @@ async function start() {
     onLabels: (on) => gameMap.setLabels(on),
     onRivers: (on) => gameMap.setRivers(on),
     onProjection: (p) => gameMap.setProjection(p),
+    onRelief: (v) => gameMap.setRelief(v),
+    onTilt: (on) => gameMap.setAutoTilt(on),
     onSelectProvince: (id) => {
       const p = pol.provinces.get(id);
       if (p) select(p.label[1], p.label[0], true);
@@ -281,7 +292,7 @@ async function start() {
   citiesRef = cities;
   new Presence(gameMap.map, game, pol);
   game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
-  gameMap.setMode('political', 0.3);
+  gameMap.setMode('political', 0.72);
   gameMap.addNationLabels();
   let lastHeard: unknown = null;
   let lastIncoming = 0;

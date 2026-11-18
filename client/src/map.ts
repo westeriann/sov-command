@@ -7,19 +7,42 @@ import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 // The map's background worker must ship with the build (dev serves it from node_modules).
 if (import.meta.env.PROD) setWorkerUrl(mapWorkerUrl);
 
-// Single-player build: terrain tiles come packed in a few bundles (see tools/pack-tiles.mjs)
-if (OFFLINE) {
+// Single-player build: terrain and relief tiles come packed in a few bundles (see tools/pack-tiles.mjs)
+function packedTiles(scheme: string, name: string) {
   let index: Promise<Record<string, [string, number, number]>> | null = null;
   const bundles = new Map<string, Promise<ArrayBuffer>>();
-  addProtocol('pack', async (params) => {
-    index ??= fetch(`${ASSET_BASE}world/tiles-index.json`).then((r) => r.json());
-    const key = params.url.replace('pack://', '');
+  addProtocol(scheme, async (params) => {
+    index ??= fetch(`${ASSET_BASE}world/${name}-index.json`).then((r) => r.json());
+    const key = params.url.replace(`${scheme}://`, '');
     const hit = (await index)[key];
     if (!hit) throw new Error(`no tile ${key}`);
     const [group, offset, length] = hit;
-    if (!bundles.has(group)) bundles.set(group, fetch(`${ASSET_BASE}world/${bin(`tiles-${group}.bin`)}`).then((r) => r.arrayBuffer()));
+    if (!bundles.has(group)) bundles.set(group, fetch(`${ASSET_BASE}world/${bin(`${name}-${group}.bin`)}`).then((r) => r.arrayBuffer()));
     return { data: (await bundles.get(group)!).slice(offset, offset + length) };
   });
+}
+if (OFFLINE) {
+  packedTiles('pack', 'tiles');
+  packedTiles('packdem', 'dem');
+}
+
+/** Relief tiles for the 3D map, if this world has them (worlds made before relief existed do not). */
+const RELIEF_TILES = OFFLINE ? 'packdem://{z}/{x}/{y}' : `${ASSET_BASE}world/dem/{z}/{x}/{y}.png`;
+async function hasRelief() {
+  try {
+    const r = await fetch(OFFLINE ? `${ASSET_BASE}world/dem-index.json` : `${ASSET_BASE}world/dem/0/0/0.png`, { method: OFFLINE ? 'GET' : 'HEAD' });
+    return r.ok && !(r.headers.get('content-type') ?? '').includes('text/html');
+  } catch { return false; }
+}
+
+/** How much the mountains are raised: strong from orbit, gentler up close, times the player's Relief setting. */
+function exaggeration(zoom: number, relief: number) {
+  const base = Math.min(45, Math.max(6, 45 / Math.pow(1.75, Math.max(0, zoom - 1.5))));
+  return base * relief;
+}
+/** The camera leans over the map as you zoom in, like a commander bending over a table. */
+function tiltFor(zoom: number) {
+  return Math.min(52, Math.max(0, (zoom - 2.2) * 17));
 }
 import type { Political } from './political';
 import { BIOME_INFO, mercatorCanvas, type World } from './world';
@@ -64,6 +87,9 @@ function ramp(stops: [number, string][], v: number): [number, number, number] {
   return hex(stops[stops.length - 1][1]);
 }
 
+/** Sea colour in the political view: a calm, dark, slightly green navy. */
+const SEA_RGB: [number, number, number] = [27, 50, 66];
+
 const ELEV_STOPS: [number, string][] = [
   [-7000, '#06142e'], [-3000, '#0d2f5c'], [-200, '#1d5d8a'], [0, '#3f8fb0'],
   [1, '#3e7a3c'], [400, '#8aa54e'], [1200, '#c8b26a'], [2500, '#a0704a'], [4000, '#e6e2dc'],
@@ -106,10 +132,13 @@ export class GameMap {
       version: 8,
       projection: { type: 'globe' },
       sky: {
-        'sky-color': '#071a2c',
-        'horizon-color': '#2c6f96',
-        'fog-color': '#0d2a44',
-        'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 0.6, 7, 0],
+        'sky-color': '#0b1218',
+        'horizon-color': '#4a6470',
+        'fog-color': '#1a252c',
+        'fog-ground-blend': 0.6,
+        'horizon-fog-blend': 0.7,
+        'sky-horizon-blend': 0.6,
+        'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 5, 0.4, 7, 0],
       },
       sources: {
         planet: {
@@ -124,13 +153,17 @@ export class GameMap {
         rivers: { type: 'geojson', data: `${ASSET_BASE}world/rivers.geojson`, tolerance: 0.2 },
       },
       layers: [
-        { id: 'space', type: 'background', paint: { 'background-color': '#02060b' } },
-        { id: 'planet', type: 'raster', source: 'planet', paint: { 'raster-fade-duration': 150 } },
+        { id: 'space', type: 'background', paint: { 'background-color': '#05080b' } },
+        {
+          // the photographed planet, toned down into a map: less saturation, a little more contrast
+          id: 'planet', type: 'raster', source: 'planet',
+          paint: { 'raster-fade-duration': 150, 'raster-saturation': -0.35, 'raster-contrast': 0.12, 'raster-brightness-max': 0.92 },
+        },
         {
           id: 'graticule', type: 'line', source: 'graticule',
           paint: {
-            'line-color': '#5fd4ea',
-            'line-opacity': ['case', ['get', 'major'], 0.45, 0.18],
+            'line-color': '#c9a24a',
+            'line-opacity': ['case', ['get', 'major'], 0.45, 0.2],
             'line-width': ['case', ['get', 'major'], 1, 0.6],
           },
           layout: { visibility: 'none' },
@@ -139,7 +172,7 @@ export class GameMap {
           // big rivers from the start, smaller ones appear as you zoom in
           id: 'rivers', type: 'line', source: 'rivers',
           paint: {
-            'line-color': '#6cc3ea',
+            'line-color': '#5f93ad',
             'line-opacity': ['step', ['zoom'],
               ['case', ['>=', ['get', 'c'], 4], 0.85, 0],
               2.6, ['case', ['>=', ['get', 'c'], 3], 0.85, 0],
@@ -155,38 +188,38 @@ export class GameMap {
         {
           id: 'sea-zones', type: 'line', source: 'borders', minzoom: 2.5,
           filter: ['==', ['get', 'k'], K_SEA],
-          paint: { 'line-color': '#8fd3ea', 'line-opacity': zoomFade(2.5, 4, 0, 0.22), 'line-width': 0.7, 'line-dasharray': [3, 3] },
+          paint: { 'line-color': '#7fa6b8', 'line-opacity': zoomFade(2.5, 4, 0, 0.25), 'line-width': 0.7, 'line-dasharray': [3, 3] },
         },
         {
           id: 'province-borders', type: 'line', source: 'borders', minzoom: 2,
           filter: ['==', ['get', 'k'], K_PROVINCE],
-          paint: { 'line-color': '#f4f8fa', 'line-opacity': zoomFade(2, 3.5, 0, 0.42), 'line-width': zoomFade(2, 6, 0.5, 1.3) },
+          paint: { 'line-color': '#141a1e', 'line-opacity': zoomFade(2, 3.5, 0, 0.45), 'line-width': zoomFade(2, 6, 0.4, 1.1) },
         },
         {
           id: 'nation-casing', type: 'line', source: 'borders',
           filter: ['==', ['get', 'k'], K_NATION],
-          paint: { 'line-color': '#04121c', 'line-opacity': 0.45, 'line-width': zoomFade(1, 6, 2.5, 5), 'line-blur': 1 },
+          paint: { 'line-color': '#0a0d10', 'line-opacity': 0.35, 'line-width': zoomFade(1, 6, 3.5, 7), 'line-blur': 2 },
           layout: { 'line-join': 'round', 'line-cap': 'round' },
         },
         {
           id: 'nation-borders', type: 'line', source: 'borders',
           filter: ['==', ['get', 'k'], K_NATION],
-          paint: { 'line-color': '#f4f8fa', 'line-opacity': 0.85, 'line-width': zoomFade(1, 6, 0.9, 2.2) },
+          paint: { 'line-color': '#11161a', 'line-opacity': 0.9, 'line-width': zoomFade(1, 6, 1.2, 2.8) },
           layout: { 'line-join': 'round', 'line-cap': 'round' },
         },
         {
           id: 'nation-selected', type: 'line', source: 'borders', filter: NONE,
-          paint: { 'line-color': '#ffd27a', 'line-opacity': 0.9, 'line-width': zoomFade(1, 6, 1.4, 3), 'line-dasharray': [2, 1.5] },
+          paint: { 'line-color': '#e8c46a', 'line-opacity': 0.95, 'line-width': zoomFade(1, 6, 1.6, 3.4) },
           layout: { 'line-join': 'round' },
         },
         {
           id: 'province-glow', type: 'line', source: 'borders', filter: NONE,
-          paint: { 'line-color': '#5fd4ea', 'line-opacity': 0.5, 'line-width': 9, 'line-blur': 6 },
+          paint: { 'line-color': '#e8c46a', 'line-opacity': 0.45, 'line-width': 9, 'line-blur': 6 },
           layout: { 'line-join': 'round' },
         },
         {
           id: 'province-selected', type: 'line', source: 'borders', filter: NONE,
-          paint: { 'line-color': '#9be9f7', 'line-width': zoomFade(1, 6, 1.8, 3) },
+          paint: { 'line-color': '#fff1c4', 'line-width': zoomFade(1, 6, 1.8, 3) },
           layout: { 'line-join': 'round', 'line-cap': 'round' },
         },
       ],
@@ -199,6 +232,7 @@ export class GameMap {
       zoom: 2.1,
       minZoom: 0.6,
       maxZoom: max + 1.5,
+      maxPitch: 70,
       attributionControl: { compact: true },
       renderWorldCopies: false,
     });
@@ -213,6 +247,68 @@ export class GameMap {
       requestAnimationFrame(() => { queued = false; this.declutter(); });
     });
     this.map.on('moveend', () => this.updateProvinceLabels());
+    this.map.on('pitchstart', (e) => { if ((e as { originalEvent?: Event }).originalEvent) this.autoTilt = false; });
+    this.map.on('zoomend', () => this.followZoom());
+    this.map.once('load', () => void this.enableRelief());
+  }
+
+  // ---- 3D relief -----------------------------------------------------------
+  private relief = 1;
+  private reliefOn = false;
+  /** The camera tilts with zoom until the player tilts it by hand (right-drag or Ctrl-drag). */
+  autoTilt = true;
+
+  private async enableRelief() {
+    if (!(await hasRelief())) return;
+    this.map.addSource('relief', { type: 'raster-dem', tiles: [RELIEF_TILES], tileSize: 256, maxzoom: 5, encoding: 'terrarium' });
+    this.map.addSource('relief-shade', { type: 'raster-dem', tiles: [RELIEF_TILES], tileSize: 256, maxzoom: 5, encoding: 'terrarium' });
+    this.map.addLayer({
+      id: 'hillshade', type: 'hillshade', source: 'relief-shade',
+      paint: {
+        'hillshade-exaggeration': 0.8,
+        'hillshade-shadow-color': '#0b0d0c',
+        'hillshade-highlight-color': '#fff6dc',
+        'hillshade-accent-color': '#2a2a22',
+        'hillshade-illumination-direction': 315,
+      },
+    }, 'graticule');
+    this.reliefOn = true;
+    this.applyRelief();
+  }
+
+  /** Raise or flatten the mountains (0 = flat map). */
+  setRelief(v: number) {
+    this.relief = v;
+    this.applyRelief();
+  }
+
+  setAutoTilt(on: boolean) {
+    this.autoTilt = on;
+    this.map.easeTo({ pitch: on ? tiltFor(this.map.getZoom()) : 0, duration: 500 });
+  }
+
+  private applyRelief() {
+    if (!this.reliefOn) return;
+    if (this.relief <= 0) {
+      this.map.setTerrain(null);
+      this.map.setLayoutProperty('hillshade', 'visibility', 'none');
+      return;
+    }
+    this.map.setLayoutProperty('hillshade', 'visibility', 'visible');
+    this.map.setTerrain({ source: 'relief', exaggeration: exaggeration(this.map.getZoom(), this.relief) });
+  }
+
+  private followZoom() {
+    const z = this.map.getZoom();
+    if (this.reliefOn && this.relief > 0) {
+      const want = exaggeration(z, this.relief);
+      const now = this.map.getTerrain()?.exaggeration ?? 0;
+      if (Math.abs(want - now) / Math.max(want, 1) > 0.08) this.applyRelief();
+    }
+    if (this.autoTilt && !this.map.isMoving()) {
+      const p = tiltFor(z);
+      if (Math.abs(p - this.map.getPitch()) > 2) this.map.easeTo({ pitch: p, duration: 450 });
+    }
   }
 
   ready() {
@@ -296,7 +392,7 @@ export class GameMap {
     this.map.addSource('overlay', { type: 'canvas', canvas, coordinates: OVERLAY_COORDS, animate: false });
     this.map.addLayer(
       { id: 'overlay', type: 'raster', source: 'overlay', paint: { 'raster-opacity': opacity, 'raster-fade-duration': 0 } },
-      'graticule',
+      this.map.getLayer('hillshade') ? 'hillshade' : 'graticule',
     );
   }
 
@@ -359,7 +455,7 @@ export class GameMap {
   }
 
   /** Paint each land province with its nation's colour (or leave it clear). */
-  private nationCanvas(colourOf: (nation: number) => [number, number, number] | undefined) {
+  private nationCanvas(colourOf: (nation: number) => [number, number, number] | undefined, sea?: [number, number, number]) {
     const pol = this.pol;
     const byProvince = new Uint8Array((Math.max(...pol.provinces.keys()) + 1) * 3);
     const owned = new Uint8Array(byProvince.length / 3);
@@ -369,8 +465,11 @@ export class GameMap {
       byProvince.set(c.map(Math.round), p.id * 3);
       owned[p.id] = 1;
     }
+    const isSea = new Uint8Array(owned.length);
+    if (sea) for (const p of pol.provinces.values()) if (p.kind !== 'land') isSea[p.id] = 1;
     return mercatorCanvas(pol.width, pol.height, (i) => {
       const id = pol.grid[i];
+      if (sea && (id === 0 || isSea[id])) return [sea[0], sea[1], sea[2], 235];
       if (!owned[id]) return [0, 0, 0, 0];
       return [byProvince[id * 3], byProvince[id * 3 + 1], byProvince[id * 3 + 2], 255];
     }, 4096);
@@ -383,7 +482,7 @@ export class GameMap {
     if (mode === 'political') {
       const colours = new Map<number, [number, number, number]>();
       for (const n of this.pol.nations.values()) colours.set(n.id, hex(n.color));
-      canvas = this.nationCanvas((id) => colours.get(id));
+      canvas = this.nationCanvas((id) => colours.get(id), SEA_RGB);
     } else if (mode === 'lights') {
       // the world from orbit at night: dark land, lit cities
       canvas = document.createElement('canvas');

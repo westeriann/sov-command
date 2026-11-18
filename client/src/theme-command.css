@@ -1,0 +1,208 @@
+/*
+ * Command theme: a modern grand-strategy war room.
+ * Graphite steel panels with bronze trim, condensed military type, a full-width
+ * command bar along the top, and unit counters on a tilted 3D map.
+ * Loaded after styles.css and overrides it; the layout and behaviour are unchanged.
+ */
+:root {
+  --space: #05080b;
+  --steel-hi: #2a3036;
+  --steel: #1d2227;
+  --steel-lo: #13171a;
+  --glass: linear-gradient(180deg, rgba(36, 42, 48, 0.96), rgba(22, 26, 30, 0.96));
+  --glass-strong: linear-gradient(180deg, rgba(34, 40, 46, 0.98), rgba(18, 22, 25, 0.98));
+  --edge: rgba(176, 146, 84, 0.55);
+  --edge-soft: rgba(176, 146, 84, 0.22);
+  --fg: #e9e4d8;
+  --muted: #a39d8d;
+  --cyan: #d9b45a; /* the accent: polished brass */
+  --amber: #e89a3c;
+  --red: #d8483a;
+  --green: #7fb069;
+  --f-display: "Oswald", "Arial Narrow", sans-serif;
+  --f-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --gap: 12px;
+  --bar-h: 60px;
+}
+
+body { font: 13px/1.45 var(--f-body); background: var(--space); }
+:focus-visible { outline-color: var(--cyan); }
+::selection { background: rgba(217, 180, 90, 0.35); }
+
+/* soft vignette over the map, like a lamp over the table */
+#map::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  background: radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+/* ---- panels: brushed steel, bronze trim, squared corners ---- */
+.panel {
+  background: var(--glass);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 200, 0.08),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 6px 18px rgba(0, 0, 0, 0.55);
+}
+.label { font: 500 10px var(--f-display); letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase; }
+
+/* scrollbars in the house style */
+* { scrollbar-width: thin; scrollbar-color: #5b5040 transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #4d4436; border-radius: 0; border: 2px solid transparent; background-clip: padding-box; }
+
+/* ---- the command bar: docked full width along the top ---- */
+.top {
+  top: 0; left: 0; right: 0; min-height: var(--bar-h); padding: 6px 16px 6px 10px; gap: 8px 22px;
+  border: 0; border-bottom: 2px solid #7d6a40; border-radius: 0;
+  background: linear-gradient(180deg, #2b3137 0%, #1b2024 55%, #15191c 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.1), 0 4px 14px rgba(0, 0, 0, 0.6);
+}
+.brand { gap: 10px; padding-right: 18px; border-right: 1px solid var(--edge-soft); }
+.emblem {
+  width: 44px; height: 30px; border: 1px solid #a88c4f; border-radius: 1px;
+  background: linear-gradient(135deg, #3a332a, #1d1a16);
+  box-shadow: inset 0 0 0 2px #121416, 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+.emblem i { width: 10px; height: 10px; background: var(--cyan); box-shadow: 0 0 8px rgba(217, 180, 90, 0.6); }
+.title { font: 600 19px/1 var(--f-display); letter-spacing: 0.16em; color: #f1e7cf; text-shadow: 0 1px 0 #000; }
+.sub { font-size: 11px; }
+.resources { gap: 2px 4px; }
+.resources div {
+  min-width: 74px; padding: 3px 10px 4px; border: 1px solid rgba(176, 146, 84, 0.18); border-radius: 1px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.15));
+}
+.resources span { font: 500 9px var(--f-display); letter-spacing: 0.16em; color: #9b8a64; }
+.resources b { font: 500 15px var(--f-mono); color: var(--muted); }
+.resources b.live { color: #f1e7cf; }
+.clock { gap: 10px; }
+.clock .date {
+  font: 500 16px var(--f-display); letter-spacing: 0.08em; color: #f1e7cf;
+  padding: 4px 12px; border: 1px solid var(--edge); background: rgba(0, 0, 0, 0.35);
+}
+.speed { border-radius: 1px; border-color: var(--edge-soft); }
+.speed-ctl button {
+  font: 600 12px var(--f-display); background: linear-gradient(180deg, #2c3238, #1a1e22); border: 1px solid #4b4234; color: var(--muted);
+  border-radius: 1px; cursor: pointer;
+}
+.speed-ctl button[aria-pressed="true"] { background: linear-gradient(180deg, #d9b45a, #a8853a); color: #17130c; border-color: #e7c875; }
+.link { color: var(--cyan); font: 500 12px var(--f-body); }
+
+/* side panels sit under the bar (phones keep their slide-in sheets) */
+.right, .econ-window { background: var(--glass-strong); }
+@media (min-width: 761px) {
+  .left, .right, .econ-window { top: calc(var(--bar-h) + 14px); }
+  .left { width: 216px; max-height: calc(100% - var(--bar-h) - 90px); }
+  .right { max-height: calc(100% - var(--bar-h) - 90px); }
+  .econ-window { left: calc(var(--gap) + 230px); }
+}
+
+/* module list: steel tabs, brass when active */
+.module {
+  font: 500 15px var(--f-display); letter-spacing: 0.12em; color: #d9d2c0;
+  border-left: 3px solid transparent; border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+.module:hover:not(:disabled) { background: rgba(217, 180, 90, 0.07); }
+.module.active {
+  background: linear-gradient(90deg, rgba(217, 180, 90, 0.22), rgba(217, 180, 90, 0.03));
+  border-left-color: var(--cyan); color: #fff4d6;
+}
+.modes, .check { font: 500 12px var(--f-body); }
+.seg { border-radius: 1px; border-color: var(--edge); }
+.seg button { font: 500 13px var(--f-display); }
+.seg button[aria-pressed="true"] { background: linear-gradient(180deg, #d9b45a, #a8853a); color: #17130c; }
+
+/* buttons */
+.claim {
+  border-radius: 1px; border-color: #5a4e3a; color: #d9d2c0; font: 500 13px var(--f-display); letter-spacing: 0.1em;
+  background: linear-gradient(180deg, #2c3238, #1a1e22); box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.07);
+}
+.claim:not(:disabled):hover { border-color: var(--cyan); color: #fff4d6; }
+.claim.primary, .login-actions button.primary, .chat-form button {
+  background: linear-gradient(180deg, #e0bd63, #a8853a); color: #17130c; border: 1px solid #edd08a; border-radius: 1px;
+}
+.login-actions button { border-radius: 1px; }
+.claim.danger { color: #f0a094; border-color: rgba(216, 72, 58, 0.6); background: linear-gradient(180deg, #3a2422, #221514); }
+
+/* inspector */
+.place > i, .nation-name i { border-radius: 1px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5); }
+.place .name { font: 600 22px/1.05 var(--f-display); letter-spacing: 0.06em; color: #f1e7cf; }
+.nation-name { font: 600 19px/1.15 var(--f-display); color: #f1e7cf; }
+.bar { background: rgba(0, 0, 0, 0.45); border-radius: 0; }
+.bar i { background: linear-gradient(90deg, #a8853a, #e0bd63); }
+.ranking button:hover { background: rgba(217, 180, 90, 0.08); }
+.controller { border-radius: 1px; }
+.controller.human { border-color: rgba(217, 180, 90, 0.5); }
+.controller.you { background: rgba(217, 180, 90, 0.1); }
+
+/* taskbar, dispatches, toasts, dialogs */
+.taskbar button { font: 500 13px var(--f-display); letter-spacing: 0.12em; border-left-color: var(--edge-soft); }
+.taskbar .tag { color: var(--cyan); font-family: var(--f-display); letter-spacing: 0.18em; }
+.comms-tabs [role="tab"] { font: 500 14px var(--f-display); }
+.chat-form input, .login input, select {
+  background: rgba(0, 0, 0, 0.45); border: 1px solid #4b4234; border-radius: 1px; color: var(--fg);
+}
+.toast { top: calc(var(--bar-h) + 14px); border-radius: 2px; border-color: var(--cyan); background: var(--glass-strong); font-weight: 500; }
+.login-backdrop { background: rgba(4, 6, 8, 0.7); }
+.login .title { font-size: 24px; }
+
+/* ---- map labels: large spaced lettering laid on the land ---- */
+.nation-label {
+  font-family: var(--f-display); font-weight: 600; letter-spacing: 0.3em; color: rgba(18, 20, 22, 0.82);
+  text-shadow: 0 0 4px rgba(255, 248, 230, 0.35), 0 1px 0 rgba(255, 248, 230, 0.25);
+  transform: scale(1.15);
+}
+.nation-label.human { color: #2a1f0a; }
+.nation-label.mine { color: #fff1c4; text-shadow: 0 0 3px #000, 0 0 8px rgba(0, 0, 0, 0.8); }
+.province-label { font: 500 11px/1 var(--f-body); color: #f4efe2; text-shadow: 0 0 3px #000, 0 0 6px rgba(0, 0, 0, 0.8); }
+
+/* ---- unit counters: squared plates in the nation's colour ---- */
+.unit-marker {
+  width: 36px; height: 26px; padding: 3px 6px 5px 9px; border-radius: 1px; color: #f4efe2;
+  background: linear-gradient(180deg, #2e353b, #161a1d);
+  border: 1px solid #0a0c0d; border-left: 5px solid var(--nation);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.12), 0 3px 6px rgba(0, 0, 0, 0.7);
+}
+.unit-marker.d-sea, .unit-marker.d-air, .unit-marker.d-mixed { border-radius: 1px; }
+.unit-marker.d-sea { background: linear-gradient(180deg, #24384a, #121c25); }
+.unit-marker.d-air { background: linear-gradient(180deg, #33363e, #17191e); }
+.unit-marker b {
+  top: -9px; right: -9px; border-radius: 1px; background: #15181b; color: #f1e7cf; border: 1px solid var(--nation);
+  font: 600 10px/15px var(--f-display); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.unit-marker i { left: 9px; bottom: 2px; height: 3px; border-radius: 0; background: var(--green); max-width: calc(100% - 14px); }
+.unit-marker .mini { border-radius: 1px; background: #15181b; }
+.unit-marker.own { box-shadow: 0 0 0 1px rgba(217, 180, 90, 0.7), 0 3px 6px rgba(0, 0, 0, 0.7); }
+.unit-marker.enemy { color: #ffd9d4; box-shadow: 0 0 0 2px var(--red), 0 0 8px rgba(216, 72, 58, 0.6); }
+.unit-marker.selected { box-shadow: 0 0 0 2px var(--cyan), 0 0 0 5px rgba(217, 180, 90, 0.28), 0 0 14px rgba(217, 180, 90, 0.8); }
+.unit-marker .stack-list { background: #171b1e; border-color: var(--edge); border-radius: 1px; }
+.unit-marker .stack-list span:hover, .unit-marker .stack-list span:focus { background: rgba(217, 180, 90, 0.15); }
+.forces-window .selection { border-color: var(--edge); background: rgba(217, 180, 90, 0.06); border-radius: 1px; }
+
+.pin { border-color: var(--cyan); box-shadow: 0 0 0 4px rgba(217, 180, 90, 0.2), 0 0 12px var(--cyan); }
+.pin::after { background: var(--cyan); }
+
+.maplibregl-ctrl-attrib { background: rgba(20, 24, 27, 0.85) !important; }
+
+/* phones keep their own layout: the bar is shorter there */
+@media (max-width: 760px) {
+  :root { --bar-h: 52px; }
+  .brand { border-right: 0; padding-right: 0; }
+  .resources div { min-width: 0; padding: 2px 6px; }
+}
+
+/* keep the command bar on one row on desktop screens */
+@media (min-width: 761px) {
+  .top { flex-wrap: nowrap; }
+  .brand { flex: none; }
+  .resources { flex-wrap: nowrap; overflow: hidden; min-width: 0; }
+  .resources div { min-width: 0; padding: 3px 8px 4px; white-space: nowrap; }
+  .resources b { font-size: 14px; }
+  .clock { flex-wrap: nowrap; white-space: nowrap; flex: none; }
+  .clock .date { font-size: 15px; padding: 3px 10px; }
+}
+@media (max-width: 1900px) { .speed { display: none; } }
+@media (max-width: 1500px) { .brand .sub { display: none; } .title { font-size: 16px; } }

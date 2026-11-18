@@ -178,6 +178,24 @@ Launch readiness:
 - Next: deployment (a public website and a hosted world server); email alerts
   need a mail service
 
+Desktop edition (3D, single player):
+
+- A desktop app (Windows, macOS, Linux) built with Electron around the
+  single-player build: the whole world runs inside the app, saves to the app's
+  own storage and needs no server or internet
+- 3D map: relief tiles made from the planet's elevation raise the mountains
+  (stronger from orbit, gentler up close) and shade the hills under the
+  political colours; the camera leans over the map as you zoom in
+  (right-drag or Ctrl-drag tilts it by hand). View > Relief (3D) sets the
+  height or flattens it, Tilt with zoom turns the automatic lean off
+- Command look, in the style of classic grand-strategy games but modern
+  (2026): strong flat nation colours over shaded relief, dark seas, ink-dark
+  borders and large spaced nation names; graphite steel panels with brass
+  trim, a full-width command bar, condensed military lettering, and unit
+  counters as squared plates edged in the nation's colour. Fonts are bundled
+  (Oswald, Barlow, IBM Plex Mono), so nothing loads from the web
+- F11 or Alt+Enter: full screen
+
 ## Run it
 
 Needs Node 20+ and Python 3.11+.
@@ -190,6 +208,21 @@ npm run dev       # client; open the printed address
 ```
 
 Without the server the client still opens as an offline map preview.
+
+Desktop app (after `npm run world`):
+
+```bash
+npm run desktop        # build the game and open it in a desktop window
+npm run desktop:dist   # installers for this computer's system in desktop/release/
+```
+
+Installers for all three systems: run the Desktop app workflow from the
+GitHub Actions tab (or push a tag such as `v0.1.0`); it generates the planet,
+builds the game and uploads a Windows installer (.exe), a macOS disk image
+(.dmg) and a Linux AppImage. The builds are not code-signed, so Windows
+SmartScreen and macOS Gatekeeper warn on first launch (macOS: right-click >
+Open).
+
 `npm test` runs the server tests; `npm run check` type-checks everything.
 
 Server settings (environment variables): `PORT`, `WORLD_DIR`, `DB_FILE`,

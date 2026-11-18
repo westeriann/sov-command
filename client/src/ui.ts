@@ -22,6 +22,8 @@ export interface HudEvents {
   onLabels(on: boolean): void;
   onRivers(on: boolean): void;
   onProjection(type: 'globe' | 'mercator'): void;
+  onRelief(v: number): void;
+  onTilt(on: boolean): void;
   onSelectProvince(id: number): void;
 }
 
@@ -90,7 +92,7 @@ const MODES: [MapMode, string][] = [
   ['climate', 'Temperature'],
   ['lights', 'Night lights (power)'],
 ];
-const DEFAULT_OPACITY: Record<MapMode, number> = { political: 30, wealth: 60, satellite: 0, terrain: 70, elevation: 70, climate: 70, lights: 85 };
+const DEFAULT_OPACITY: Record<MapMode, number> = { political: 72, wealth: 60, satellite: 0, terrain: 70, elevation: 70, climate: 70, lights: 85 };
 const FOCUS_NAMES: Record<Focus, string> = { economy: 'Economy', military: 'Military', research: 'Research', diplomacy: 'Diplomacy' };
 const PERSONALITY_NAMES: Record<string, string> = {
   expansionist: 'Expansionist', trader: 'Trader', turtle: 'Defensive', opportunist: 'Opportunist', idealist: 'Idealist',
@@ -214,6 +216,11 @@ export class Hud {
         <label class="check"><input type="checkbox" id="labels" checked>Names</label>
         <label class="check"><input type="checkbox" id="grid">Grid lines</label>
         <label class="check"><input type="checkbox" id="colorBlind">Colour-blind friendly</label>
+        <label class="check" title="The camera leans over the map as you zoom in. Right-drag or Ctrl-drag tilts it by hand."><input type="checkbox" id="tilt" checked>Tilt with zoom</label>
+        <div class="slider">
+          <label for="relief"><span>RELIEF (3D)</span><output id="reliefOut">100%</output></label>
+          <input id="relief" type="range" min="0" max="200" step="10" value="100">
+        </div>
         <div class="seg" role="group" aria-label="Projection">
           <button type="button" data-proj="globe" aria-pressed="true">Globe</button>
           <button type="button" data-proj="mercator" aria-pressed="false">Flat</button>
@@ -307,6 +314,15 @@ export class Hud {
     toggle('borders', (on) => this.events.onBorders(on));
     toggle('labels', (on) => this.events.onLabels(on));
     toggle('rivers', (on) => this.events.onRivers(on));
+    toggle('tilt', (on) => this.events.onTilt(on));
+    {
+      const relief = this.root.querySelector<HTMLInputElement>('#relief')!;
+      const out = this.root.querySelector<HTMLOutputElement>('#reliefOut')!;
+      relief.addEventListener('input', () => {
+        out.value = `${relief.value}%`;
+        this.events.onRelief(Number(relief.value) / 100);
+      });
+    }
     const projButtons = this.root.querySelectorAll<HTMLButtonElement>('[data-proj]');
     projButtons.forEach((b) =>
       b.addEventListener('click', () => {

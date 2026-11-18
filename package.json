@@ -8,13 +8,16 @@
     "world:samples": ".venv/bin/python tools/worldgen/fetch_samples.py --sheet",
     "world:generate": ".venv/bin/python tools/worldgen/generate.py",
     "world:tiles": ".venv/bin/python tools/worldgen/tiles.py",
-    "world": "npm run world:samples && npm run world:generate && npm run world:tiles && npm run world:provinces",
+    "world": "npm run world:samples && npm run world:generate && npm run world:tiles && npm run world:dem && npm run world:provinces",
+    "world:dem": ".venv/bin/python tools/worldgen/dem.py",
     "dev": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
     "world:provinces": ".venv/bin/python tools/worldgen/provinces.py",
     "server": "npm --prefix server run dev",
     "test": "npm --prefix server test",
     "check": "cd client && npx tsc --noEmit && cd ../server && npx tsc --noEmit",
-    "build:offline": "npm --prefix client run build:offline"
+    "build:offline": "npm --prefix client run build:offline",
+    "desktop": "npm run build:offline && npm --prefix desktop install && npm --prefix desktop start",
+    "desktop:dist": "npm run build:offline && npm --prefix desktop install && npm --prefix desktop run dist"
   }
 }

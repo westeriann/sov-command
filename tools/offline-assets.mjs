@@ -13,8 +13,9 @@ if (!existsSync(join(src, 'provinces.json'))) {
   process.exit(1);
 }
 mkdirSync(out, { recursive: true });
-for (const f of readdirSync(src)) if (f !== 'tiles') copyFileSync(join(src, f), join(out, f));
+for (const f of readdirSync(src)) if (f !== 'tiles' && f !== 'dem') copyFileSync(join(src, f), join(out, f));
 execFileSync(process.execPath, [join(root, 'tools/pack-tiles.mjs'), join(src, 'tiles'), out], { stdio: 'inherit' });
+if (existsSync(join(src, 'dem'))) execFileSync(process.execPath, [join(root, 'tools/pack-tiles.mjs'), join(src, 'dem'), out, 'dem'], { stdio: 'inherit' });
 // some static hosts serve only known file types: binary data goes out as .bin.wasm (raw bytes either way)
 for (const f of readdirSync(out)) if (f.endsWith('.bin')) renameSync(join(out, f), join(out, `${f}.wasm`));
 console.log(`single-player build ready in ${join(root, 'client/dist-offline')}`);

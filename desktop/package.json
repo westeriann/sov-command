@@ -1,0 +1,65 @@
+{
+  "name": "sovereign-command-desktop",
+  "productName": "Sovereign Command",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sovereign Command: modern grand strategy on a 3D planet, single-player desktop edition.",
+  "author": "Sovereign Command",
+  "main": "main.cjs",
+  "scripts": {
+    "game": "npm --prefix .. run build:offline",
+    "start": "electron .",
+    "dist": "electron-builder --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "app.sovereigncommand.desktop",
+    "productName": "Sovereign Command",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../client/dist-offline",
+        "to": "game"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Game"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.strategy-games"
+    },
+    "publish": null,
+    "artifactName": "SovereignCommand-${version}-${os}-${arch}.${ext}"
+  }
+}

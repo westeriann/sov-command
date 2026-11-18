@@ -1,0 +1,58 @@
+# Builds the Sovereign Command desktop app for Windows, macOS and Linux.
+# Run it from the Actions tab (Run workflow), or push a tag like v0.1.0.
+name: Desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  game:
+    name: Generate the planet and build the game
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.13' }
+      - run: npm run setup
+      - run: npm run world
+      - run: npm run build:offline
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game
+          path: client/dist-offline
+          retention-days: 3
+
+  desktop:
+    name: Package (${{ matrix.os }})
+    needs: game
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with: { name: game, path: client/dist-offline }
+      - run: npm ci || npm install
+        working-directory: desktop
+      - run: npx electron-builder --publish never
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned builds
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SovereignCommand-${{ runner.os }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/*.dmg
+            desktop/release/*.AppImage
+            desktop/release/*.tar.gz
+          if-no-files-found: error
