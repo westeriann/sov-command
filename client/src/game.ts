@@ -136,6 +136,11 @@ export class Game {
         this.online = msg.count;
         this.emit('online');
         break;
+      case 'clock':
+        this.clock = msg.clock;
+        this.offset = msg.clock.serverNow - Date.now();
+        this.emit('status');
+        break;
       case 'pong': {
         const rtt = Date.now() - msg.at;
         this.offset = msg.serverNow + rtt / 2 - Date.now();

@@ -8,9 +8,11 @@ import { MemoryDB } from './memdb';
 import { migrate } from '../../../server/src/schema';
 
 const ME = { id: 1, name: 'Commander', guest: false };
-const SPEED = 8640; // a game day every 10 real seconds, as online
+const BASE_SPEED = 8640; // 1x: a game day every 10 real seconds, as online
+const DEFAULT_X = 5; // single-player starts at 5x: a game day every 2 seconds
 let world: World;
 let db: MemoryDB;
+let restarted = false; // the saved game was from an older map
 
 const post = (msg: ServerMsg) => postMessage({ t: 'msg', msg });
 
@@ -55,17 +57,23 @@ async function save() {
 async function start(base: string) {
   const raw = await (await fetch(`${base}world/provinces.json`)).json();
   const { seed, nations, provinces } = nationDefsFrom(raw);
-  const saved = await load();
+  // a save made on a different map (the planet was regenerated) cannot continue: start fresh
+  const stamp = `${raw.seed}:${raw.provinces.length}:${raw.nations.length}`;
+  let saved = await load();
+  restarted = false;
+  if (saved && JSON.parse(saved).meta?.mapStamp !== stamp) { saved = undefined; restarted = true; }
   db = new MemoryDB(saved);
   migrate(db);
+  setMeta(db, 'mapStamp', stamp);
   // the world waits while the tab is closed: pick the clock up where it stopped
   const clock = getMeta(db, 'clock');
   const last = getMeta(db, 'lastGame');
   if (clock && last) {
     setMeta(db, 'clock', JSON.stringify({ openedReal: Date.now(), openedGame: Number(last), speed: JSON.parse(clock).speed }));
   }
+  const speed = clock ? JSON.parse(clock).speed : BASE_SPEED * DEFAULT_X;
   world = new World(db, seed, nations, {
-    speed: SPEED, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 25,
+    speed, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 150,
     autopilotAfterMs: 1e15, releaseAfterMs: 1e15, seasonMs: 28 * 86_400_000,
   }, provinces);
   world.achievements = {
@@ -106,6 +114,7 @@ function handle(msg: ClientMsg) {
         clock: { ...world.clock, serverNow: Date.now() }, nations: world.allPublic(), mine: mine ? world.privateView(mine) : null,
         events, chat, online: 1, economy: world.economyUpdate(), war: world.warState(), units: world.unitsFor(ME.id),
       });
+      if (restarted) { restarted = false; post({ t: 'error', code: 'not_allowed', message: 'The map has been updated, so a new world has started. Your earlier game could not carry over.' }); }
       return;
     }
     case 'claim': return reply(world.claim(ME, Number(msg.nation)));
@@ -140,5 +149,10 @@ onmessage = (e: MessageEvent) => {
   else if (d.t === 'msg' && world) handle(d.msg as ClientMsg);
   else if (d.t === 'api') postMessage({ t: 'api', id: d.id, ...(world ? api(d.path) : { status: 503, body: { error: 'Starting up.' } }) });
   else if (d.t === 'save') void save();
+  else if (d.t === 'speed' && world) {
+    const x = Math.max(1, Math.min(20, Number(d.x) || 1));
+    world.setSpeed(BASE_SPEED * x);
+    post({ t: 'clock', clock: { ...world.clock, serverNow: Date.now() } });
+  }
   else if (d.t === 'reset') void store(null).then(() => postMessage({ t: 'reset-done' }));
 };

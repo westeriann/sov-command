@@ -521,3 +521,18 @@ body.cb .up { color: #6bb8ff; }
 body.offline .offline-only { display: inline; }
 body.offline [data-act="worlds"], body.offline [data-act="signout"], body.offline [data-act="account"], body.offline [data-act="admin"],
 body.offline #btnChat, body.offline [data-tab="chat"], body.offline [data-act="alerts"], body.offline .history-wrap .report { display: none !important; }
+
+/* clicks always land on the marker itself */
+.unit-marker > svg, .unit-marker > b, .unit-marker > i, .unit-marker > .mini, .unit-marker > .star { pointer-events: none; }
+/* right-click menu */
+.context-menu { position: fixed; z-index: 50; min-width: 220px; padding: 6px; display: flex; flex-direction: column; background: var(--glass-strong); }
+.context-menu .cm-head { display: flex; flex-direction: column; padding: 6px 10px 8px; border-bottom: 1px solid var(--edge-soft); margin-bottom: 4px; }
+.context-menu .cm-head span { font-size: 11px; color: var(--muted); }
+.context-menu button { text-align: left; background: none; border: 0; color: var(--fg); padding: 7px 10px; border-radius: 3px; font: inherit; font-size: 12px; cursor: pointer; }
+.context-menu button:hover, .context-menu button:focus-visible { background: rgba(95, 212, 234, 0.14); outline: none; }
+.context-menu hr { border: 0; border-top: 1px solid var(--edge-soft); margin: 4px 0; }
+/* single-player speed */
+.speed-ctl { display: inline-flex; border: 1px solid var(--edge); border-radius: 4px; overflow: hidden; }
+.speed-ctl button { background: none; border: 0; color: var(--muted); font: 600 11px var(--f-mono); padding: 3px 7px; cursor: pointer; }
+.speed-ctl button[aria-pressed="true"] { background: var(--cyan); color: #031018; }
+body:not(.offline) .speed-ctl { display: none; }

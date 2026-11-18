@@ -221,7 +221,8 @@ export type ServerMsg =
   | { t: 'online'; count: number }
   | { t: 'economy'; economy: EconomyUpdate }
   | { t: 'error'; code: ErrorCode; message: string }
-  | { t: 'pong'; at: number; serverNow: number };
+  | { t: 'pong'; at: number; serverNow: number }
+  | { t: 'clock'; clock: ClockInfo }; // the game speed changed
 
 export type ErrorCode =
   | 'auth' | 'bad_request' | 'rate_limited' | 'taken' | 'already_ruling' | 'not_ruling' | 'not_found'

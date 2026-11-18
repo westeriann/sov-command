@@ -54,7 +54,8 @@ type Pos = [number, number];
 
 export class Forces {
   selected = new Set<number>();
-  private markers = new Map<string, { marker: Marker; el: HTMLElement; units: UnitView[] }>();
+  private markers = new Map<string, { marker: Marker; el: HTMLElement; units: UnitView[]; html?: string }>();
+  private lastPanel = '';
   private battleMarkers = new Map<number, Marker>();
   private nodes: Map<number, RouteNode>;
   private panel: HTMLElement;
@@ -154,12 +155,13 @@ export class Forces {
       m.el.setAttribute('aria-label', `${nation?.short ?? ''} forces: ${summary}; ${strength}% strength${general ? `; led by ${general.name} (skill ${general.skill})` : ''}${cutOff ? '; OUT OF SUPPLY' : ''}`);
       m.el.title = `${nation?.name ?? ''}\n${counts.map(([t, c]) => `${c} × ${UNIT_SPECS[t].name}`).join('\n')}\nStrength ${strength}%`;
       const extras = counts.filter(([t]) => t !== lead).slice(0, 3);
-      m.el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[lead]}</svg>`
+      const inner = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[lead]}</svg>`
         + (units.length > 1 ? `<b>${units.length}</b>` : '')
         + (extras.length ? `<span class="mini">${extras.map(([t]) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>`).join('')}</span>` : '')
         + (general ? `<span class="star" aria-hidden="true">${'★'.repeat(Math.min(3, general.skill))}</span>` : '')
         + `<i style="width:${strength}%"></i>`
         + (this.openStack === key && side === 'own' ? `<span class="stack-list" role="menu">${counts.map(([t, c]) => `<span role="menuitem" tabindex="0" data-pick="${t}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${c} × ${UNIT_SPECS[t].name}</span>`).join('')}</span>` : '');
+      if (m.html !== inner) { m.html = inner; m.el.innerHTML = inner; } // redraw only what changed
     }
     // battles
     const battles = new Set(this.game.war.battles);
@@ -214,6 +216,16 @@ export class Forces {
     const m = this.markers.get(key);
     if (!m) return;
     this.selected = new Set(m.units.filter((u) => u.nation === this.game.mine?.id && u.type === type).map((u) => u.id));
+    this.openStack = null;
+    this.render();
+    this.onSelect();
+    if (!this.panel.hidden) this.renderPanel();
+  }
+
+  /** Select your units standing in a province. */
+  selectAt(province: number) {
+    const me = this.game.mine?.id;
+    this.selected = new Set(this.game.units.filter((u) => u.nation === me && u.province === province && u.next === undefined).map((u) => u.id));
     this.openStack = null;
     this.render();
     this.onSelect();
@@ -317,6 +329,7 @@ export class Forces {
     const mil = mine?.mil;
     const name = mine ? this.pol.nations.get(mine.id)?.name ?? '' : 'Ground forces';
     if (!mine || !mil) {
+      this.lastPanel = '';
       this.panel.innerHTML = `<div class="econ-head"><div><span class="label">GROUND FORCES</span><h2>${esc(name)}</h2></div><button type="button" class="link" data-f="close">Close</button></div>
         <div class="econ-body"><p class="hint">Take command of a nation to raise and move armies.</p></div>`;
       return;
@@ -327,7 +340,7 @@ export class Forces {
     const wars = this.game.war.wars.filter((w) => w.a === mine.id || w.b === mine.id);
     const day = this.game.market?.day ?? 0;
     const sel = units.filter((u) => this.selected.has(u.id));
-    this.panel.innerHTML = `
+    const html = `
       <div class="econ-head"><div><span class="label">GROUND FORCES</span><h2>${esc(name)}</h2></div><button type="button" class="link" data-f="close">Close</button></div>
       <div class="econ-body">
         <div class="econ-kpis">
@@ -393,5 +406,6 @@ export class Forces {
           </section>
         </div>
       </div>`;
+    if (html !== this.lastPanel) { this.lastPanel = html; this.panel.innerHTML = html; }
   }
 }

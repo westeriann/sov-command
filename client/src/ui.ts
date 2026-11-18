@@ -182,6 +182,7 @@ export class Hud {
           <button type="button" class="status mono" id="status"></button>
           <span class="mono date" id="clock"></span>
           <span class="speed mono" id="speed" title="The world clock never pauses"></span>
+          <span class="speed-ctl offline-only" role="group" aria-label="Game speed">${[1, 5, 10, 20].map((x) => `<button type="button" data-act="speed" data-x="${x}" aria-pressed="false" title="${x === 1 ? 'A game day every 10 seconds' : `${x} times faster`}">${x}×</button>`).join('')}</span>
           <button type="button" class="link offline-only" data-act="newgame">New game</button>
           <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
@@ -605,7 +606,7 @@ export class Hud {
     }
   }
 
-  private toast(msg: string) {
+  toast(msg: string) {
     this.toastEl.textContent = msg;
     this.toastEl.hidden = false;
     clearTimeout(Number(this.toastEl.dataset.timer));
@@ -631,6 +632,8 @@ export class Hud {
     const d = this.game.gameNow();
     const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
     const n = seasonAt(d.getTime(), 45), s = seasonAt(d.getTime(), -45);
+    const x = String(Math.round(this.game.speed / 8640));
+    this.root.querySelectorAll<HTMLElement>('[data-act="speed"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.x === x)));
     this.clock.textContent = `${date} · ${d.toISOString().slice(11, 16)}Z · ${SEASON_NAMES[n!].toUpperCase()} N / ${SEASON_NAMES[s!].toUpperCase()} S`;
     this.clock.title = 'Winter in cold lands: armies move 50% slower and troops on foreign soil lose strength; more electricity is needed. Harvests peak in autumn and fall in winter.';
   }

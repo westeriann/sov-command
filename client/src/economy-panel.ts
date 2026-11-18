@@ -1,3 +1,4 @@
+import { BUILDINGS } from '../../shared/buildings';
 // The Economy window: your national accounts, budget, goods and the world market.
 import {
   BUDGET_KEYS, COMMODITIES, COMMODITY_INFO, money, normalizeBudget,
@@ -12,6 +13,7 @@ export interface EconomyActions {
   tax(t: number): void;
   goToNation(id: number): void;
   borders(open: boolean): void;
+  buildAt(province: number): void;
 }
 
 const BUDGET_NAMES: Record<keyof Budget, [string, string]> = {
@@ -76,6 +78,8 @@ export class EconomyPanel {
     this.el.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-econ="close"]')) this.close();
+      const at = t.closest<HTMLElement>('[data-build-at]');
+      if (at) { this.actions.buildAt(Number(at.dataset.buildAt)); return; }
       const b = t.closest<HTMLElement>('[data-borders]');
       if (b) { this.actions.borders(b.dataset.borders === 'open'); return; }
       const go = t.closest<HTMLElement>('[data-goto]');
@@ -170,7 +174,25 @@ export class EconomyPanel {
       <p class="hint">Supply ${Math.round(cover * 100)}% of demand · national grid ${Math.round((en.grid / Math.max(1, en.demand)) * 100)}% · power stations ${Math.round((en.plants / Math.max(1, en.demand)) * 100)}%. Demand grows with the economy; the grid alone grows more slowly (faster with infrastructure spending). Armed forces burn ${en.militaryOil}bn barrels of oil a year.</p>
       ${problems ? `<ul class="supply-warnings">${problems}</ul>` : '<p class="hint up">All supply chains running.</p>'}
     </section>
-    ${this.migrationHtml(e)}`;
+    ${this.migrationHtml(e)}
+    ${this.constructionHtml()}`;
+  }
+
+  /** Every building you own, and what is under construction. */
+  private constructionHtml() {
+    const me = this.game.mine?.id;
+    if (!me) return '';
+    const rows = Object.entries(this.game.war.buildings)
+      .map(([id, list]) => ({ p: this.pol.provinces.get(Number(id)), list }))
+      .filter((r) => r.p && r.p.nation === me && r.list.length);
+    const cap = this.pol.nations.get(me)?.capital;
+    return `<section class="energy">
+      <span class="label">CONSTRUCTION · ${rows.reduce((s, r) => s + r.list.length, 0)} BUILDINGS</span>
+      ${rows.length ? `<div class="table-wrap"><table class="league"><tbody>${rows.map((r) => `<tr><th scope="row"><button type="button" class="link" data-build-at="${r.p!.id}">${esc(r.p!.name)}</button></th>
+        <td>${r.list.map((b) => `${esc(BUILDINGS[b.type].name)}${b.progress < 1 ? ` <span class="muted">${Math.round(b.progress * 100)}%</span>` : ''}`).join(', ')}</td></tr>`).join('')}</tbody></table></div>`
+        : '<p class="hint">No buildings yet.</p>'}
+      <p class="hint">To build: right-click one of your provinces and choose "Build here…", or click a province and scroll its panel.${cap !== undefined ? ` <button type="button" class="link" data-build-at="${cap}">Build in your capital</button>` : ''}</p>
+    </section>`;
   }
 
   /** Refugees: who takes them in is a choice with costs now and gains later. */

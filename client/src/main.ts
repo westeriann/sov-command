@@ -7,6 +7,8 @@ import { Presence } from './presence';
 import { AccountDialog } from './account';
 import { AdminPanel } from './admin';
 import { CustomizeDialog } from './customize';
+import { ContextMenu } from './context-menu';
+import { stableClicks } from './stable-clicks';
 import { ResearchPanel } from './research-panel';
 import { RankingsPanel } from './rankings-panel';
 import { Lobby } from './lobby';
@@ -36,6 +38,7 @@ async function start() {
     return;
   }
 
+  stableClicks(document);
   const game = new Game();
   let localWorld: Worker | null = null;
   if (OFFLINE) {
@@ -186,6 +189,7 @@ async function start() {
     budget: (budget) => conn.send({ t: 'order', order: { kind: 'budget', budget } }),
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
     borders: (open) => conn.send({ t: 'order', order: { kind: 'borders', open } }),
+    buildAt: (id) => buildAt(id),
     goToNation: (id) => {
       const n = pol.nations.get(id);
       const p = n && pol.provinces.get(n.capital);
@@ -339,31 +343,65 @@ async function start() {
     goToProvince: goTo,
   });
   forces.onSelectionChange = () => hud.refreshSelection();
+  const goToProvince = (p: { label: [number, number] }) => select(p.label[1], p.label[0], true);
+  const buildAt = (id: number) => {
+    const p = pol.provinces.get(id);
+    if (!p) return;
+    economy.close(); hud.setOpenPanel(null);
+    goToProvince(p);
+    setTimeout(() => document.querySelector('#inspector .build-list, #inspector [data-act="build"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+  };
+  const menu = new ContextMenu(hudRoot, game, pol, {
+    inspect: (p) => goToProvince(p),
+    build: (p) => buildAt(p.id),
+    rally: (p) => conn.send({ t: 'order', order: { kind: 'rally', province: game.mine?.mil?.rally === p.id ? null : p.id } }),
+    selectUnits: (p) => forces?.selectAt(p.id),
+    openModule: (id) => {
+      const already = hudRoot.querySelector(`[data-module="${id}"].active`);
+      if (!already) hudRoot.querySelector<HTMLElement>(`[data-module="${id}"]`)?.click();
+    },
+  });
   // right-click moves the selected units; Escape clears the selection
   let press: { timer: number; x: number; y: number } | null = null;
   let pressedAt = 0; // a long press already gave this order (some phones also send a right-click)
+  const ordered = (p: { id: number; name: string }) => {
+    const n = forces?.selected.size ?? 0;
+    const r = forces?.preview(p.id);
+    forces?.orderAt(p.id);
+    hud.toast(r ? `${n} unit${n > 1 ? 's' : ''} ordered to ${p.name} · about ${Math.max(1, Math.round(r.days))} days` : `Orders sent to ${n} unit${n > 1 ? 's' : ''}: ${p.name}`);
+  };
   map.on('contextmenu', (e) => {
-    if (!forces?.selected.size) return;
     e.preventDefault();
+    if (!forces?.selected.size) {
+      // nothing selected: a menu of what to do here
+      const p = pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng);
+      const ev = e.originalEvent as MouseEvent;
+      if (p) menu.open(p, ev.clientX, ev.clientY);
+      return;
+    }
     if (Date.now() - pressedAt < 1500) return;
     pressedAt = Date.now();
     if (press) { window.clearTimeout(press.timer); press = null; } // the phone's own long-press menu got here first
     const p = pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng);
-    if (p) forces.orderAt(p.id); // land or sea: troops and ships move, aircraft fly a mission
+    if (p) ordered(p); // land or sea: troops and ships move, aircraft fly a mission
   });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') forces?.clearSelection(); });
   // touch screens have no right-click: a long press gives the order instead
   map.on('touchstart', (e) => {
     if (press) window.clearTimeout(press.timer);
     press = null;
-    if (e.points.length !== 1 || !forces?.selected.size) return;
+    if (e.points.length !== 1) return;
     const at = e.lngLat, pt = e.point;
     press = {
       x: pt.x, y: pt.y,
       timer: window.setTimeout(() => {
         press = null;
         const p = pol.provinceAt(at.lat, at.wrap().lng);
-        if (p && forces && Date.now() - pressedAt > 1500) { pressedAt = Date.now(); forces.orderAt(p.id); navigator.vibrate?.(30); }
+        if (!p || !forces || Date.now() - pressedAt <= 1500) return;
+        pressedAt = Date.now();
+        navigator.vibrate?.(30);
+        if (forces.selected.size) ordered(p);
+        else menu.open(p, (e.originalEvent as TouchEvent).touches?.[0]?.clientX ?? pt.x, (e.originalEvent as TouchEvent).touches?.[0]?.clientY ?? pt.y);
       }, 550),
     };
   });
@@ -379,6 +417,11 @@ async function start() {
   // join the world if a server is running; otherwise stay in offline preview
   if (localWorld) {
     conn.connect('local');
+    const w = localWorld;
+    hudRoot.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act="speed"]');
+      if (b) w.postMessage({ t: 'speed', x: Number(b.dataset.x) });
+    });
     hudRoot.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act="newgame"]');
       if (!b) return;

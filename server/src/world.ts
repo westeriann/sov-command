@@ -337,6 +337,13 @@ export class World {
       .reverse().map((c) => ({ at: c.at, from: c.name, nation: c.nation ?? undefined, text: c.text }));
   }
 
+  /** Change the game speed, keeping today's date (single-player). */
+  setSpeed(speed: number) {
+    const now = Date.now();
+    (this as { clock: Omit<ClockInfo, 'serverNow'> }).clock = { openedReal: now, openedGame: this.gameNow(now), speed };
+    setMeta(this.db, 'clock', JSON.stringify(this.clock));
+  }
+
   gameNow(realNow = Date.now()) {
     return gameTimeAt(this.clock, realNow);
   }

@@ -220,10 +220,13 @@ def main():
     lw = warped(P[land_idx], nwarp, 0.45 * r, 1.2 / r)
     d, a = cKDTree(land_seeds).query(lw, k=2, workers=-1)
     labels = np.zeros(H * W, np.int32)
-    core = (d[:, 1] - d[:, 0]) > 0.35 * r
+    # only the heart of each province is fixed; the rest is settled by the terrain below
+    core = (d[:, 1] - d[:, 0]) > 0.18 * r
     labels[land_idx[core]] = a[core, 0] + 1
-    # borders settle on ridges and along bigger rivers
-    relief = (elev.astype(np.float32) / 1500.0) + 0.5 * (river_class >= 2) * river_class / 5 + 0.15 * np.abs(
+    # borders follow rivers where one runs nearby (rivers are walls the flood cannot cross),
+    # otherwise they settle on ridges
+    rivers = ndimage.binary_dilation(river_class >= 2, iterations=1)
+    relief = (elev.astype(np.float32) / 1500.0) + 3.0 * rivers + 0.6 * (river_class >= 4) + 0.15 * np.abs(
         fbm(Perlin3(seed + 1002), P.T.reshape(3, H, W), 3, freq=1.0 / r))
     pad = W // 8
     ws = watershed(pad_x(relief, pad), pad_x(labels.reshape(H, W), pad), mask=pad_x(land2d, pad))[:, pad:-pad]
