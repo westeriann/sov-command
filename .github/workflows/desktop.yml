@@ -1,15 +1,19 @@
 # Builds the Sovereign Command desktop app for Windows, macOS and Linux.
-# Run it from the Actions tab (Run workflow), or push a tag like v0.1.0.
+# Run it from the Actions tab (Run workflow), push a tag like v0.1.0, or push
+# a commit whose message contains [desktop].
 name: Desktop app
 
 on:
   workflow_dispatch:
   push:
     tags: ['v*']
+    branches: ['**']
 
 jobs:
   game:
     name: Generate the planet and build the game
+    # branch pushes only build when asked to; tags and manual runs always build
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[desktop]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
