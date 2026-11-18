@@ -63,12 +63,14 @@ export const VOTE_DAYS = 7;
 export const MAX_OPEN_RESOLUTIONS = 4;
 
 /** Covert operations. */
-export type SpyMission = 'steal' | 'sabotage' | 'recon' | 'unrest';
+export type SpyMission = 'steal' | 'sabotage' | 'recon' | 'unrest' | 'cyber_grid' | 'cyber_heist';
 export const SPY_MISSIONS: Record<SpyMission, { name: string; text: string }> = {
   steal: { name: 'Steal technology', text: 'Gain 40% of a technology they have and you lack' },
   sabotage: { name: 'Sabotage', text: 'Destroy a building or a share of their munitions' },
   recon: { name: 'Reconnaissance', text: 'See all their forces for 30 game days' },
   unrest: { name: 'Stir unrest', text: '−6 stability for them' },
+  cyber_grid: { name: 'Cyberattack: power grid', text: 'Knock out 15% of their grid (needs Digital government)' },
+  cyber_heist: { name: 'Cyberattack: treasury', text: 'Siphon off 1.5% of their reserves (needs Digital government)' },
 };
 export const SPY_COST = 2; // $bn of military funds
 export const SPY_DAYS = 5;

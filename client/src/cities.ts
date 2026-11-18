@@ -119,6 +119,7 @@ const GLYPH: Record<BuildingType, string> = {
   gas_plant: 'M12 3c3 4 6 7 6 11a6 6 0 0 1-12 0c0-2 1-4 3-6 0 2 1 3 2 3 0-3 0-5 1-8z',
   nuclear_plant: 'M6 21c1-5 1-10-1-15h14c-2 5-2 10-1 15zM10 9h4v2h-4z',
   renewables: 'M11 21V11L5 8l1-2 6 3 1-7h2l-1 7 6-1v2l-6 2v10z',
+  missile_defense: 'M5 21l3-9h2l-1 9zM14 21l-1-9h2l3 9zM8 11l4-9 4 9z',
 };
 
 function buildingIcon(type: BuildingType): ImageData {

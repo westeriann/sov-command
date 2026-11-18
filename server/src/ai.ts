@@ -13,7 +13,7 @@ import type { NationState, World } from './world.ts';
 import { MAX_ALLIANCES, MAX_BLOC, MAX_TRADE_DEALS, SPY_COST, type Deal, type Resolution, type SpyMission } from '../../shared/diplomacy.ts';
 import { TECHS, prerequisite, type Branch, type TechId } from '../../shared/research.ts';
 import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
-import { MISSILE_COST, WARHEAD_COST } from '../../shared/military.ts';
+import { MISSILE_COST, STRIKERS, WARHEAD_COST } from '../../shared/military.ts';
 
 const RESEARCH_ORDER: Record<Personality, Branch[]> = {
   expansionist: ['land', 'sea_air', 'economy', 'society'],
@@ -250,11 +250,15 @@ export class AiBrain {
       const pick = best?.[1].map((id) => m.units.get(id)!).find((u) => !u.general);
       if (pick && !best![1].some((id) => m.units.get(id)?.general)) orders.push({ kind: 'general', unit: pick.id });
     }
+    // a satellite to watch the enemy, and knock out theirs
+    if (n.tech.done.includes('orbital_recon') && !(n.mil.satellites ?? 0) && n.mil.funds > 25) orders.push({ kind: 'satellite' });
+    const watcher = enemies.find((e) => (w.publicView(w.nations.get(e)!).satellites ?? 0) > 0);
+    if (watcher !== undefined && n.tech.done.includes('hypersonics') && n.mil.funds > 15) orders.push({ kind: 'asat', target: watcher });
     // missiles at the main enemy position
     if (n.tech.done.includes('hypersonics') && n.mil.funds > MISSILE_COST * 6 && isEnemyLand(hot)) orders.push({ kind: 'missile', province: hot });
     for (const wing of all.filter((u) => domainOf(u.type) === 'air' && u.next === undefined)) {
       // with no battle to support, strike wings bomb enemy industry in range
-      if (wing.type === 'strike' && !battle) {
+      if (STRIKERS.includes(wing.type) && (!battle || wing.type === 'bombers')) {
         const target = [...m.buildings.keys()].find((q) => isEnemyLand(q) && distanceKm(m.provinces.get(wing.province)!.label, m.provinces.get(q)!.label) <= m.rangeOf(wing));
         if (target !== undefined) { if (wing.mission?.target !== target) orders.push({ kind: 'mission', units: [wing.id], mission: { kind: 'bomb', target } }); continue; }
       }
@@ -467,7 +471,13 @@ export class AiBrain {
     const count = (d: string) => all.filter((u) => domainOf(u.type) === d).length;
     const coastal = this.world.homeFor(n.id, 'destroyers') !== undefined;
     const aggressive = n.personality === 'expansionist' || n.personality === 'opportunist';
-    if (count('air') < all.length * 0.25) return r < 0.5 ? 'fighters' : 'strike';
+    if (count('air') < all.length * 0.25) {
+      if (n.tech.done.includes('drones') && r < 0.3) return 'drones';
+      if (n.tech.done.includes('stealth') && r > 0.9 && n.mil.funds > 30) return 'bombers';
+      return r < 0.5 ? 'fighters' : 'strike';
+    }
+    if (coastal && r < 0.06) return 'marines';
+    if (r > 0.96) return 'special_forces';
     if (coastal && count('sea') < all.length * 0.15) return r < 0.6 ? 'destroyers' : r < 0.9 ? 'submarines' : 'carrier';
     return r < (aggressive ? 0.2 : 0.1) ? 'armored' : r < (aggressive ? 0.45 : 0.3) ? 'mechanized' : 'infantry';
   }

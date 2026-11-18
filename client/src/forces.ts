@@ -3,7 +3,7 @@
 import { Marker, type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import { money } from '../../shared/economy';
 import {
-  distanceKm, domainOf, findRoute, UNIT_SPECS, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
+  distanceKm, domainOf, findRoute, STRIKERS, UNIT_ROLE, UNIT_SPECS, UNIT_TECH, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
 } from '../../shared/military';
 import type { Game } from './game';
 import type { Political } from './political';
@@ -19,6 +19,10 @@ export const ICON: Record<UnitType, string> = {
   carrier: '<path d="M1 11.5h22v2.2H1z"/><path d="M3 13.7h18l-2 4.8H5z"/><path d="M16 6.5h3.2v5H16z"/><path d="M17 4h1v2.5h-1z"/>',
   fighters: '<path d="M12 1.5l1.6 5.3 7.4 6.4v2.2l-7.3-2.2-.5 5.3 3 2.2v1.6L12 21l-4.2 1.3v-1.6l3-2.2-.5-5.3L3 15.4v-2.2l7.4-6.4z"/>',
   strike: '<path d="M12 1.5l1.6 4.3V10l9.4 3v2.4l-9.4-1.6v5l3.1 2v1.7L12 21.6l-4.7.9v-1.7l3.1-2v-5L1 15.4V13l9.4-3V5.8z"/>',
+  marines: '<circle cx="9" cy="4.2" r="2.3"/><path d="M6.4 7.4h5.2l1.2 5.6h-1.8l-.8 5h-1.9l-.4-3.6-.4 3.6H5.6L4.9 13H3.6z"/><path d="M1 19c3-2 5 2 8 0s5 2 8 0 5 2 7 0v3H1z"/><path d="M14 4h2v6h4l-3 3-3-3z"/>',
+  special_forces: '<circle cx="12" cy="4.5" r="2.4"/><path d="M8 8h8l1 6h-2l-.8 7.5h-2.4L11.5 16l-.3 5.5H8.8L8 14H6z"/><path d="M3 12l6-4 1 1-6 4zM21 12l-6-4-1 1 6 4z"/>',
+  drones: '<path d="M10 10h4v4h-4z"/><path d="M5 5l5 5M19 5l-5 5M5 19l5-5M19 19l-5-5" stroke="currentColor" stroke-width="1.6"/><circle cx="5" cy="5" r="3"/><circle cx="19" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>',
+  bombers: '<path d="M12 2l1.4 5V9l9.6 4v2l-9.6-2v4l3 2.5V21L12 20l-4.4 1v-1.5l3-2.5v-4L1 15v-2l9.6-4V7z"/><path d="M5 14h2v2H5zM17 14h2v2h-2z"/>',
 };
 const DOMAIN_NAMES: Record<Domain, string> = { land: 'LAND', sea: 'SEA', air: 'AIR' };
 
@@ -41,6 +45,7 @@ export interface ForcesActions {
   peace(target: number): void;
   general(unit: number): void;
   warhead(): void;
+  satellite(): void;
   goToProvince(id: number): void;
 }
 
@@ -265,7 +270,7 @@ export class Forces {
     const movers = sel.filter((u) => domainOf(u.type) !== 'air').map((u) => u.id);
     if (movers.length) this.actions.move(movers, to);
     const fighters = sel.filter((u) => u.type === 'fighters').map((u) => u.id);
-    const strikes = sel.filter((u) => u.type === 'strike').map((u) => u.id);
+    const strikes = sel.filter((u) => STRIKERS.includes(u.type)).map((u) => u.id);
     if (fighters.length) this.actions.mission(fighters, { kind: 'patrol', target: to });
     // strike wings: support a battle, or bomb enemy industry where there is no fighting
     const prov = this.pol.provinces.get(to);
@@ -287,6 +292,7 @@ export class Forces {
     else if (f === 'standdown') this.actions.mission([...this.selected], null);
     else if (f === 'general') this.actions.general(Number(act.dataset.unit));
     else if (f === 'warhead') this.actions.warhead();
+    else if (f === 'satellite') this.actions.satellite();
     else if (f === 'goto') {
       const p = Number(act.dataset.province);
       this.selected = new Set(this.game.units.filter((u) => u.nation === this.game.mine?.id && u.province === p && u.next === undefined).map((u) => u.id));
@@ -343,10 +349,13 @@ export class Forces {
             ${UNIT_TYPES.map((t, i) => { const s = UNIT_SPECS[t]; return `
               ${i === 0 || UNIT_SPECS[UNIT_TYPES[i - 1]].domain !== s.domain ? `<span class="label sub">${DOMAIN_NAMES[s.domain]}</span>` : ''}
               <div class="recruit">
-                <div><b class="recruit-name"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${s.name}</b><span class="mono">attack ${s.attack} · defense ${s.defense} · ${s.range ? `radius ${s.range} km` : `${s.speed} km/day`}</span>
+                <div><b class="recruit-name"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${s.name}</b>${UNIT_ROLE[t] ? `<span>${UNIT_ROLE[t]}</span>` : ''}<span class="mono">attack ${s.attack} · defense ${s.defense} · ${s.range ? `radius ${s.range} km` : `${s.speed} km/day`}</span>
                 <span class="mono">${money(s.cost)} · ${s.days} days (~${Math.round((s.days * 10) / 60)} min) · ${(s.men / 1e3).toFixed(0)}k men · upkeep ${money(s.upkeep)}/yr</span></div>
-                <button type="button" class="claim primary" data-f="recruit" data-type="${t}" ${mil.manpower < s.men || mil.queue.length >= 10 ? 'disabled' : ''}>Recruit</button>
+                <button type="button" class="claim primary" data-f="recruit" data-type="${t}" ${mil.manpower < s.men || mil.queue.length >= 10 || (UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never)) ? 'disabled' : ''}>${UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never) ? 'Needs research' : 'Recruit'}</button>
               </div>`; }).join('')}
+            ${mine.research?.done.includes('orbital_recon') ? `<span class="label sub">SPACE</span>
+              <div class="recruit"><div><b>Satellites in orbit: ${mil.satellites}</b><span class="mono">$10bn a launch · while you have one, you see every unit of nations you are at war with (not submarines)</span></div>
+              <button type="button" class="claim" data-f="satellite" ${mil.funds < 10 ? 'disabled' : ''}>Launch</button></div>` : ''}
             ${mine.research?.done.includes('nuclear') ? `<span class="label sub">STRATEGIC</span>
               <div class="recruit"><div><b>Nuclear warheads: ${mil.warheads}</b><span class="mono">$40bn each · strike from an enemy province's panel</span></div>
               <button type="button" class="claim danger" data-f="warhead" ${mil.funds < 40 ? 'disabled' : ''}>Build</button></div>` : ''}

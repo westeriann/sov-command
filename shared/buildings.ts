@@ -1,7 +1,7 @@
 // Province buildings: built from the national treasury over game days.
 
-export type BuildingType = 'fort' | 'air_defense' | 'factory' | 'mine' | 'port' | 'airbase' | 'coal_plant' | 'gas_plant' | 'nuclear_plant' | 'renewables';
-export const BUILDING_TYPES: BuildingType[] = ['fort', 'air_defense', 'factory', 'mine', 'port', 'airbase', 'coal_plant', 'gas_plant', 'nuclear_plant', 'renewables'];
+export type BuildingType = 'fort' | 'air_defense' | 'factory' | 'mine' | 'port' | 'airbase' | 'coal_plant' | 'gas_plant' | 'nuclear_plant' | 'renewables' | 'missile_defense';
+export const BUILDING_TYPES: BuildingType[] = ['fort', 'air_defense', 'factory', 'mine', 'port', 'airbase', 'coal_plant', 'gas_plant', 'nuclear_plant', 'renewables', 'missile_defense'];
 
 export interface BuildingSpec { name: string; cost: number; days: number; text: string; coastal?: boolean }
 export const BUILDINGS: Record<BuildingType, BuildingSpec> = {
@@ -15,7 +15,9 @@ export const BUILDINGS: Record<BuildingType, BuildingSpec> = {
   gas_plant: { name: 'Gas power station', cost: 6, days: 40, text: 'Electricity for 5% of the economy; burns gas' },
   nuclear_plant: { name: 'Nuclear power station', cost: 22, days: 140, text: 'Electricity for 9% of the economy; no fuel' },
   renewables: { name: 'Wind and solar farm', cost: 4, days: 35, text: 'Electricity for 2.5% of the economy; no fuel' },
+  missile_defense: { name: 'Missile defense battery', cost: 12, days: 70, text: 'Within 600 km: shoots down 80% of missiles and 40% of nuclear warheads' },
 };
+export const MISSILE_SHIELD_KM = 600;
 /** Share of national electricity demand each power station covers, and the fuel it burns. */
 export const POWER_SHARE: Partial<Record<BuildingType, number>> = { coal_plant: 0.05, gas_plant: 0.05, nuclear_plant: 0.09, renewables: 0.025 };
 export const POWER_FUEL: Partial<Record<BuildingType, 'coal' | 'gas'>> = { coal_plant: 'coal', gas_plant: 'gas' };

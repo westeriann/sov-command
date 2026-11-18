@@ -5,7 +5,7 @@
 import { DAY } from '../../shared/clock.ts';
 import type { BuildingState, BuildingType } from '../../shared/buildings.ts';
 import {
-  GENERAL_BONUS, NO_SUPPLY_LOSS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, distanceKm, domainOf, findRoute, legDays,
+  BEACHHEAD, GENERAL_BONUS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, distanceKm, domainOf, findRoute, legDays,
   type Domain, type General, type Mission, type QueueItem, type RouteNode, type UnitType, type UnitView, type War,
 } from '../../shared/military.ts';
 
@@ -23,6 +23,7 @@ export interface Unit {
   mission?: Mission; // air wings only
   supplied?: boolean; // land units: false when cut off
   general?: General;
+  landedAt?: number; // game ms it came ashore from the sea
 }
 
 export interface NationMil {
@@ -32,6 +33,7 @@ export interface NationMil {
   warheads?: number;
   lastMissileDay?: number;
   rally?: number; // new land units march here
+  satellites?: number;
 }
 
 export interface MilitaryState {
@@ -90,6 +92,8 @@ export class Military {
   }
 
   buildings = new Map<number, BuildingState[]>();
+  /** Current game time, set by the World before each day's fighting. */
+  now = 0;
   /** Set by the World: damage a nation's economy by a share of GDP (strategic bombing). */
   onEconomicDamage: (nation: number, share: number) => void = () => {};
 
@@ -147,7 +151,7 @@ export class Military {
       }
       for (const u of units) {
         const at = this.provinces.get(u.province);
-        u.supplied = !seeds.length || at?.kind === 'sea' || reach.has(u.province) || !!at?.adj.some((q) => reach.has(q));
+        u.supplied = u.type === 'special_forces' || !seeds.length || at?.kind === 'sea' || reach.has(u.province) || !!at?.adj.some((q) => reach.has(q));
         if (!u.supplied) u.strength = Math.max(10, u.strength - NO_SUPPLY_LOSS);
       }
     }
@@ -266,6 +270,7 @@ export class Military {
     for (const u of this.units.values()) {
       if (u.nation === nation) out.push(this.view(u, true));
       else if (u.type === 'submarines' && !ourShips.has(u.province)) continue;
+      else if (u.type === 'special_forces' && !this.unitsIn(u.province).some((o) => o.nation === nation)) continue; // special forces stay hidden
       else if (seen.has(u.province) || (u.next && seen.has(u.next))) out.push(this.view(u, false));
     }
     return out;
@@ -319,7 +324,8 @@ export class Military {
       if (mission) {
         const target = this.provinces.get(mission.target);
         if (!target) continue;
-        if (mission.kind === 'bomb' && u.type !== 'strike') continue;
+        if (mission.kind !== 'patrol' && !STRIKERS.includes(u.type)) continue;
+        if (mission.kind === 'patrol' && u.type !== 'fighters') continue;
         if (distanceKm(this.label(u.province), target.label) > this.rangeOf(u)) continue;
         u.mission = { kind: mission.kind, target: mission.target };
       } else {
@@ -389,6 +395,7 @@ export class Military {
           u.next = u.legStart = u.legEnd = undefined;
           break;
         }
+        if (domain === 'land' && this.provinces.get(u.province)?.kind === 'sea' && this.provinces.get(target)?.kind === 'land') u.landedAt = legEnd;
         u.province = target;
         const kind = this.provinces.get(target)!.kind;
         // land units fight land units on land; fleets fight fleets at sea; troops at sea sail on
@@ -495,7 +502,7 @@ export class Military {
           if (!isSide(w.nation) || !this.units.has(w.id)) continue;
           const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air')) * (airDefense && side(w.nation) === 'a' ? 0.5 : 1);
           if (w.type === 'fighters' && w.mission?.kind === 'patrol' && this.inRange(w, p, PATROL_RADIUS)) cover[side(w.nation)] += power;
-          if (w.type === 'strike' && w.mission?.kind === 'support' && this.inRange(w, p, SUPPORT_RADIUS)) strike[side(w.nation)] += power;
+          if (STRIKERS.includes(w.type) && w.mission?.kind === 'support' && this.inRange(w, p, SUPPORT_RADIUS)) strike[side(w.nation)] += power * (w.type === 'bombers' ? 0.5 : 1);
         }
         for (const s of ships) {
           if (!isSide(s.nation) || !prov.adj.includes(s.province)) continue;
@@ -512,7 +519,9 @@ export class Military {
       const command = (units: Unit[]) => 1 + GENERAL_BONUS * Math.max(0, ...units.map((u) => u.general?.skill ?? 0));
       const power = (units: Unit[], role: 'attack' | 'defense') => units.reduce((sum, u) =>
         sum + (u.strength / 100) * UNIT_SPECS[u.type][role] * (role === 'defense' ? terrain : 1) * supply.get(u.nation)! * tech(u, role)
-          * (u.supplied === false ? NO_SUPPLY_POWER : 1), 0) * command(units)
+          * (u.supplied === false ? NO_SUPPLY_POWER : 1)
+          // storming ashore: only marines fight at full strength in their first two days on the beach
+          * (role === 'attack' && u.landedAt !== undefined && this.now - u.landedAt < 2 * DAY && u.type !== 'marines' ? BEACHHEAD : 1), 0) * command(units)
         * (0.9 + 0.2 * this.rand());
       const pa = Math.max(0.01, power(attackers, 'attack') + bonus('a'));
       const pd = Math.max(0.01, power(defenders, 'defense') + bonus('d'));
@@ -560,15 +569,23 @@ export class Military {
 
     // strategic bombing: strike wings hit industry in enemy provinces
     for (const w of air) {
-      if (!this.units.has(w.id) || w.type !== 'strike' || w.mission?.kind !== 'bomb' || w.next !== undefined) continue;
+      if (!this.units.has(w.id) || !STRIKERS.includes(w.type) || w.mission?.kind !== 'bomb' || w.next !== undefined) continue;
       const t = w.mission.target, owner = this.controller(t);
       if (!this.atWar(w.nation, owner) || distanceKm(this.label(w.province), this.label(t)) > this.rangeOf(w)) continue;
       const defended = this.built(t, 'air_defense');
-      const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air')) * (defended ? 0.4 : 1);
+      const power = (w.strength / 100) * UNIT_SPECS[w.type].attack * (1 + this.bonus(w.nation, 'air')) * (defended ? 0.4 : 1) * (w.type === 'bombers' ? 2.5 : 1);
       this.onEconomicDamage(owner!, 0.00015 * power / 10);
       if (this.rand() < 0.06 * power / 10 && this.destroyBuilding(t)) events.push({ kind: 'bombed', province: t, nation: w.nation, other: owner });
       w.strength -= defended ? 3 : 0.7;
       if (w.strength < DESTROYED_AT) { this.units.delete(w.id); events.push({ kind: 'destroyed', province: t, nation: w.nation }); }
+    }
+
+    // special forces behind the lines wreck what they can find
+    for (const u of all) {
+      if (u.type !== 'special_forces' || !this.units.has(u.id) || u.fighting || u.next !== undefined) continue;
+      const owner = this.controller(u.province);
+      if (!this.atWar(u.nation, owner)) continue;
+      if (this.rand() < 0.04 && this.destroyBuilding(u.province)) events.push({ kind: 'bombed', province: u.province, nation: u.nation, other: owner });
     }
 
     // air wings whose base fell go home

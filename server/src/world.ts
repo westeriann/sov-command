@@ -29,7 +29,8 @@ import type { GlobalEventKind, WorldState } from '../../shared/protocol.ts';
 import { ACHIEVEMENTS, MISSION_CASH, MISSION_KINDS, MISSION_REWARD_DAYS, type AchievementKey, type GoalKind, type SeasonMission } from '../../shared/goals.ts';
 import { EARNED_EMBLEMS } from '../../shared/flags.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
-import { GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, UNITS_PER_GENERAL, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
+import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
+import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import {
   GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
   type Effects, type Government, type ResearchPrivate, type TechId,
@@ -269,7 +270,10 @@ export class World {
     const storedMil = getMeta(db, 'military');
     this.military = new Military(byId, storedMil ? JSON.parse(storedMil) : null, mulberry(seed + 99));
     this.military.allied = (a, b) => this.diplomacy.allied(a, b);
-    this.military.intelOn = (nation) => Object.entries(this.nations.get(nation)?.intel ?? {}).filter(([, until]) => until >= this.market.day).map(([id]) => Number(id));
+    this.military.intelOn = (nation) => [
+      ...Object.entries(this.nations.get(nation)?.intel ?? {}).filter(([, until]) => until >= this.market.day).map(([id]) => Number(id)),
+      ...((this.nations.get(nation)?.mil.satellites ?? 0) > 0 ? this.military.enemiesOf(nation) : []), // satellites watch every enemy
+    ];
     this.countOwnedPop();
     // the lowest-lying coastal provinces are the first to flood as the seas rise
     if (!this.globe.low.length) {
@@ -492,6 +496,7 @@ export class World {
       upkeep: Math.round(upkeep * 100) / 100, manpower: Math.round(this.manpower(n)),
       queue: n.mil.queue.map((q) => ({ ...q })),
       peaceOffers: this.diplomacy.incoming(n.id).filter((p) => p.deal.kind === 'peace' && p.deal.terms === 'white').map((p) => p.from),
+      satellites: n.mil.satellites ?? 0,
       warheads: n.mil.warheads ?? 0, missileReady: (n.mil.lastMissileDay ?? -1) < this.market.day,
       generals: this.military.unitsOf(n.id).filter((u) => u.general).length, maxGenerals: this.maxGenerals(n.id), rally: n.mil.rally,
     };
@@ -503,7 +508,7 @@ export class World {
     if (n.annexedBy) return { id: n.id, controller: 'ai', focus: n.policy.focus, army: 0, annexedBy: n.annexedBy };
     const pol = {
       government: n.gov?.government, techs: n.tech?.done.length, nuclear: (n.mil?.warheads ?? 0) > 0 || undefined,
-      name: n.custom?.name, short: n.custom?.short, color: n.custom?.color, flag: n.custom?.flag,
+      name: n.custom?.name, short: n.custom?.short, color: n.custom?.color, flag: n.custom?.flag, satellites: n.mil?.satellites || undefined,
     };
     return n.controller === 'human'
       ? { id: n.id, controller: 'human', player: n.player, online: this.online.has(n.userId!), autopilot: n.autopilot, focus: n.policy.focus, army, ...pol }
@@ -742,6 +747,8 @@ export class World {
         if (n.mil.queue.length >= 10) return fail('not_allowed', 'The production queue is full (10).');
         if (this.manpower(n) < spec.men) return fail('not_allowed', 'Not enough reservists. Raise the military budget or wait for losses to be replaced.');
         if (this.homeFor(n.id, order.unit) === undefined) return fail('not_allowed', 'Ships need a coast: your nation holds no coastal province.');
+        const needs = UNIT_TECH[order.unit];
+        if (needs && !n.tech.done.includes(needs as TechId)) return fail('not_allowed', `Research ${TECH_BY_ID.get(needs as TechId)?.name ?? needs} first.`);
         n.mil.queue.push({ type: order.unit, progress: 0 });
         this.touch(n, false);
         return ok;
@@ -921,7 +928,7 @@ export class World {
         n.mil.funds -= MISSILE_COST;
         n.mil.lastMissileDay = this.market.day;
         const where = this.military.provinces.get(p)?.name ?? `province ${p}`;
-        if (this.military.built(p, 'air_defense') && this.rand() < 0.5) {
+        if (this.shielded(target!, p) ? this.rand() < 0.8 : this.military.built(p, 'air_defense') && this.rand() < 0.5) {
           this.event('war', n.id, `Air defenses in ${where} intercept a ${this.defs.get(n.id)!.short} missile salvo.`);
         } else {
           for (const u of this.military.unitsIn(p)) {
@@ -950,6 +957,14 @@ export class World {
         const p = Number(order.province), target = this.military.controller(p);
         if (!(n.mil.warheads ?? 0)) return fail('not_allowed', 'You have no nuclear warheads.');
         if (!this.military.provinces.has(p) || !this.military.atWar(n.id, target)) return fail('not_allowed', 'You can only strike nations you are at war with.');
+        if (this.shielded(target!, p) && this.rand() < 0.4) {
+          n.mil.warheads = Math.max(0, (n.mil.warheads ?? 1) - 1);
+          this.event('war', n.id, `Missile defenses shoot down a ${this.defs.get(n.id)!.short} nuclear missile over ${this.military.provinces.get(p)?.name ?? 'the target'}. The world holds its breath.`);
+          for (const kind of ['alliance', 'trade'] as const) for (const x of this.diplomacy.partners(kind, n.id)) this.diplomacy.cancel(kind, n.id, x);
+          this.warChanged();
+          this.touch(n);
+          return ok;
+        }
         this.nuke(n, p);
         return ok;
       }
@@ -1004,12 +1019,35 @@ export class World {
       case 'spy': {
         const t = this.nations.get(Number(order.target)), mission = order.mission as SpyMission;
         if (!t || t.id === n.id || t.annexedBy || !SPY_MISSIONS[mission]) return fail('bad_request', 'Choose a nation and a mission.');
+        if (mission.startsWith('cyber') && !n.tech.done.includes('digital_state')) return fail('not_allowed', 'Cyber operations need Digital government research.');
         n.spyOps ??= [];
         if (n.spyOps.length >= MAX_SPY_OPS) return fail('not_allowed', `At most ${MAX_SPY_OPS} operations at a time.`);
         if (n.mil.funds < SPY_COST) return fail('no_funds', 'Not enough military funds.');
         n.mil.funds -= SPY_COST;
         n.spyOps.push({ target: t.id, mission, day: this.market.day });
         this.touch(n, false);
+        return ok;
+      }
+      case 'satellite': {
+        if (!n.tech.done.includes('orbital_recon')) return fail('not_allowed', 'Research Orbital reconnaissance first.');
+        if (n.mil.funds < SATELLITE_COST) return fail('no_funds', `A launch costs ${SATELLITE_COST} bn of military funds.`);
+        n.mil.funds -= SATELLITE_COST;
+        n.mil.satellites = (n.mil.satellites ?? 0) + 1;
+        this.event('war', n.id, `The ${this.defs.get(n.id)!.name} launches a reconnaissance satellite.`);
+        this.touch(n);
+        for (const x of [n]) this.pushUnits(x);
+        return ok;
+      }
+      case 'asat': {
+        const t = this.nations.get(Number(order.target));
+        if (!t || !this.military.atWar(n.id, t.id)) return fail('not_allowed', 'Only satellites of a nation you are at war with.');
+        if (!n.tech.done.includes('hypersonics')) return fail('not_allowed', 'Research Hypersonic missiles first.');
+        if (!(t.mil.satellites ?? 0)) return fail('not_allowed', 'They have no satellites.');
+        if (n.mil.funds < ASAT_COST) return fail('no_funds', 'Not enough military funds.');
+        n.mil.funds -= ASAT_COST;
+        t.mil.satellites = (t.mil.satellites ?? 1) - 1;
+        this.event('war', n.id, `A ${this.defs.get(n.id)!.short} missile destroys a ${this.defs.get(t.id)!.short} satellite in orbit.`);
+        this.touch(n); this.touch(t); this.pushUnits(t);
         return ok;
       }
       case 'borders': {
@@ -1216,6 +1254,7 @@ export class World {
   /** One game day of fighting, pay, upkeep, production and reinforcement. */
   private militaryDay() {
     const events: MilEvent[] = [];
+    this.military.now = this.gameNow();
     this.military.fight(
       (nation, amount) => {
         const e = this.nations.get(nation)?.econ;
@@ -1229,6 +1268,7 @@ export class World {
     for (const n of this.nations.values()) {
       this.military.logistics(n.id, n.mil, this.defenceIncome(n), this.manpower(n), (t) => this.homeFor(n.id, t), this.gameNow());
     }
+    this.insurgency();
     this.handleMilEvents(events);
   }
 
@@ -1353,6 +1393,13 @@ export class World {
           } else if (op.mission === 'recon') {
             n.intel = { ...(n.intel ?? {}), [t.id]: day + 30 };
             this.report(n, `Agents in the ${T} report their forces' positions for the next 30 days.`);
+          } else if (op.mission === 'cyber_grid') {
+            t.econ.grid = (t.econ.grid ?? t.econ.gdp) * 0.85;
+            this.report(n, `Our hackers knocked out 15% of the power grid of the ${T}.`);
+          } else if (op.mission === 'cyber_heist') {
+            const take = Math.max(0, t.econ.treasury * 0.015) || t.econ.gdp * 0.002;
+            t.econ.treasury -= take; n.econ.treasury += take;
+            this.report(n, `Our hackers siphoned $${take.toFixed(1)}bn from the ${T}.`);
           } else {
             t.econ.stability = Math.max(0, t.econ.stability - 6);
             this.report(n, `Agitators spread unrest in the ${T} (−6 stability).`);
@@ -1578,6 +1625,31 @@ export class World {
   // ---- strategic warfare -----------------------------------------------------------
   maxGenerals(nation: number) {
     return Math.max(1, Math.floor(this.military.unitsOf(nation).filter((u) => UNIT_SPECS[u.type].domain === 'land').length / UNITS_PER_GENERAL));
+  }
+
+  /** A missile defense battery held by `defender` within range of province p. */
+  shielded(defender: number, p: number) {
+    const at = this.military.provinces.get(p)?.label;
+    if (!at) return false;
+    for (const [q] of this.military.buildings) {
+      if (!this.military.built(q, 'missile_defense') || this.military.controller(q) !== defender) continue;
+      if (distanceKm(this.military.provinces.get(q)!.label, at) <= MISSILE_SHIELD_KM) return true;
+    }
+    return false;
+  }
+
+  /** Big occupied provinces raise partisans for their rightful owner. */
+  private insurgency() {
+    const m = this.military;
+    for (const [p, occ] of m.occupied) {
+      const prov = m.provinces.get(p)!;
+      const owner = prov.owner;
+      if (!owner || prov.pop < 2e6 || !m.atWar(owner, occ)) continue;
+      if (this.rand() >= (prov.pop / 1e7) / 60) continue;
+      const garrison = m.unitsIn(p).filter((u) => u.nation === occ && UNIT_SPECS[u.type].domain === 'land');
+      m.spawn(owner, 'infantry', p, garrison.length ? 35 : 55);
+      this.event('war', owner, `Partisans rise in occupied ${prov.name ?? 'territory'} against the ${this.defs.get(occ)?.short}.`);
+    }
   }
 
   /** Within missile range of any province this nation holds. */

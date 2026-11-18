@@ -55,6 +55,7 @@ export interface NationPublic {
   government?: Government;
   techs?: number; // technologies researched
   nuclear?: boolean; // holds nuclear warheads
+  satellites?: number; // in orbit (launches are seen by everyone)
   // a player's own name, colour and flag for the nation (absent: the map's defaults)
   name?: string;
   short?: string;
@@ -173,6 +174,8 @@ export type Order =
   | { kind: 'release'; target: number } // free a vassal
   | { kind: 'rally'; province: number | null } // new land units march here
   | { kind: 'borders'; open: boolean }
+  | { kind: 'satellite' }
+  | { kind: 'asat'; target: number }
   | { kind: 'customize'; name?: string; short?: string; color?: string; flag?: FlagSpec }
   | { kind: 'nuke'; province: number }
   | { kind: 'government'; government: Government };

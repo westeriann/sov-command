@@ -155,3 +155,38 @@ test('the wider world: border policy; global events hit nations by their circums
   a.econ.budget.welfare = 50; b.econ.budget.welfare = 20;
   assert.ok(w.eventGrowth(a) > w.eventGrowth(b), 'welfare blunts a pandemic');
 });
+
+test('new forces: marines storm beaches, special forces stay hidden and supplied, bombers wreck industry, satellites see the enemy, missile defense', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  // beachhead: troops fresh from the sea fight weaker than marines
+  const strike = (type: 'infantry' | 'marines') => {
+    const v = setup();
+    v.submit(1, { kind: 'war', target: 2 }, 'human');
+    v.military.now = 10 * 86_400_000;
+    const a = v.military.spawn(1, type, 5); a.landedAt = v.military.now - 86_400_000;
+    const d = v.military.spawn(2, 'infantry', 5);
+    v.military.fight(() => true, () => undefined, []);
+    return 100 - d.strength;
+  };
+  assert.ok(strike('marines') > strike('infantry') * 1.2, 'marines hit harder on the beach');
+  // special forces: always supplied, invisible to the enemy unless it shares the province
+  const sf = w.military.spawn(1, 'special_forces', 7);
+  w.military.updateSupply((n) => w.home(n));
+  assert.equal(sf.supplied, true);
+  assert.ok(!w.military.viewFor(2).some((v) => v.id === sf.id), 'hidden');
+  w.military.units.delete(sf.id); // (it would otherwise see its neighbours)
+  // research gates
+  assert.equal(w.submit(1, { kind: 'recruit', unit: 'bombers' }, 'human').ok, false);
+  w.nations.get(1)!.tech.done.push('stealth', 'orbital_recon');
+  assert.equal(w.submit(1, { kind: 'recruit', unit: 'bombers' }, 'human').ok, true);
+  // satellites reveal enemy forces anywhere
+  const far = w.military.spawn(2, 'armored', 8);
+  assert.ok(!w.military.viewFor(1).some((v) => v.id === far.id), 'unseen before');
+  assert.equal(w.submit(1, { kind: 'satellite' }, 'human').ok, true);
+  assert.ok(w.military.viewFor(1).some((v) => v.id === far.id), 'seen from orbit');
+  // missile defense covers its neighbourhood
+  w.military.buildings.set(7, [{ type: 'missile_defense', progress: 1 }]);
+  assert.equal(w.shielded(2, 8), true);
+  assert.equal(w.shielded(2, 1), false);
+});

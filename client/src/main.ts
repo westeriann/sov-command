@@ -317,6 +317,7 @@ async function start() {
     peace: (target) => conn.send({ t: 'order', order: { kind: 'peace', target } }),
     general: (unit) => conn.send({ t: 'order', order: { kind: 'general', unit } }),
     warhead: () => conn.send({ t: 'order', order: { kind: 'warhead' } }),
+    satellite: () => conn.send({ t: 'order', order: { kind: 'satellite' } }),
     goToProvince: goTo,
   });
   forces.onSelectionChange = () => hud.refreshSelection();

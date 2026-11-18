@@ -4,8 +4,8 @@
 import { DAY } from './clock';
 
 export type Domain = 'land' | 'sea' | 'air';
-export type UnitType = 'infantry' | 'mechanized' | 'armored' | 'destroyers' | 'submarines' | 'carrier' | 'fighters' | 'strike';
-export const UNIT_TYPES: UnitType[] = ['infantry', 'mechanized', 'armored', 'destroyers', 'submarines', 'carrier', 'fighters', 'strike'];
+export type UnitType = 'infantry' | 'mechanized' | 'armored' | 'marines' | 'special_forces' | 'destroyers' | 'submarines' | 'carrier' | 'fighters' | 'strike' | 'drones' | 'bombers';
+export const UNIT_TYPES: UnitType[] = ['infantry', 'mechanized', 'armored', 'marines', 'special_forces', 'destroyers', 'submarines', 'carrier', 'fighters', 'strike', 'drones', 'bombers'];
 
 export interface UnitSpec {
   name: string;
@@ -24,12 +24,32 @@ export const UNIT_SPECS: Record<UnitType, UnitSpec> = {
   infantry: { name: 'Infantry division', domain: 'land', attack: 4, defense: 7, speed: 30, cost: 1.5, upkeep: 0.3, days: 14, men: 15_000 },
   mechanized: { name: 'Mechanized division', domain: 'land', attack: 7, defense: 7, speed: 45, cost: 4, upkeep: 0.6, days: 28, men: 12_000 },
   armored: { name: 'Armored division', domain: 'land', attack: 11, defense: 6, speed: 55, cost: 7, upkeep: 1.0, days: 42, men: 10_000 },
+  marines: { name: 'Marine brigade', domain: 'land', attack: 7, defense: 5, speed: 40, cost: 3.5, upkeep: 0.5, days: 30, men: 6_000 },
+  special_forces: { name: 'Special forces group', domain: 'land', attack: 5, defense: 3, speed: 60, cost: 2.5, upkeep: 0.4, days: 35, men: 2_000 },
   destroyers: { name: 'Destroyer squadron', domain: 'sea', attack: 6, defense: 6, speed: 600, cost: 6, upkeep: 0.6, days: 60, men: 3_000 },
   submarines: { name: 'Submarine flotilla', domain: 'sea', attack: 8, defense: 3, speed: 450, cost: 5, upkeep: 0.5, days: 75, men: 1_500 },
   carrier: { name: 'Carrier strike group', domain: 'sea', attack: 14, defense: 10, speed: 550, cost: 18, upkeep: 2.5, days: 150, men: 6_000, range: 700 },
   fighters: { name: 'Fighter wing', domain: 'air', attack: 8, defense: 6, speed: 2000, cost: 3, upkeep: 0.5, days: 45, men: 1_500, range: 900 },
   strike: { name: 'Strike wing', domain: 'air', attack: 10, defense: 3, speed: 2000, cost: 4, upkeep: 0.6, days: 50, men: 1_500, range: 1200 },
+  drones: { name: 'Drone squadron', domain: 'air', attack: 6, defense: 1, speed: 900, cost: 1.2, upkeep: 0.15, days: 25, men: 300, range: 600 },
+  bombers: { name: 'Bomber wing', domain: 'air', attack: 14, defense: 4, speed: 1800, cost: 9, upkeep: 1.2, days: 80, men: 1_200, range: 2500 },
 };
+
+/** Units that need a technology before they can be built. */
+export const UNIT_TECH: Partial<Record<UnitType, string>> = { drones: 'drones', bombers: 'stealth' };
+/** What each newer unit is for (shown when recruiting). */
+export const UNIT_ROLE: Partial<Record<UnitType, string>> = {
+  marines: 'Land from the sea without the beachhead penalty',
+  special_forces: 'Never out of supply; hidden unless an enemy unit is in the same province; sabotage enemy buildings',
+  drones: 'Cheap short-range support and bombing',
+  bombers: 'Long-range strategic bombing, 2.5x as hard on industry; weak in battle support',
+};
+/** Ordinary troops storming ashore fight at this strength for two days. */
+export const BEACHHEAD = 0.6;
+/** Air units that fly support and bombing missions (fighters only patrol). */
+export const STRIKERS: UnitType[] = ['strike', 'drones', 'bombers'];
+export const SATELLITE_COST = 10;
+export const ASAT_COST = 4;
 
 export const domainOf = (t: UnitType) => UNIT_SPECS[t].domain;
 /** Land units crossing the sea ride transports: slow, and helpless if enemy warships catch them. */
@@ -76,7 +96,7 @@ export function legDays(a: RouteNode, b: RouteNode, type: UnitType) {
   const spec = UNIT_SPECS[type];
   const km = distanceKm(a.label, b.label);
   if (spec.domain !== 'land') return Math.max(0.2, km / spec.speed);
-  if (a.kind === 'sea' || b.kind === 'sea') return Math.max(0.5, km / TRANSPORT_SPEED + (a.kind !== b.kind ? EMBARK_DAYS : 0));
+  if (a.kind === 'sea' || b.kind === 'sea') return Math.max(0.5, km / TRANSPORT_SPEED + (a.kind !== b.kind && type !== 'marines' ? EMBARK_DAYS : 0));
   const slow = TERRAIN_SLOW[b.terrain] ?? 1.2;
   const river = (b.river ?? 0) >= 4 || (a.river ?? 0) >= 4 ? RIVER_DELAY_DAYS : 0;
   return Math.max(0.5, (distanceKm(a.label, b.label) / UNIT_SPECS[type].speed) * slow + river);
@@ -188,6 +208,7 @@ export interface UnitView {
   legEnd?: number; // game ms
   supplied?: boolean; // false: cut off from supply (own units only)
   general?: General;
+  hidden?: boolean; // special forces: invisible to the enemy
 }
 
 export interface War {
@@ -214,4 +235,5 @@ export interface MilitaryPrivate {
   generals: number;
   maxGenerals: number;
   rally?: number; // province new land units march to
+  satellites: number;
 }

@@ -375,6 +375,7 @@ export class Hud {
       else if (a === 'missile') this.actions.missile(Number(act.dataset.province));
       else if (a === 'embargo') this.actions.embargo(Number(act.dataset.nation), act.dataset.on === '1');
       else if (a === 'spy') this.actions.order({ kind: 'spy', target: Number(act.dataset.nation), mission: act.dataset.mission as SpyMission });
+      else if (a === 'asat') this.actions.order({ kind: 'asat', target: Number(act.dataset.nation) });
       else if (a === 'invite') this.actions.order({ kind: 'propose', target: Number(act.dataset.nation), deal: { kind: 'bloc' } });
       else if (a === 'puppet') this.actions.propose(Number(act.dataset.nation), { kind: 'peace', terms: 'puppet' });
       else if (a === 'nuke') {
@@ -763,7 +764,9 @@ export class Hud {
       const white = offer('peace')?.deal, sent = out('peace');
       const held = Object.entries(g.war.occupied).filter(([p, o]) => o === mine.id && this.pol.provinces.get(Number(p))?.nation === n.id).length;
       const lose = Object.entries(g.war.occupied).filter(([p, o]) => o === n.id && this.pol.provinces.get(Number(p))?.nation === mine.id).length;
+      const sats = g.nations.get(n.id)?.satellites ?? 0;
       return `<div class="controller enemy"><b>At war with you</b><span class="mono">we hold ${held} · they hold ${lose}</span></div>
+        ${sats && mine.research?.done.includes('hypersonics') ? `<button type="button" class="claim" data-act="asat" data-nation="${n.id}">Shoot down a satellite ($4bn · they have ${sats})</button>` : ''}
         ${white ? `<p class="hint">They offer ${white.kind === 'peace' && white.terms === 'cede' ? `peace if you cede the ${lose} province${lose === 1 ? '' : 's'} they hold` : 'white peace'}. Answer in the Diplomacy window.</p>` : ''}
         ${sent ? '<p class="hint">Your peace proposal awaits their answer.</p>' : `<div class="actions-row">
           <button type="button" class="claim" data-act="peace" data-nation="${n.id}">Offer white peace</button>
