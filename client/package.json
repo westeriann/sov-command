@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:offline": "vite build --mode offline && node ../tools/offline-assets.mjs"
   },
   "dependencies": {
     "maplibre-gl": "6.19.0"
   },
   "devDependencies": {
     "@types/geojson": "7946.0.16",
+    "@types/node": "^22.18.13",
     "typescript": "7.0.2",
     "vite": "8.3.8"
   }

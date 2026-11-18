@@ -17,7 +17,7 @@ const SECONDS = Number(process.argv[3] ?? 60);
 const dir = mkdtempSync(join(tmpdir(), 'sov-load-'));
 const app = start({
   port: 0, worldDir: resolve('../client/public/world'), dbFile: join(dir, 'w.db'), speed: 8640,
-  aiBudgetPerTick: 25, autopilotAfterMs: 3_600_000, releaseAfterMs: 86_400_000, seasonMs: 28 * 86_400_000, allowedOrigins: [], backupHours: 0, backupKeep: 3,
+  aiBudgetPerTick: 25, autopilotAfterMs: 3_600_000, releaseAfterMs: 86_400_000, seasonMs: 28 * 86_400_000, allowedOrigins: [], backupHours: 0, backupKeep: 3, staticDir: '',
 });
 const port = await app.ready;
 

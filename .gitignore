@@ -11,3 +11,4 @@ world-gen.log
 
 # Local game server data
 server/data/
+client/dist-offline/

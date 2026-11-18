@@ -1,5 +1,7 @@
 import type { AuthResponse } from '../../shared/protocol';
 import { DiplomacyPanel } from './diplomacy-panel';
+import { ASSET_BASE, OFFLINE } from './config';
+import { LocalConnection, startWorld } from './offline/local';
 import { Cities } from './cities';
 import { Presence } from './presence';
 import { AccountDialog } from './account';
@@ -26,7 +28,7 @@ async function start() {
   let world: World;
   let pol: Political;
   try {
-    [world, pol] = await Promise.all([World.load(), Political.load()]);
+    [world, pol] = await Promise.all([World.load(`${ASSET_BASE}world`), Political.load(`${ASSET_BASE}world`)]);
   } catch (err) {
     hudRoot.innerHTML = `<div class="panel fatal"><b>The planet has not been generated yet.</b>
       <p>Run <code>npm run world</code> in the project folder, then reload this page.</p>
@@ -35,7 +37,15 @@ async function start() {
   }
 
   const game = new Game();
-  const conn = new Connection(game);
+  let localWorld: Worker | null = null;
+  if (OFFLINE) {
+    document.body.classList.add('offline');
+    try { localWorld = await startWorld(ASSET_BASE); } catch (err) {
+      hudRoot.innerHTML = `<div class="panel fatal"><b>The world could not start in this browser.</b><p class="mono">${String((err as Error).message ?? err)}</p></div>`;
+      return;
+    }
+  }
+  const conn = localWorld ? new LocalConnection(game, localWorld) : new Connection(game);
   const gameMap = new GameMap(document.getElementById('map')!, world, pol);
 
   const select = (lat: number, lon: number, fly = false) => {
@@ -367,7 +377,18 @@ async function start() {
   map.on('click', (e) => select(e.lngLat.lat, e.lngLat.wrap().lng));
 
   // join the world if a server is running; otherwise stay in offline preview
-  if (await serverAvailable()) {
+  if (localWorld) {
+    conn.connect('local');
+    hudRoot.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act="newgame"]');
+      if (!b) return;
+      // pages in some viewers cannot show confirm(): ask on the button itself
+      if (b.dataset.confirm === '1') { (conn as LocalConnection).newGame(); return; }
+      b.dataset.confirm = '1';
+      b.textContent = 'Click again to delete this world';
+      setTimeout(() => { b.dataset.confirm = ''; b.textContent = 'New game'; }, 5000);
+    });
+  } else if (await serverAvailable()) {
     const token = loadToken();
     if (token) signedIn(token);
     else login.open();

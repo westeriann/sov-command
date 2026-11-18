@@ -515,3 +515,9 @@ body.cb .up { color: #6bb8ff; }
 .faction .hint { grid-column: 1 / -1; font-size: 11px; }
 
 .season-note b { color: var(--fg); }
+
+/* single-player test build: hide what needs a server */
+.offline-only { display: none; }
+body.offline .offline-only { display: inline; }
+body.offline [data-act="worlds"], body.offline [data-act="signout"], body.offline [data-act="account"], body.offline [data-act="admin"],
+body.offline #btnChat, body.offline [data-tab="chat"], body.offline [data-act="alerts"], body.offline .history-wrap .report { display: none !important; }

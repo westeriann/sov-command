@@ -153,6 +153,15 @@ Depth (each feature changes play):
   enemy warships can raid, a Night lights mode showing power and blackouts,
   port cities on the coast
 
+Single-player test build (no server):
+
+- npm run build:offline writes client/dist-offline: the whole simulation runs
+  in a Web Worker in the browser (the same server code, with a small in-memory
+  store instead of SQLite), saves to IndexedDB, and pauses while the tab is
+  closed. Map tiles are packed into a few bundles. Any static host serves it.
+- Production server: STATIC_DIR=client/dist serves the built site from the
+  game server's own port
+
 Launch readiness:
 
 - Phones: long-press the map to give orders (the touch version of right-click)

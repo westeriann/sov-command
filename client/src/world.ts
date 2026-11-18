@@ -1,3 +1,4 @@
+import { bin } from './config';
 // The generated planet: metadata plus a lookup grid for "what is at this point".
 
 export type BiomeId =
@@ -59,7 +60,7 @@ export class World {
         if (!r.ok) throw new Error(`world.json: HTTP ${r.status}. Run the world generator first.`);
         return r.json() as Promise<WorldMeta>;
       }),
-      fetch(`${base}/terrain.bin`).then((r) => {
+      fetch(`${base}/${bin('terrain.bin')}`).then((r) => {
         if (!r.ok) throw new Error(`terrain.bin: HTTP ${r.status}`);
         return r.arrayBuffer();
       }),

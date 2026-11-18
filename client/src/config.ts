@@ -14,3 +14,10 @@ export const WORLD_OPENED_GAME = Date.UTC(2026, 0, 1, 0, 0, 0);
 export function gameNow(realNow = Date.now()) {
   return new Date(WORLD_OPENED_GAME + (realNow - WORLD_OPENED_REAL) * GAME_SPEED);
 }
+
+/** Single-player test build: the world runs in this browser tab, no server. */
+export const OFFLINE = import.meta.env.VITE_OFFLINE === '1';
+/** Where the website's files live (the page may be served from a sub-folder). */
+export const ASSET_BASE = new URL(import.meta.env.BASE_URL, location.href).href;
+/** Some static hosts only serve known file types: the single-player build ships binary data as .bin.wasm. */
+export const bin = (name: string) => (OFFLINE ? `${name}.wasm` : name);

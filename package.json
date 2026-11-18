@@ -14,6 +14,7 @@
     "world:provinces": ".venv/bin/python tools/worldgen/provinces.py",
     "server": "npm --prefix server run dev",
     "test": "npm --prefix server test",
-    "check": "cd client && npx tsc --noEmit && cd ../server && npx tsc --noEmit"
+    "check": "cd client && npx tsc --noEmit && cd ../server && npx tsc --noEmit",
+    "build:offline": "npm --prefix client run build:offline"
   }
 }

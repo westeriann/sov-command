@@ -1,3 +1,4 @@
+import { bin } from './config';
 import type { FlagSpec } from '../../shared/flags';
 import type { NationPublic } from '../../shared/protocol';
 // Provinces, sea zones and nations produced by tools/worldgen/provinces.py.
@@ -64,7 +65,7 @@ export class Political {
         if (!r.ok) throw new Error(`provinces.json: HTTP ${r.status}. Run the province generator.`);
         return r.json() as Promise<{ provinces: Province[]; nations: Nation[] }>;
       }),
-      fetch(`${base}/provinces.bin`).then((r) => {
+      fetch(`${base}/${bin('provinces.bin')}`).then((r) => {
         if (!r.ok) throw new Error(`provinces.bin: HTTP ${r.status}`);
         return r.arrayBuffer();
       }),

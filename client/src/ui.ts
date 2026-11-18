@@ -182,6 +182,7 @@ export class Hud {
           <button type="button" class="status mono" id="status"></button>
           <span class="mono date" id="clock"></span>
           <span class="speed mono" id="speed" title="The world clock never pauses"></span>
+          <button type="button" class="link offline-only" data-act="newgame">New game</button>
           <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
           <button type="button" class="link" data-act="guide">Guide</button>

@@ -1,6 +1,26 @@
-import { type GeoJSONSource, Map as MLMap, Marker, type ExpressionSpecification, type StyleSpecification } from 'maplibre-gl';
+import { addProtocol, setWorkerUrl, type GeoJSONSource, Map as MLMap, Marker, type ExpressionSpecification, type StyleSpecification } from 'maplibre-gl';
 import type { Feature, FeatureCollection } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { ASSET_BASE, OFFLINE, bin } from './config';
+import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
+
+// The map's background worker must ship with the build (dev serves it from node_modules).
+if (import.meta.env.PROD) setWorkerUrl(mapWorkerUrl);
+
+// Single-player build: terrain tiles come packed in a few bundles (see tools/pack-tiles.mjs)
+if (OFFLINE) {
+  let index: Promise<Record<string, [string, number, number]>> | null = null;
+  const bundles = new Map<string, Promise<ArrayBuffer>>();
+  addProtocol('pack', async (params) => {
+    index ??= fetch(`${ASSET_BASE}world/tiles-index.json`).then((r) => r.json());
+    const key = params.url.replace('pack://', '');
+    const hit = (await index)[key];
+    if (!hit) throw new Error(`no tile ${key}`);
+    const [group, offset, length] = hit;
+    if (!bundles.has(group)) bundles.set(group, fetch(`${ASSET_BASE}world/${bin(`tiles-${group}.bin`)}`).then((r) => r.arrayBuffer()));
+    return { data: (await bundles.get(group)!).slice(offset, offset + length) };
+  });
+}
 import type { Political } from './political';
 import { BIOME_INFO, mercatorCanvas, type World } from './world';
 
@@ -94,14 +114,14 @@ export class GameMap {
       sources: {
         planet: {
           type: 'raster',
-          tiles: [`${location.origin}/world/tiles/{z}/{x}/{y}.jpg`],
+          tiles: [OFFLINE ? 'pack://{z}/{x}/{y}' : `${ASSET_BASE}world/tiles/{z}/{x}/{y}.jpg`],
           tileSize: 256,
           maxzoom: max,
           attribution: 'Terrain photography: NASA Earth Observatory, Blue Marble',
         },
         graticule: { type: 'geojson', data: graticule() },
-        borders: { type: 'geojson', data: `${location.origin}/world/borders.geojson`, tolerance: 0.2 },
-        rivers: { type: 'geojson', data: `${location.origin}/world/rivers.geojson`, tolerance: 0.2 },
+        borders: { type: 'geojson', data: `${ASSET_BASE}world/borders.geojson`, tolerance: 0.2 },
+        rivers: { type: 'geojson', data: `${ASSET_BASE}world/rivers.geojson`, tolerance: 0.2 },
       },
       layers: [
         { id: 'space', type: 'background', paint: { 'background-color': '#02060b' } },
@@ -317,7 +337,7 @@ export class GameMap {
   /** Land changed hands: redraw national borders from current ownership. */
   async refreshBorders() {
     if (!this.borderData) {
-      try { this.borderData = await (await fetch(`${location.origin}/world/borders.geojson`)).json(); } catch { return; }
+      try { this.borderData = await (await fetch(`${ASSET_BASE}world/borders.geojson`)).json(); } catch { return; }
     }
     let changed = false;
     for (const f of this.borderData!.features) {

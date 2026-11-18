@@ -119,7 +119,12 @@ const ok: Result = { ok: true };
 const fail = (code: ErrorCode, message: string): Result => ({ ok: false, code, message });
 
 export function loadNationDefs(worldDir: string): { seed: number; nations: NationDef[]; provinces: Province[] } {
-  const raw = JSON.parse(readFileSync(join(worldDir, 'provinces.json'), 'utf8')) as {
+  return nationDefsFrom(JSON.parse(readFileSync(join(worldDir, 'provinces.json'), 'utf8')));
+}
+
+/** Nations and provinces from the generator's provinces.json (already parsed). */
+export function nationDefsFrom(rawJson: unknown): { seed: number; nations: NationDef[]; provinces: Province[] } {
+  const raw = rawJson as {
     seed: number;
     nations: Omit<NationDef, 'seed'>[];
     provinces: {

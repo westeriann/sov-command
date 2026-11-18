@@ -8,6 +8,7 @@ import { HOUR } from '../../shared/clock.ts';
 import { Accounts } from './auth.ts';
 import { openDb } from './db.ts';
 import { apiHandler } from './http.ts';
+import { staticHandler } from './static.ts';
 import { Hub } from './net.ts';
 import { loadNationDefs, World } from './world.ts';
 
@@ -24,6 +25,7 @@ const config = {
   allowedOrigins: env('ALLOWED_ORIGINS', '').split(',').map((s) => s.trim()).filter(Boolean),
   backupHours: Number(env('BACKUP_HOURS', '6')), // 0 turns automatic backups off
   backupKeep: Number(env('BACKUP_KEEP', '28')),
+  staticDir: env('STATIC_DIR', ''), // production: the built website (client/dist), served from this same port
 };
 
 export function start(cfg = config) {
@@ -41,7 +43,11 @@ export function start(cfg = config) {
   world.achievements = { list: (u) => accounts.achievements(u), award: (u, k) => accounts.award(u, k) };
   let hub: Hub | null = null;
   const api = apiHandler(accounts, world, () => hub?.onlineCount ?? 0, (id, reason) => hub?.kick(id, reason));
-  const server = createServer((req, res) => { void api(req, res); });
+  const site = cfg.staticDir ? staticHandler(cfg.staticDir) : null;
+  const server = createServer((req, res) => {
+    if (site && !req.url?.startsWith('/api/')) return site(req, res);
+    void api(req, res);
+  });
   hub = new Hub(server, world, accounts, cfg.allowedOrigins);
 
   // fixed one-second tick, corrected for drift
