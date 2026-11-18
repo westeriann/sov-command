@@ -110,6 +110,7 @@ export interface EconomyPublic {
   pop: number;
   growth: number;
   gdppc: number;
+  stability: number; // public approval, 0..100
 }
 
 export interface MarketSnapshot {

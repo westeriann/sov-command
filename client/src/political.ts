@@ -131,6 +131,20 @@ export class Political {
     return changed;
   }
 
+  /** Nations created in play (revolts, civil wars) that the map file does not know. Returns their ids. */
+  addBorn(list: Iterable<NationPublic>) {
+    const added: number[] = [];
+    for (const pub of list) {
+      if (!pub.def || this.nations.has(pub.id)) continue;
+      this.nations.set(pub.id, {
+        id: pub.id, name: pub.def.name, short: pub.def.short, color: pub.def.color, capital: pub.def.capital,
+        label_province: pub.def.label, provinces: 0, area: 0, pop: 0, neighbours: [],
+      });
+      added.push(pub.id);
+    }
+    return added;
+  }
+
   /** Apply players' names, colours and flags. Returns the nations that changed. */
   applyCustom(list: Iterable<NationPublic>) {
     const changed: number[] = [];

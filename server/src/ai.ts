@@ -13,6 +13,7 @@ import type { NationState, World } from './world.ts';
 import { MAX_ALLIANCES, MAX_BLOC, MAX_TRADE_DEALS, SPY_COST, type Deal, type Resolution, type SpyMission } from '../../shared/diplomacy.ts';
 import { TECHS, prerequisite, type Branch, type TechId } from '../../shared/research.ts';
 import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
+import { ideologyGap } from '../../shared/society.ts';
 import { MISSILE_COST, STRIKERS, WARHEAD_COST } from '../../shared/military.ts';
 
 const RESEARCH_ORDER: Record<Personality, Branch[]> = {
@@ -162,6 +163,10 @@ export class AiBrain {
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
     orders.push(...this.strategicOrders(n, enemies.length > 0));
     orders.push(...this.covertOrders(n, enemies));
+    // keep the people on side: campaign at home when restless
+    const fit = w.fit(n);
+    const want = n.econ.stability < 45 || fit < -4 ? 'home' : 'off';
+    if (n.soc && n.soc.propaganda.mode !== want && n.soc.propaganda.mode !== 'abroad') orders.push({ kind: 'propaganda', mode: want });
     const wantOpen = (n.personality === 'idealist' || n.personality === 'trader') ? n.econ.stability > 35 : n.econ.stability > 65 && n.personality !== 'expansionist';
     if ((n.policy.openBorders !== false) !== wantOpen) orders.push({ kind: 'borders', open: wantOpen });
     for (const foe of enemies) if (!w.diplomacy.embargoed(me, foe) && this.random() < 0.3) orders.push({ kind: 'embargo', target: foe, on: true });
@@ -299,7 +304,8 @@ export class AiBrain {
     const w = this.world, me = n.id, p = n.personality;
     const them = w.nations.get(from);
     if (!them || w.dealProblem(from, me, deal)) return false;
-    const friendly = them.policy.focus === 'diplomacy' ? 0.2 : 0;
+    const gap = n.soc && them.soc ? ideologyGap(n.soc.ideology, them.soc.ideology) : 0;
+    const friendly = (them.policy.focus === 'diplomacy' ? 0.2 : 0) + 0.15 - gap * 0.12; // like-minded nations trust each other
     const dominant = w.powerOf(from) > 0.15 && w.powerOf(from) > w.powerOf(me) * 3 ? 0.35 : 0; // wary of a power that could swallow us
     if (deal.kind === 'trade') return TRADE_WILL[p] + friendly - dominant >= 0.5;
     if (deal.kind === 'alliance' || deal.kind === 'bloc') {

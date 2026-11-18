@@ -11,6 +11,7 @@ import type { Government, ResearchPrivate, TechId } from './research';
 import type { BuildingState, BuildingType } from './buildings';
 import type { FlagSpec } from './flags';
 import type { AchievementKey, SeasonMission } from './goals';
+import type { Ideology, PropagandaMode, SocietyPrivate } from './society';
 
 export type Focus = 'economy' | 'military' | 'research' | 'diplomacy';
 export type Personality = 'expansionist' | 'trader' | 'turtle' | 'opportunist' | 'idealist';
@@ -56,6 +57,9 @@ export interface NationPublic {
   techs?: number; // technologies researched
   nuclear?: boolean; // holds nuclear warheads
   satellites?: number; // in orbit (launches are seen by everyone)
+  ideology?: Ideology; // public opinion is no secret
+  // nations born in revolts and civil wars: what the map file cannot know
+  def?: { name: string; short: string; color: string; capital: number; label: number };
   // a player's own name, colour and flag for the nation (absent: the map's defaults)
   name?: string;
   short?: string;
@@ -75,6 +79,7 @@ export interface NationPrivate extends NationPublic {
   spyOps?: number; // operations under way
   openBorders?: boolean;
   missions?: SeasonMission[]; // this season's goals
+  society?: SocietyPrivate;
 }
 
 /** Front lines and wars are public knowledge. */
@@ -175,6 +180,7 @@ export type Order =
   | { kind: 'rally'; province: number | null } // new land units march here
   | { kind: 'borders'; open: boolean }
   | { kind: 'satellite' }
+  | { kind: 'propaganda'; mode: PropagandaMode; target?: number }
   | { kind: 'asat'; target: number }
   | { kind: 'customize'; name?: string; short?: string; color?: string; flag?: FlagSpec }
   | { kind: 'nuke'; province: number }
@@ -183,6 +189,7 @@ export type Order =
 export type ClientMsg =
   | { t: 'hello'; token: string }
   | { t: 'claim'; nation: number }
+  | { t: 'found'; province: number } // lead a revolt and found a new nation
   | { t: 'release' }
   | { t: 'order'; order: Order }
   | { t: 'chat'; text: string; channel?: ChatChannel; to?: number }

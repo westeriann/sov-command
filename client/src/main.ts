@@ -69,6 +69,7 @@ async function start() {
     },
   }, {
     claim: (nation) => conn.send({ t: 'claim', nation }),
+    found: (province) => conn.send({ t: 'found', province }),
     release: () => conn.send({ t: 'release' }),
     policy: (policy) => conn.send({ t: 'order', order: { kind: 'policy', policy } }),
     autopilot: (on) => conn.send({ t: 'order', order: { kind: 'autopilot', on } }),
@@ -239,6 +240,7 @@ async function start() {
   research = new ResearchPanel(hudRoot, game, pol, {
     research: (tech) => conn.send({ t: 'order', order: { kind: 'research', tech } }),
     government: (government) => conn.send({ t: 'order', order: { kind: 'government', government } }),
+    propaganda: (mode, target) => conn.send({ t: 'order', order: { kind: 'propaganda', mode, target } }),
   });
   diplomacy = new DiplomacyPanel(hudRoot, game, pol, {
     propose: (target, deal) => conn.send({ t: 'order', order: { kind: 'propose', target, deal } }),
@@ -271,6 +273,7 @@ async function start() {
   };
   game.on((c) => {
     if (c.has('nations')) {
+      for (const id of pol.addBorn(game.nations.values())) gameMap.addNationLabel(id);
       const renamed = pol.applyCustom(game.nations.values());
       if (renamed.length) gameMap.refreshNations(renamed);
     }

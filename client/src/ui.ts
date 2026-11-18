@@ -27,6 +27,7 @@ export interface HudEvents {
 /** Things the player can ask the server to do. */
 export interface HudActions {
   claim(nation: number): void;
+  found(province: number): void;
   release(): void;
   policy(p: { focus?: Focus; tax?: number }): void;
   autopilot(on: boolean): void;
@@ -351,6 +352,10 @@ export class Hud {
     if (act) {
       const a = act.dataset.act;
       if (a === 'claim') this.actions.claim(Number(act.dataset.nation));
+      else if (a === 'found') {
+        if (act.dataset.confirm === '1') this.actions.found(Number(act.dataset.province));
+        else { act.dataset.confirm = '1'; act.textContent = 'Confirm: start a war of independence'; }
+      }
       else if (a === 'release') {
         if (act.dataset.confirm === '1') this.actions.release();
         else {
@@ -685,7 +690,7 @@ export class Hud {
     }
     return `<div class="controller ai"><b>Run by the AI</b><span class="mono">${PERSONALITY_NAMES[live.personality ?? ''] ?? ''} government</span></div>
       <div class="kv mono">${focus}${army}</div>
-      ${g.mine ? diplomacy : `<button type="button" class="claim primary" data-act="claim" data-nation="${n.id}">Take command of this nation</button>`}${this.historyButton(n.id)}`;
+      ${g.mine ? diplomacy : `<button type="button" class="claim primary" data-act="claim" data-nation="${n.id}">Take command of this nation</button>${this.revoltHtml(n.id)}`}${this.historyButton(n.id)}`;
   }
 
   private occupationHtml(p: Province) {
@@ -709,6 +714,17 @@ export class Hud {
     if (r.days < 0.05) return ''; // already there
     const secs = Math.round(r.days * (86_400 / this.game.speed));
     return `<button type="button" class="claim primary" data-act="movehere" data-province="${p.id}">Move ${n} selected unit${n > 1 ? "s" : ""} here · ${r.days.toFixed(1)} days (~${secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`})</button>`;
+  }
+
+  /** Without a nation: found one by leading a revolt in a restless province of an AI nation. */
+  private revoltHtml(nation: number) {
+    const p = this.selected?.p;
+    const e = this.game.economy.get(nation);
+    if (!p || p.kind !== 'land' || p.nation !== nation || this.pol.nations.get(nation)?.capital === p.id) return '';
+    const restless = (this.game.war.unrest[p.id] ?? 0) >= 20 || (e?.stability ?? 100) < 50;
+    return restless
+      ? `<button type="button" class="claim" data-act="found" data-province="${p.id}" title="Found a new nation here and two neighbouring provinces, at war with the old rulers">Lead a revolt in ${esc(p.name)}</button>`
+      : '<p class="hint">Revolts are possible where stability is under 50% or a province is restless.</p>';
   }
 
   private historyButton(id: number) {

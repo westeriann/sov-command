@@ -284,7 +284,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
 const round = (x: number, d: number) => Math.round(x * 10 ** d) / 10 ** d;
 
 export function publicEcon(id: number, e: NationEcon): EconomyPublic {
-  return { id, gdp: round(e.gdp, 1), pop: Math.round(e.pop), growth: round(e.growth, 4), gdppc: Math.round((e.gdp * 1e9) / e.pop) };
+  return { id, gdp: round(e.gdp, 1), pop: Math.round(e.pop), growth: round(e.growth, 4), gdppc: Math.round((e.gdp * 1e9) / e.pop), stability: Math.round(e.stability) };
 }
 
 export function privateEcon(e: NationEcon, tax: number, day: number, energy?: EnergyStats): EconomyPrivate {

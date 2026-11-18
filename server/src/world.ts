@@ -9,7 +9,7 @@ import { DAY, gameTimeAt } from '../../shared/clock.ts';
 import {
   FOCI, LIMITS,
   type ChatChannel, type ChatLine, type ClockInfo, type SeasonInfo, type ErrorCode, type EventKind, type Focus, type NationPrivate,
-  type NationPublic, type Order, type Personality, type Policy, type WorldEvent,
+  PERSONALITIES, type NationPublic, type Order, type Personality, type Policy, type WorldEvent,
 } from '../../shared/protocol.ts';
 import { COMMODITIES, COMMODITY_INFO, normalizeBudget, type Commodity, type EnergyStats } from '../../shared/economy.ts';
 import type { EconomyUpdate } from '../../shared/protocol.ts';
@@ -28,6 +28,7 @@ import { cleanFlag, isColor, type FlagSpec } from '../../shared/flags.ts';
 import type { GlobalEventKind, WorldState } from '../../shared/protocol.ts';
 import { ACHIEVEMENTS, MISSION_CASH, MISSION_KINDS, MISSION_REWARD_DAYS, type AchievementKey, type GoalKind, type SeasonMission } from '../../shared/goals.ts';
 import { EARNED_EMBLEMS } from '../../shared/flags.ts';
+import { GOV_LIBERTY, PROPAGANDA_COST, type Faction, type Ideology, type PropagandaMode } from '../../shared/society.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
@@ -72,6 +73,8 @@ export interface NationState {
   annexedBy?: number; // conquered: the nation no longer exists
   custom?: { name?: string; short?: string; color?: string; flag?: FlagSpec; renamedAt?: number };
   missions?: SeasonMission[];
+  soc?: { ideology: Ideology; factions: Record<Faction, number>; propaganda: { mode: PropagandaMode; target?: number } };
+  born?: { name: string; short: string; color: string; capital: number; label: number; parent: number }; // nations created in play
   missionSeason?: number;
   missionsDone?: number; // all-time, for the achievement
   reports?: string[]; // intelligence reports for the player
@@ -219,6 +222,13 @@ export class World {
 
     const rows = db.prepare('select state from nations').all() as { state: string }[];
     for (const r of rows) {
+      const born = (JSON.parse(r.state) as NationState).born;
+      if (born && !this.defs.has((JSON.parse(r.state) as NationState).id)) {
+        const id = (JSON.parse(r.state) as NationState).id;
+        this.defs.set(id, { id, name: born.name, short: born.short, capital: born.capital, neighbours: [], provinces: 0, pop: 0, area: 0, seed: { pop: 0, raw: Object.fromEntries(COMMODITIES.map((c) => [c, 0])) as Record<Commodity, number>, coastal: 0, farm: 0 } });
+      }
+    }
+    for (const r of rows) {
       const n = JSON.parse(r.state) as NationState;
       if (!this.defs.has(n.id)) continue;
       this.nations.set(n.id, n);
@@ -290,6 +300,8 @@ export class World {
       n.gov ??= { government: startingGovernment(n.personality, n.id) };
     }
     for (const n of this.nations.values()) this.applyCustom(n);
+    this.recomputeNeighbours();
+    for (const n of this.nations.values()) n.soc ??= this.initialSociety(n);
     this.military.bonus = (nation, kind) => this.effects(nation)[kind];
     this.military.onEconomicDamage = (nation, share) => {
       const e = this.nations.get(nation)?.econ;
@@ -330,6 +342,17 @@ export class World {
     e = effectsOf(n.gov.government, n.tech.done, n.gov.reformUntil !== undefined);
     if (n.gov.government === 'democracy' && this.military.enemiesOf(nation).length) e.stability -= 5; // war weariness
     if ((n.gov.oppositionUntil ?? -1) > this.market.day) { e.growth -= 0.002; e.stability += 3; } // a new government's honeymoon
+    // society: how well the government suits the people, what the factions think, propaganda at home
+    if (n.soc) {
+      e.stability += this.fit(n);
+      const f = n.soc.factions;
+      if (f.military > 75) e.build += 0.1; else if (f.military < 25) e.landAttack -= 0.1;
+      if (f.business > 75) e.growth += 0.003; else if (f.business < 25) e.growth -= 0.006;
+      if (f.public > 75) e.stability += 4; else if (f.public < 25) e.stability -= 8;
+      if (n.soc.propaganda.mode === 'home') e.stability += 4;
+      // open societies get more out of trade
+      e.growth += Math.max(0, n.soc.ideology.openness) * this.diplomacy.partners('trade', nation).length * 0.0006;
+    }
     // armies without fuel fight worse; without metals, factories build slower; without rare earths, labs slow down
     const short = n.econ.short;
     const fuel = 0.4 * Math.min(1, short.oil);
@@ -509,6 +532,8 @@ export class World {
     const pol = {
       government: n.gov?.government, techs: n.tech?.done.length, nuclear: (n.mil?.warheads ?? 0) > 0 || undefined,
       name: n.custom?.name, short: n.custom?.short, color: n.custom?.color, flag: n.custom?.flag, satellites: n.mil?.satellites || undefined,
+      ideology: n.soc ? { liberty: Math.round(n.soc.ideology.liberty * 100) / 100, openness: Math.round(n.soc.ideology.openness * 100) / 100 } : undefined,
+      def: n.born ? { name: n.born.name, short: n.born.short, color: n.born.color, capital: n.born.capital, label: n.born.label } : undefined,
     };
     return n.controller === 'human'
       ? { id: n.id, controller: 'human', player: n.player, online: this.online.has(n.userId!), autopilot: n.autopilot, focus: n.policy.focus, army, ...pol }
@@ -520,6 +545,7 @@ export class World {
       ...this.publicView(n), tax: n.policy.tax, claimedAt: n.claimedAt,
       econ: { ...privateEcon(n.econ, n.policy.tax, this.market.day, this.energyStats(n)), migration: { refugeesIn: Math.round(this.migrants.get(n.id)?.in ?? 0), refugeesOut: Math.round(this.migrants.get(n.id)?.out ?? 0) } },
       mil: this.milPrivate(n), openBorders: n.policy.openBorders !== false, missions: n.missions,
+      society: n.soc ? { ...n.soc, fit: Math.round(this.fit(n) * 10) / 10 } : undefined,
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
       research: this.researchView(n),
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
@@ -1050,6 +1076,17 @@ export class World {
         this.touch(n); this.touch(t); this.pushUnits(t);
         return ok;
       }
+      case 'propaganda': {
+        const mode = order.mode;
+        if (!['off', 'home', 'abroad'].includes(mode)) return fail('bad_request', 'Unknown campaign.');
+        const t = order.target !== undefined ? this.nations.get(Number(order.target)) : undefined;
+        if (mode === 'abroad' && (!t || t.id === n.id || t.annexedBy)) return fail('bad_request', 'Choose a nation to target.');
+        n.soc ??= this.initialSociety(n);
+        n.soc.propaganda = { mode, target: mode === 'abroad' ? t!.id : undefined };
+        this.effectCache.delete(n.id);
+        this.touch(n, false);
+        return ok;
+      }
       case 'borders': {
         n.policy.openBorders = !!order.open;
         this.touch(n);
@@ -1307,6 +1344,7 @@ export class World {
       this.scoreDay();
       this.goalsDay();
       this.worldDay(this.market.day);
+      this.societyDay();
       if (this.market.day % HISTORY_EVERY_DAYS === 0) weekly = true;
     }
     if (this.warDirty) { this.warDirty = false; this.warChanged(); }
@@ -1423,6 +1461,145 @@ export class World {
     original.original ??= { name: d.name, short: d.short };
     d.name = n.custom?.name ?? original.original.name;
     d.short = n.custom?.short ?? original.original.short;
+  }
+
+  // ---- society: ideology, factions, propaganda; new nations ----------------------------------
+  private initialSociety(n: NationState) {
+    const gov = GOV_LIBERTY[n.gov?.government ?? 'democracy'] ?? 0;
+    const open = { trader: 0.5, idealist: 0.4, opportunist: 0.1, turtle: -0.3, expansionist: -0.5 }[n.personality] ?? 0;
+    const jitter = ((n.id * 7919) % 100) / 250 - 0.2;
+    return {
+      ideology: { liberty: Math.max(-1, Math.min(1, gov * 0.8 + jitter)), openness: Math.max(-1, Math.min(1, open - jitter)) },
+      factions: { military: 55, business: 55, public: 55 },
+      propaganda: { mode: 'off' as PropagandaMode },
+    };
+  }
+
+  /** Stability gained or lost from how well the government suits what the people believe. */
+  fit(n: NationState) {
+    if (!n.soc) return 0;
+    const gap = Math.abs(n.soc.ideology.liberty - (GOV_LIBERTY[n.gov.government] ?? 0));
+    return 2 - gap * 9; // +2 when they match, about −13 for a junta over liberals
+  }
+
+  /** Daily drift of beliefs and factions, propaganda, and civil war. */
+  private societyDay() {
+    const d = this.diplomacy;
+    for (const n of this.nations.values()) {
+      if (n.annexedBy || !n.soc) continue;
+      const s = n.soc, e = n.econ, ide = s.ideology;
+      const atWar = this.military.enemiesOf(n.id).length > 0;
+      const gdppc = e.gdp * 1e9 / e.pop;
+      // beliefs drift: toward the government (faster with propaganda), wealth breeds liberty, war breeds nationalism, trade openness
+      const pull = (s.propaganda.mode === 'home' ? 0.004 : 0.0012);
+      ide.liberty += ((GOV_LIBERTY[n.gov.government] ?? 0) - ide.liberty) * pull + (Math.log10(Math.max(1000, gdppc)) - 4) * 0.0004;
+      ide.openness += (atWar ? -0.002 : 0) + d.partners('trade', n.id).length * 0.0003 - (n.policy.openBorders === false ? 0.0006 : 0) + (0 - ide.openness) * 0.0005;
+      ide.liberty = Math.max(-1, Math.min(1, ide.liberty));
+      ide.openness = Math.max(-1, Math.min(1, ide.openness));
+      // factions
+      const lost = 1 - this.controlOf(n.id);
+      const target = {
+        military: 30 + e.budget.military * 1.5 - lost * 80 + (n.gov.government === 'junta' ? 20 : 0) - (e.short.oil > 0.1 ? 15 : 0),
+        business: 50 + e.growth * 800 - (n.policy.tax - 25) * 2 + d.partners('trade', n.id).length * 3 - (e.blackout ?? 0) * 100 - d.embargoes.filter((x) => x.to === n.id).length * 5,
+        public: 20 + e.budget.welfare * 0.8 + (e.stability - 50) * 0.5 - (atWar ? 10 : 0) - (e.blackout ?? 0) * 80 - (n.gov.government === 'junta' ? 10 : 0),
+      };
+      for (const f of ['military', 'business', 'public'] as Faction[]) {
+        s.factions[f] += (Math.max(0, Math.min(100, target[f])) - s.factions[f]) * 0.02;
+      }
+      // propaganda costs money; abroad it unsettles the target and pulls its people toward ours
+      if (s.propaganda.mode !== 'off') {
+        e.treasury -= e.gdp * PROPAGANDA_COST / 365;
+        const t = s.propaganda.target !== undefined ? this.nations.get(s.propaganda.target) : undefined;
+        if (s.propaganda.mode === 'abroad' && t?.soc && !t.annexedBy) {
+          t.econ.stability = Math.max(0, t.econ.stability - 0.04);
+          t.soc.ideology.liberty += (ide.liberty - t.soc.ideology.liberty) * 0.002;
+          t.soc.ideology.openness += (ide.openness - t.soc.ideology.openness) * 0.002;
+        }
+      }
+      // civil war: deep turmoil and an angry public or army split the nation
+      if (e.stability < 15 && Math.min(s.factions.public, s.factions.military) < 20 && this.rand() < 1 / 150) this.civilWar(n);
+    }
+  }
+
+  private recomputeNeighbours() {
+    const m = this.military, sets = new Map<number, Set<number>>();
+    for (const p of m.provinces.values()) {
+      if (p.kind !== 'land' || !p.owner) continue;
+      for (const q of p.adj) {
+        const o = m.provinces.get(q)?.owner;
+        if (o && o !== p.owner) { if (!sets.has(p.owner)) sets.set(p.owner, new Set()); sets.get(p.owner)!.add(o); }
+      }
+    }
+    for (const d of this.defs.values()) d.neighbours = [...(sets.get(d.id) ?? [])];
+  }
+
+  /** A new nation from provinces of an existing one, at war with it. Returns the new nation. */
+  private createNation(parent: NationState, provinces: number[], kind: 'revolt' | 'civil war'): NationState {
+    const m = this.military;
+    const id = Math.max(...this.defs.keys()) + 1;
+    const capital = [...provinces].sort((a, b) => m.provinces.get(b)!.pop - m.provinces.get(a)!.pop)[0];
+    const place = (m.provinces.get(capital)?.name ?? 'Free').replace(/[^\p{L}\p{N} '\-]/gu, '');
+    const styles = kind === 'revolt' ? ['Free State of', 'Republic of', 'Commonwealth of'] : ["People's Republic of", 'Federation of', 'Liberated'];
+    const name = `${styles[id % styles.length]} ${place}`;
+    const hue = (id * 137) % 360;
+    const color = hslHex(hue, 55, 52);
+    const born = { name, short: place.slice(0, 16), color, capital, label: capital, parent: parent.id };
+    this.defs.set(id, { id, name, short: born.short, capital, neighbours: [], provinces: provinces.length, pop: 0, area: 0, seed: this.defs.get(parent.id)!.seed });
+    const zero = Object.fromEntries(COMMODITIES.map((c) => [c, 0])) as Record<Commodity, number>;
+    const econ = { ...structuredClone(parent.econ), gdp: 0, pop: 0, capacity: { ...zero }, stock: { ...zero }, treasury: 0, history: [], munitions: 0, grid: 0 };
+    const personality = PERSONALITIES[id % PERSONALITIES.length];
+    const n: NationState = {
+      id, controller: 'ai', autopilot: false, personality, policy: this.brain.initialPolicy(personality), nextThink: this.gameNow(),
+      econ, mil: { funds: 3, queue: [] }, tech: { partial: {}, done: [...parent.tech.done] },
+      gov: { government: parent.gov.government === 'democracy' ? 'autocracy' : 'democracy', reformedAt: this.market.day },
+      born,
+    };
+    this.nations.set(id, n);
+    const before = parent.econ.grid ?? parent.econ.gdp;
+    this.transfer(provinces, parent, n);
+    n.econ.grid = before * (n.econ.gdp / Math.max(1, n.econ.gdp + parent.econ.gdp)); parent.econ.grid = before - n.econ.grid;
+    n.econ.treasury = n.econ.gdp * 0.02;
+    n.econ.stability = 50;
+    n.soc = this.initialSociety(n);
+    if (parent.soc) n.soc.ideology = { liberty: -parent.soc.ideology.liberty * 0.5, openness: parent.soc.ideology.openness };
+    // forces stationed in the breakaway land change sides
+    for (const u of [...m.units.values()]) if (u.nation === parent.id && provinces.includes(u.province)) u.nation = id;
+    this.recomputeNeighbours();
+    m.declareWar(id, parent.id, this.market.day);
+    this.diplomacy.forget(id);
+    this.dirty.add(id);
+    this.listener?.nation(this.publicView(n));
+    this.warChanged();
+    return n;
+  }
+
+  /** Turmoil splits a nation: its provinces farthest from the capital break away. */
+  private civilWar(n: NationState) {
+    const m = this.military, cap = m.provinces.get(this.defs.get(n.id)!.capital)?.label;
+    const own = [...m.provinces.values()].filter((p) => p.kind === 'land' && p.owner === n.id && m.controller(p.id) === n.id && p.id !== this.defs.get(n.id)!.capital);
+    if (own.length < 3 || !cap) return;
+    own.sort((a, b) => distanceKm(b.label, cap) - distanceKm(a.label, cap));
+    const rebels = this.createNation(n, own.slice(0, Math.floor(own.length * 0.4)).map((p) => p.id), 'civil war');
+    n.econ.stability = 30;
+    this.event('war', rebels.id, `Civil war: the ${this.defs.get(n.id)!.name} splits apart. The ${rebels.born!.name} declares itself independent, and its armies follow.`);
+  }
+
+  /** A player without a nation leads a revolt in a restless province of an AI nation. */
+  found(user: User, provinceId: number): Result {
+    if (this.byUser.has(user.id)) return fail('already_ruling', 'You already lead a nation.');
+    const m = this.military, p = m.provinces.get(provinceId);
+    if (!p || p.kind !== 'land' || !p.owner) return fail('bad_request', 'Choose a province on land.');
+    const parent = this.nations.get(p.owner)!;
+    if (parent.controller === 'human') return fail('not_allowed', 'A player governs that nation: claim an AI nation instead.');
+    if (this.defs.get(parent.id)!.capital === p.id) return fail('not_allowed', 'A revolt cannot start in the capital.');
+    const unrest = this.diplomacy.unrest.get(p.id) ?? 0;
+    if (parent.econ.stability >= 50 && unrest < 20) return fail('not_allowed', `The people here are content (stability ${Math.round(parent.econ.stability)}%). Revolts need stability under 50% or unrest in the province.`);
+    if (p.pop < 5e5) return fail('not_allowed', 'Too few people live here to carry a revolt.');
+    const provs = [p.id, ...p.adj.filter((q) => m.provinces.get(q)?.kind === 'land' && m.provinces.get(q)!.owner === parent.id && m.controller(q) === parent.id && q !== this.defs.get(parent.id)!.capital).slice(0, 2)];
+    const n = this.createNation(parent, provs, 'revolt');
+    for (const _ of [0, 1]) m.spawn(n.id, 'infantry', p.id, 70); // the revolutionaries take up arms
+    this.event('war', n.id, `${user.name} leads a revolt in ${p.name}: the ${n.born!.name} declares independence from the ${this.defs.get(parent.id)!.name}.`);
+    return this.claim(user, n.id);
   }
 
   // ---- goals: season missions and achievements ---------------------------------------
@@ -2039,4 +2216,10 @@ const FIRST = ['Ari', 'Bela', 'Cato', 'Dara', 'Emil', 'Faro', 'Gida', 'Hale', 'I
 const LAST = ['Adler', 'Brann', 'Corvo', 'Dahl', 'Esker', 'Falk', 'Grane', 'Hollis', 'Iver', 'Juno', 'Kessler', 'Lund', 'Marek', 'Novak', 'Orlov', 'Petra', 'Quint', 'Rhee', 'Sato', 'Varga'];
 function generalName(rand: () => number) {
   return `Gen. ${FIRST[Math.floor(rand() * FIRST.length)]} ${LAST[Math.floor(rand() * LAST.length)]}`;
+}
+
+function hslHex(h: number, s: number, l: number) {
+  const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
+  const f = (k: number) => { const t = (k + h / 30) % 12; return Math.round(255 * (l / 100 - a * Math.max(-1, Math.min(t - 3, 9 - t, 1)))).toString(16).padStart(2, '0'); };
+  return `#${f(0)}${f(8)}${f(4)}`;
 }

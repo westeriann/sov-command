@@ -148,6 +148,8 @@ export class Hub implements WorldListener {
         return this.send(ws, { t: 'pong', at: Number(msg.at) || 0, serverNow: Date.now() });
       case 'claim':
         return this.reply(ws, this.world.claim(user, Number(msg.nation)));
+      case 'found':
+        return this.reply(ws, this.world.found(user, Number(msg.province)));
       case 'release':
         return this.reply(ws, this.world.release(user.id));
       case 'order': {

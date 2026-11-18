@@ -505,3 +505,11 @@ body.cb .up { color: #6bb8ff; }
 .achievements { margin: 6px 0; padding-left: 16px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .achievements .got { color: var(--fg); }
 .achievements .got b { color: #ffd27a; }
+
+/* society */
+.axis { display: grid; grid-template-columns: 90px 1fr 100px; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin: 6px 0; }
+.axis span:last-child { text-align: right; }
+.axis-bar { position: relative; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #c8574a, #6b7380, #5fd4ea); }
+.axis-bar i { position: absolute; top: -4px; width: 4px; height: 14px; margin-left: -2px; background: #fff; border-radius: 2px; }
+.faction { display: grid; grid-template-columns: 110px 1fr 30px; align-items: center; gap: 8px; margin: 8px 0 2px; font-size: 12px; }
+.faction .hint { grid-column: 1 / -1; font-size: 11px; }

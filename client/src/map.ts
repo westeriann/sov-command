@@ -393,6 +393,18 @@ export class GameMap {
   }
 
   // ---- labels ------------------------------------------------------------
+  /** Label a nation created in play. */
+  addNationLabel(id: number) {
+    const n = this.pol.nations.get(id), anchor = n && this.pol.provinces.get(n.label_province);
+    if (!n || !anchor || this.nationLabels.some((l) => l.id === id)) return;
+    const el = document.createElement('div');
+    el.className = 'nation-label';
+    el.textContent = n.short.toUpperCase();
+    const marker = new Marker({ element: el, opacityWhenCovered: '0' }).setLngLat(anchor.label).addTo(this.map);
+    this.nationLabels.push({ id, marker, el, rank: this.nationLabels.length });
+    this.overlays.delete('political');
+  }
+
   addNationLabels() {
     const ranked = [...this.pol.nations.values()].sort((a, b) => b.area - a.area);
     ranked.forEach((n, rank) => {

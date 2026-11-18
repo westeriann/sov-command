@@ -4,11 +4,13 @@ import {
   type Government, type TechId,
 } from '../../shared/research';
 import type { Game } from './game';
+import { FACTIONS, FACTION_INFO, PROPAGANDA_COST, type PropagandaMode } from '../../shared/society';
 import type { Political } from './political';
 
 export interface ResearchActions {
   research(tech: TechId): void;
   government(g: Government): void;
+  propaganda(mode: PropagandaMode, target?: number): void;
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -36,10 +38,45 @@ export class ResearchPanel {
     const r = act.dataset.r;
     if (r === 'close') { this.close(); document.dispatchEvent(new CustomEvent('research-closed')); }
     else if (r === 'tech') this.actions.research(act.dataset.tech as TechId);
-    else if (r === 'gov') {
+    else if (r === 'prop') {
+      const mode = act.dataset.mode as PropagandaMode;
+      const target = mode === 'abroad' ? Number((this.panel.querySelector('#propTarget') as HTMLSelectElement).value) : undefined;
+      this.actions.propaganda(mode, target);
+    } else if (r === 'gov') {
       if (act.dataset.confirm === '1') this.actions.government(act.dataset.gov as Government);
       else { act.dataset.confirm = '1'; act.textContent = 'Confirm reform'; }
     }
+  }
+
+  private societyHtml() {
+    const s = this.game.mine?.society;
+    if (!s) return '';
+    const axis = (v: number, left: string, right: string) => `<div class="axis"><span>${left}</span><div class="axis-bar"><i style="left:${((v + 1) / 2) * 100}%"></i></div><span>${right}</span></div>`;
+    const nations = [...this.pol.nations.values()].filter((n) => n.id !== this.game.mine!.id).sort((a, b) => a.name.localeCompare(b.name));
+    return `<div class="econ-cols">
+      <section>
+        <span class="label">THE PEOPLE</span>
+        ${axis(s.ideology.liberty, 'Authoritarian', 'Liberal')}
+        ${axis(s.ideology.openness, 'Nationalist', 'Internationalist')}
+        <p class="hint">Your government ${Math.round(s.fit) >= 0 ? `suits the people (${Math.round(s.fit) > 0 ? '+' : ''}${Math.round(s.fit)} stability)` : `<span class="down">clashes with what the people believe (${Math.round(s.fit)} stability)</span>`}. Beliefs drift toward the government, faster with propaganda; wealth breeds liberty, war breeds nationalism, trade breeds openness. Open societies gain more from trade deals; like-minded nations trust each other.</p>
+        <span class="label">PROPAGANDA · ${(PROPAGANDA_COST * 100).toFixed(1)}% OF GDP A YEAR</span>
+        <div class="actions-row">
+          <button type="button" class="claim${s.propaganda.mode === 'off' ? ' primary' : ''}" data-r="prop" data-mode="off">None</button>
+          <button type="button" class="claim${s.propaganda.mode === 'home' ? ' primary' : ''}" data-r="prop" data-mode="home" title="+4 stability; people drift toward your government three times as fast">At home</button>
+          <select id="propTarget" class="text-input" aria-label="Target nation">${nations.map((n) => `<option value="${n.id}"${n.id === s.propaganda.target ? ' selected' : ''}>${esc(n.name)}</option>`).join('')}</select>
+          <button type="button" class="claim${s.propaganda.mode === 'abroad' ? ' primary' : ''}" data-r="prop" data-mode="abroad" title="Erodes their stability and pulls their people toward your values">Abroad</button>
+        </div>
+      </section>
+      <section>
+        <span class="label">FACTIONS</span>
+        ${FACTIONS.map((f) => {
+          const v = Math.round(s.factions[f]);
+          const mood = v > 75 ? `<span class="up">pleased: ${FACTION_INFO[f].happy}</span>` : v < 25 ? `<span class="down">angry: ${FACTION_INFO[f].angry}</span>` : 'content';
+          return `<div class="faction"><b>${FACTION_INFO[f].name}</b><div class="bar"><i style="width:${v}%"></i></div><span class="mono">${v}</span><span class="hint">Wants ${FACTION_INFO[f].wants}. ${mood}.</span></div>`;
+        }).join('')}
+        <p class="hint">Stability under 15% with an angry public or army can end in civil war.</p>
+      </section>
+    </div>`;
   }
 
   render() {
@@ -77,6 +114,7 @@ export class ResearchPanel {
               </div>`;
             }).join('')}</section>`).join('')}
         </div>
+        ${this.societyHtml()}
         <span class="label">FORM OF GOVERNMENT</span>
         <div class="gov-grid">
           ${GOVERNMENTS.map((g) => `<div class="tech${g === r.government ? ' active' : ''}"><b>${esc(GOVERNMENT_INFO[g].name)}</b><span>${esc(GOVERNMENT_INFO[g].text)}</span>

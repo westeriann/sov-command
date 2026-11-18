@@ -190,3 +190,34 @@ test('new forces: marines storm beaches, special forces stay hidden and supplied
   assert.equal(w.shielded(2, 8), true);
   assert.equal(w.shielded(2, 1), false);
 });
+
+test('society: a government must suit its people; factions judge the budget; civil wars and revolts create new nations', () => {
+  const w = setup();
+  const n = w.nations.get(1)!;
+  n.soc!.ideology.liberty = 0.9;
+  n.gov.government = 'democracy';
+  const happy = w.fit(n);
+  n.gov.government = 'junta';
+  assert.ok(w.fit(n) < happy - 8, 'liberals under a junta are unstable');
+  // factions follow the budget
+  n.econ.budget.military = 60;
+  for (let i = 0; i < 200; i++) (w as unknown as { societyDay: () => void }).societyDay();
+  assert.ok(n.soc!.factions.military > 70, 'the military likes a big budget');
+  // civil war: the far provinces break away, with their armies, at war with the old nation
+  const u = w.military.spawn(1, 'infantry', 4);
+  (w as unknown as { civilWar: (x: unknown) => void }).civilWar(n);
+  const rebel = [...w.nations.values()].find((x) => x.born);
+  assert.ok(rebel, 'a new nation exists');
+  assert.equal(w.military.atWar(rebel!.id, 1), true);
+  assert.equal(u.nation, rebel!.id, 'troops in the breakaway land changed sides');
+  assert.ok(w.publicView(rebel!).def?.name, 'clients learn its name and colour');
+  // a player without a nation leads a revolt in a restless AI province
+  const w2 = setup();
+  w2.release(2);
+  w2.nations.get(2)!.econ.stability = 30;
+  const r = w2.found({ id: 9, name: 'rebel', guest: false }, 6);
+  assert.equal(r.ok, true);
+  const mine = w2.nationOf(9)!;
+  assert.ok(mine.born && w2.military.atWar(mine.id, 2));
+  assert.equal(w2.military.provinces.get(6)!.owner, mine.id);
+});
