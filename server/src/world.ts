@@ -11,7 +11,7 @@ import {
   type ChatChannel, type ChatLine, type ClockInfo, type SeasonInfo, type ErrorCode, type EventKind, type Focus, type NationPrivate,
   type NationPublic, type Order, type Personality, type Policy, type WorldEvent,
 } from '../../shared/protocol.ts';
-import { COMMODITIES, normalizeBudget, type Commodity } from '../../shared/economy.ts';
+import { COMMODITIES, COMMODITY_INFO, normalizeBudget, type Commodity, type EnergyStats } from '../../shared/economy.ts';
 import type { EconomyUpdate } from '../../shared/protocol.ts';
 import { AiBrain, personalityFor } from './ai.ts';
 import {
@@ -25,7 +25,7 @@ import { UNIT_SPECS, UNIT_TYPES, type MilitaryPrivate, type UnitType, type UnitV
 import type { WarState } from '../../shared/protocol.ts';
 import { Diplomacy } from './diplomacy.ts';
 import { cleanFlag, isColor, type FlagSpec } from '../../shared/flags.ts';
-import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, type BuildingType } from '../../shared/buildings.ts';
+import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, UNITS_PER_GENERAL, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import {
   GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
@@ -175,6 +175,7 @@ export class World {
   private rand: () => number;
   private effectCache = new Map<number, Effects>();
   private factories = new Map<number, number>();
+  private plants = new Map<number, { share: number; thermal: number; coal: number; gas: number }>();
   nuked: number[] = [];
   private warDirty = false;
   season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number> }[]; dominance: number };
@@ -308,8 +309,42 @@ export class World {
     e = effectsOf(n.gov.government, n.tech.done, n.gov.reformUntil !== undefined);
     if (n.gov.government === 'democracy' && this.military.enemiesOf(nation).length) e.stability -= 5; // war weariness
     if ((n.gov.oppositionUntil ?? -1) > this.market.day) { e.growth -= 0.002; e.stability += 3; } // a new government's honeymoon
+    // armies without fuel fight worse; without metals, factories build slower; without rare earths, labs slow down
+    const short = n.econ.short;
+    const fuel = 0.4 * Math.min(1, short.oil);
+    e.landAttack -= fuel; e.landDefense -= fuel * 0.5; e.naval -= fuel; e.air -= fuel;
+    e.build -= 0.6 * Math.min(1, short.metals);
+    e.research -= 0.5 * Math.min(1, short.rare_earths);
     this.effectCache.set(nation, e);
     return e;
+  }
+
+  /** Oil burned by the armed forces, and coal and gas by power stations (per year). */
+  extraUse(n: NationState): Partial<Record<Commodity, number>> {
+    const units = this.military.unitsOf(n.id);
+    const atWar = this.military.enemiesOf(n.id).length > 0;
+    let oil = 0;
+    for (const u of units) {
+      const d = UNIT_SPECS[u.type].domain;
+      oil += d === 'land' ? (u.type === 'infantry' ? 0.0004 : 0.001) : d === 'sea' ? 0.002 : 0.0015;
+    }
+    if (atWar) oil *= 2;
+    const p = this.plants.get(n.id);
+    const base = (c: Commodity) => (n.econ.gdp / 105_000) * COMMODITY_INFO[c].worldUse;
+    return { oil, coal: p ? p.coal * 2 * base('coal') : 0, gas: p ? p.gas * 2 * base('gas') : 0 };
+  }
+
+  /** Electricity at a glance, for the player. */
+  energyStats(n: NationState): EnergyStats {
+    const e = n.econ, p = this.plants.get(n.id);
+    const fuelShort = Math.min(1, (e.short.coal + e.short.gas) / 2);
+    const grid = e.grid ?? e.gdp;
+    const plants = e.gdp * (p?.share ?? 0);
+    return {
+      demand: Math.round(e.gdp), grid: Math.round(grid), plants: Math.round(plants),
+      supply: Math.round(grid * (1 - 0.6 * fuelShort) + e.gdp * ((p?.share ?? 0) - (p?.thermal ?? 0) * fuelShort)),
+      blackout: Math.round((e.blackout ?? 0) * 1000) / 1000, militaryOil: Math.round((this.extraUse(n).oil ?? 0) * 1000) / 1000,
+    };
   }
 
   /** Research points a nation earns per game day: its research spending as a share of GDP, scaled a little by size. */
@@ -459,7 +494,7 @@ export class World {
   privateView(n: NationState): NationPrivate {
     return {
       ...this.publicView(n), tax: n.policy.tax, claimedAt: n.claimedAt,
-      econ: privateEcon(n.econ, n.policy.tax, this.market.day), mil: this.milPrivate(n),
+      econ: privateEcon(n.econ, n.policy.tax, this.market.day, this.energyStats(n)), mil: this.milPrivate(n),
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
       research: this.researchView(n),
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
@@ -1182,7 +1217,11 @@ export class World {
         atWar: this.military.enemiesOf(n.id).length > 0,
         blockade: Math.min(0.9, this.military.blockade(n.id) + this.embargoPressure(n.id)),
         tradeDeals: this.diplomacy.partners('trade', n.id).length,
-        bonusGrowth: this.effects(n.id).growth + Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * FACTORY_GROWTH,
+        bonusGrowth: this.effects(n.id).growth,
+        factoryGrowth: Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * FACTORY_GROWTH,
+        plantPower: this.plants.get(n.id)?.share ?? 0,
+        thermalPlants: this.plants.get(n.id)?.thermal ?? 0,
+        extraUse: this.extraUse(n),
         bonusStability: this.effects(n.id).stability,
       }));
       runDay(inputs, this.market, this.market.day + 1);
@@ -1355,6 +1394,7 @@ export class World {
   /** Construction advances daily; finished buildings take effect. */
   private constructionDay() {
     this.factories.clear();
+    this.plants.clear();
     for (const [p, list] of this.military.buildings) {
       const prov = this.military.provinces.get(p)!;
       for (const b of list) {
@@ -1364,6 +1404,14 @@ export class World {
         }
         if (b.progress >= 1 && b.type === 'factory' && prov.owner && this.military.controller(p) === prov.owner) {
           this.factories.set(prov.owner, (this.factories.get(prov.owner) ?? 0) + 1);
+        }
+        const share = POWER_SHARE[b.type];
+        if (b.progress >= 1 && share && prov.owner && this.military.controller(p) === prov.owner) {
+          const t = this.plants.get(prov.owner) ?? { share: 0, thermal: 0, coal: 0, gas: 0 };
+          t.share += share;
+          const fuel = POWER_FUEL[b.type];
+          if (fuel) { t.thermal += share; t[fuel] += share; }
+          this.plants.set(prov.owner, t);
         }
       }
     }

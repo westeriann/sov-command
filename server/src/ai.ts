@@ -367,6 +367,20 @@ export class AiBrain {
     const w = this.world, m = w.military, me = n.id, orders: Order[] = [];
     if (n.tech.done.includes('nuclear') && (n.personality === 'expansionist' || n.personality === 'turtle')
       && (n.mil.warheads ?? 0) < 2 && n.mil.funds > WARHEAD_COST * 1.5) orders.push({ kind: 'warhead' });
+    // power first: build a station when blackouts loom
+    const energy = w.energyStats(n);
+    if (energy.supply < energy.demand * 1.03 && n.econ.treasury > -n.econ.gdp * 0.2) {
+      const home = [...w.military.provinces.values()].find((p) => p.kind === 'land' && p.owner === me && w.military.controller(p.id) === me
+        && !(['coal_plant', 'gas_plant', 'nuclear_plant', 'renewables'] as BuildingType[]).every((t) => w.military.buildings.get(p.id)?.some((b) => b.type === t)));
+      if (home) {
+        const has = (t: BuildingType) => !!w.military.buildings.get(home.id)?.some((b) => b.type === t);
+        const cap = n.econ.capacity;
+        const prefer: BuildingType[] = n.econ.gdp > 2000 ? ['nuclear_plant'] : [];
+        prefer.push(cap.coal >= cap.gas ? 'coal_plant' : 'gas_plant', cap.coal >= cap.gas ? 'gas_plant' : 'coal_plant', 'renewables', 'nuclear_plant');
+        const pick = prefer.find((t) => !has(t));
+        if (pick) { orders.push({ kind: 'build', province: home.id, building: pick }); return orders; }
+      }
+    }
     if (n.econ.treasury < n.econ.gdp * 0.05 || this.random() > 0.15) return orders;
     const own = [...m.provinces.values()].filter((p) => p.kind === 'land' && p.owner === me && m.controller(p.id) === me);
     if (!own.length) return orders;

@@ -145,6 +145,30 @@ export class EconomyPanel {
       </div>`;
   }
 
+  /** Electricity and the goods industry and armies depend on. */
+  private energyHtml(e: EconomyPrivate) {
+    const en = e.energy;
+    if (!en) return '';
+    const cover = en.demand > 0 ? en.supply / en.demand : 1;
+    const warn = (c: keyof EconomyPrivate['goods'], what: string) => e.goods[c].short > 0.02 ? `<li class="down">${what} (${Math.round(e.goods[c].short * 100)}% short)</li>` : '';
+    const problems = [
+      en.blackout > 0.005 ? `<li class="down">Blackouts: ${Math.round(en.blackout * 100)}% of demand unmet — growth and stability suffer, factories stall. Build power stations.</li>` : '',
+      warn('oil', 'Oil shortage: your forces fight weaker'),
+      warn('metals', 'Metal shortage: units and munitions build slower, factories stall'),
+      warn('rare_earths', 'Rare-earth shortage: research slows'),
+      warn('coal', 'Coal shortage: coal power stations falter'),
+      warn('gas', 'Gas shortage: gas power stations falter'),
+    ].filter(Boolean).join('');
+    return `<section class="energy">
+      <span class="label">ELECTRICITY AND SUPPLY CHAINS</span>
+      <div class="energy-bar" role="img" aria-label="Electricity supply ${Math.round(cover * 100)}% of demand">
+        <i style="width:${Math.min(100, (en.grid / Math.max(1, en.demand)) * 100 / Math.max(1, cover))}%" class="grid"></i><i style="width:${Math.min(100, (en.plants / Math.max(1, en.demand)) * 100 / Math.max(1, cover))}%" class="plants"></i>
+      </div>
+      <p class="hint">Supply ${Math.round(cover * 100)}% of demand · national grid ${Math.round((en.grid / Math.max(1, en.demand)) * 100)}% · power stations ${Math.round((en.plants / Math.max(1, en.demand)) * 100)}%. Demand grows with the economy; the grid alone grows more slowly (faster with infrastructure spending). Armed forces burn ${en.militaryOil}bn barrels of oil a year.</p>
+      ${problems ? `<ul class="supply-warnings">${problems}</ul>` : '<p class="hint up">All supply chains running.</p>'}
+    </section>`;
+  }
+
   private nationHtml(e: EconomyPrivate, tax: number) {
     const hist = e.history;
     const series = (k: keyof HistoryPoint) => hist.map((h) => h[k] as number);
@@ -156,6 +180,7 @@ export class EconomyPanel {
         <div><span>Treasury</span><b class="${e.treasury < 0 ? 'down' : ''}">${money(e.treasury)}</b><em class="${balance >= 0 ? 'up' : 'down'}">${balance >= 0 ? 'surplus' : 'deficit'} ${money(Math.abs(balance))}/yr</em></div>
         <div><span>Stability</span><b class="${e.stability < 40 ? 'down' : ''}">${e.stability.toFixed(0)}%</b><em>${e.shortage > 0.02 ? `<span class="down">shortages ${(e.shortage * 100).toFixed(0)}%</span>` : 'no shortages'}</em></div>
       </div>
+      ${this.energyHtml(e)}
       <div class="econ-charts">
         <figure><figcaption>GDP</figcaption>${spark(series('gdp'), 'c-gdp', 'GDP, weekly, last five game years')}</figure>
         <figure><figcaption>Treasury</figcaption>${spark(series('treasury'), 'c-treasury', 'Treasury, weekly, last five game years')}</figure>

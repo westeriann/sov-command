@@ -9,7 +9,7 @@ import { TRADE_DEAL_GROWTH } from '../../shared/diplomacy.ts';
 import {
   COMMODITIES, COMMODITY_INFO, DEFAULT_BUDGET,
   type Budget, type Commodity, type CommodityStats, type EconomyPrivate, type EconomyPublic,
-  type HistoryPoint, type MarketSnapshot,
+  type EnergyStats, type HistoryPoint, type MarketSnapshot,
 } from '../../shared/economy.ts';
 import type { Focus } from '../../shared/protocol.ts';
 
@@ -57,6 +57,8 @@ export interface NationEcon {
   trade: Record<Commodity, number>; // per year, + exports / - imports
   short: Record<Commodity, number>; // unmet share 0..1
   history: HistoryPoint[];
+  grid?: number; // base electricity grid, power units
+  blackout?: number; // share of electricity demand unmet, 0..1
 }
 
 export interface MarketState {
@@ -128,6 +130,10 @@ export interface DayInput {
   tradeDeals?: number; // trade agreements in force
   bonusGrowth?: number; // technology and government
   bonusStability?: number;
+  extraUse?: Partial<Record<Commodity, number>>; // per year, on top of normal use: armies' oil, power stations' fuel
+  plantPower?: number; // share of electricity demand covered by power stations
+  thermalPlants?: number; // the part of that which burns coal or gas
+  factoryGrowth?: number; // growth from factories, if they get metals and electricity
 }
 
 /**
@@ -148,7 +154,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
   for (const n of nations) {
     const e = n.econ;
     for (const c of COMMODITIES) {
-      const use = (usePerYear(c, e.gdp, e.pop) / 365) * thrift(c);
+      const use = ((usePerYear(c, e.gdp, e.pop) + (n.extraUse?.[c] ?? 0)) / 365) * thrift(c);
       let net = (e.capacity[c] / 365) * utilisation(c) * (n.control ?? 1) - use;
       e.trade[c] = 0;
       e.short[c] = 0;
@@ -184,7 +190,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
       e.treasury -= got * price;
       e.trade[c] = -got * 365;
       // whatever we could not cover first comes out of the restocking we wanted
-      const use = usePerYear(c, e.gdp, e.pop) / 365;
+      const use = (usePerYear(c, e.gdp, e.pop) + (b.n.extraUse?.[c] ?? 0)) / 365;
       const restock = Math.max(0, use * STOCK_TARGET_DAYS - e.stock[c]) * 0.02;
       const unmet = Math.max(0, b.q - got - restock);
       e.stock[c] += Math.max(0, got - (b.q - restock));
@@ -218,7 +224,15 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     const infraTarget = Math.min(1.6, Math.max(0.4, 0.55 + (share('infrastructure') / e.gdp) * 30));
     e.infra += (infraTarget - e.infra) * 0.006;
     e.research += share('research') / 365;
-    e.munitions = e.munitions * (1 - 0.0005) + (share('military') / 365) * 0.3;
+    // munitions need metals
+    e.munitions = e.munitions * (1 - 0.0005) + (share('military') / 365) * 0.3 * (1 - 0.6 * Math.min(1, e.short.metals));
+
+    // electricity: the base grid comes from coal and gas too, so fuel shortages dim it
+    e.grid ??= e.gdp * 1.08;
+    const demandE = e.gdp;
+    const fuelShort = Math.min(1, (e.short.coal + e.short.gas) / 2);
+    const supplyE = e.grid * (1 - 0.6 * fuelShort) + demandE * ((n.plantPower ?? 0) - (n.thermalPlants ?? 0) * fuelShort);
+    e.blackout = Math.max(0, Math.min(1, 1 - supplyE / Math.max(1, demandE)));
 
     const gdppc = (e.gdp * 1e9) / e.pop;
     const catchUp = Math.min(0.05, Math.max(0.005, 0.035 - 0.012 * Math.log10(gdppc / 2000)));
@@ -234,7 +248,9 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
       - (1 - control) * 0.15
       - (n.atWar ? 0.01 : 0)
       + (n.tradeDeals ?? 0) * TRADE_DEAL_GROWTH
-      + (n.bonusGrowth ?? 0);
+      + (n.bonusGrowth ?? 0)
+      + (n.factoryGrowth ?? 0) * (1 - Math.min(1, e.short.metals)) * (1 - e.blackout)
+      - e.blackout * 0.08; // blackouts stop industry
     g = Math.min(0.12, Math.max(-0.15, g));
     e.growth = g;
     e.gdp *= 1 + g / 365;
@@ -242,12 +258,14 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     e.pop *= 1 + popGrowth / 365;
     // output capacity follows the economy and infrastructure
     for (const c of COMMODITIES) e.capacity[c] *= 1 + (0.6 * g + (e.infra - 1) * 0.01) / 365;
+    // the grid grows with infrastructure spending, but slower than a booming economy needs
+    e.grid *= 1 + (0.4 * Math.max(0, g) + (e.infra - 1) * 0.01 + (e.budget.infrastructure - 30) * 0.0004) / 365;
 
     if (e.treasury < 0) e.treasury -= (-e.treasury * 0.04) / 365; // interest on debt
     const stabTarget = Math.min(100, Math.max(0,
       50 + (e.budget.welfare - 30) * 0.6 - (n.tax - 25) * 0.9 - e.shortage * 80
       - Math.max(0, debtRatio - 0.6) * 30 + g * 300 + (n.focus === 'diplomacy' ? 3 : 0)
-      - (1 - control) * 50 - (n.atWar ? 5 : 0) + (n.bonusStability ?? 0)));
+      - (1 - control) * 50 - (n.atWar ? 5 : 0) + (n.bonusStability ?? 0) - e.blackout * 40));
     e.stability += (stabTarget - e.stability) * 0.03;
 
     if (day % HISTORY_EVERY_DAYS === 0) {
@@ -269,7 +287,7 @@ export function publicEcon(id: number, e: NationEcon): EconomyPublic {
   return { id, gdp: round(e.gdp, 1), pop: Math.round(e.pop), growth: round(e.growth, 4), gdppc: Math.round((e.gdp * 1e9) / e.pop) };
 }
 
-export function privateEcon(e: NationEcon, tax: number, day: number): EconomyPrivate {
+export function privateEcon(e: NationEcon, tax: number, day: number, energy?: EnergyStats): EconomyPrivate {
   const revenue = (e.gdp * tax) / 100;
   const spending = e.gdp * SPEND_RATE;
   const defence = (spending * (1 - ADMIN_SHARE) * e.budget.military) / 100;
@@ -285,6 +303,7 @@ export function privateEcon(e: NationEcon, tax: number, day: number): EconomyPri
     defence: round(defence, 2), munitions: Math.round(Math.min(250, (e.munitions / Math.max(1e-6, defence * 0.5)) * 100)),
     reservists: Math.round(e.pop * (0.004 + (0.01 * e.budget.military) / 100)),
     fuelDays: Math.round(oilUse > 0 ? e.stock.oil / oilUse : 999), shortage: round(e.shortage, 3),
+    energy: energy ?? { demand: round(e.gdp, 0), supply: round(e.grid ?? e.gdp, 0), grid: round(e.grid ?? e.gdp, 0), plants: 0, blackout: round(e.blackout ?? 0, 3), militaryOil: 0 },
     goods, history: e.history,
   };
 }

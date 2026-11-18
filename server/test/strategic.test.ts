@@ -120,3 +120,22 @@ test('rally points send newly built land units toward the front', () => {
   assert.ok(fresh.next !== undefined || fresh.province === 4, 'it marches to the rally point');
   assert.equal(w.privateView(n).mil!.rally, 4);
 });
+
+test('electricity: a growing economy outgrows its grid; power stations and fuel keep the lights on', () => {
+  const w = setup();
+  const n = w.nations.get(1)!;
+  n.econ.grid = n.econ.gdp * 0.8; // a grid that fell behind
+  w.tick(Date.now() + realPerDay * 2);
+  assert.ok((n.econ.blackout ?? 0) > 0.1, 'blackouts');
+  const before = n.econ.growth;
+  w.military.buildings.set(2, [{ type: 'nuclear_plant', progress: 1 }, { type: 'coal_plant', progress: 1 }, { type: 'gas_plant', progress: 1 }, { type: 'renewables', progress: 1 }]);
+  w.tick(Date.now() + realPerDay * 4);
+  assert.ok((n.econ.blackout ?? 0) < 0.05, 'stations close the gap');
+  assert.ok(n.econ.growth > before, 'and growth recovers');
+  assert.ok((w.extraUse(n).coal ?? 0) > 0, 'the coal station burns coal');
+  // an oil shortage weakens the armed forces
+  const full = w.effects(1).landAttack;
+  n.econ.short.oil = 1;
+  (w as unknown as { effectCache: Map<number, unknown> }).effectCache.clear();
+  assert.ok(w.effects(1).landAttack < full - 0.3);
+});

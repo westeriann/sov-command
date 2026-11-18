@@ -67,6 +67,16 @@ export interface HistoryPoint {
 }
 
 /** Everything a player sees about their own economy. */
+/** Electricity: demand follows the economy, the grid does not keep up on its own. */
+export interface EnergyStats {
+  demand: number; // power units (1 per $bn of GDP)
+  supply: number; // what the grid can deliver today, after any fuel shortage
+  grid: number; // base grid
+  plants: number; // from power stations
+  blackout: number; // share of demand not met, 0..1
+  militaryOil: number; // bn barrels a year burned by the armed forces
+}
+
 export interface EconomyPrivate {
   day: number;
   gdp: number; // $bn per year
@@ -85,6 +95,7 @@ export interface EconomyPrivate {
   reservists: number;
   fuelDays: number; // oil in storage, days of use
   shortage: number; // weighted unmet need, 0..1
+  energy: EnergyStats;
   goods: Record<Commodity, CommodityStats>;
   history: HistoryPoint[];
 }
