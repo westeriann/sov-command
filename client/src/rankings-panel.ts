@@ -1,6 +1,8 @@
 // Rankings: the season leaderboard, a chart of the leaders' scores, the hall of
 // fame, a replay of how the map changed, and a nation's history.
 import type { Game } from './game';
+import { flagSvg } from '../../shared/flags';
+import { flagOf } from './customize';
 import type { Political } from './political';
 
 export interface RankingsActions {
@@ -72,7 +74,7 @@ export class RankingsPanel {
             <span class="label">LEADERBOARD</span>
             <div class="table-wrap"><table class="league"><thead><tr><th>#</th><th>Nation</th><th>Leader</th><th>Score</th><th>Power</th></tr></thead><tbody>
               ${s.leaders.map((l, i) => `<tr${l.nation === this.game.mine?.id ? ' class="mine-row"' : ''}><td>${i + 1}</td>
-                <th scope="row"><button type="button" class="link" data-k="goto" data-nation="${l.nation}">${name(l.nation)}</button></th>
+                <th scope="row"><button type="button" class="link flag-link" data-k="goto" data-nation="${l.nation}">${this.pol.nations.get(l.nation) ? flagSvg(flagOf(this.pol.nations.get(l.nation)!), 18) : ''}${name(l.nation)}</button></th>
                 <td>${player(l.nation) ? esc(player(l.nation)!) : '<span class="muted">AI</span>'}</td><td class="mono">${l.score.toLocaleString('en-US')}</td><td class="mono">${l.power}%</td></tr>`).join('')}
             </tbody></table></div>
           </section>
@@ -183,9 +185,17 @@ export class RankingsPanel {
 /** A nation's recent history, fetched from the server. */
 export async function historyHtml(nation: number, name: string) {
   try {
-    const r = await fetch(`/api/history?nation=${nation}`);
+    const [r, st] = await Promise.all([fetch(`/api/history?nation=${nation}`), fetch(`/api/stats?nations=${nation}`)]);
     const events = ((await r.json()).events ?? []) as { at: number; text: string }[];
+    const series = ((await st.json()).series ?? []) as { day: number; v: Record<number, { g: number; a: number; p: number }> }[];
+    const spark = (key: 'g' | 'a' | 'p', title: string) => {
+      if (series.length < 2) return '';
+      const vals = series.map((f) => f.v[nation]?.[key] ?? 0), max = Math.max(1, ...vals), W = 120, H = 34;
+      const pts = vals.map((v, i) => `${((i / (vals.length - 1)) * (W - 2) + 1).toFixed(1)},${(H - 2 - (v / max) * (H - 6)).toFixed(1)}`).join(' ');
+      return `<figure class="mini-chart"><figcaption>${title} · ${vals[vals.length - 1].toLocaleString('en-US')}</figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${title} over time"><polyline fill="none" stroke="#5fd4ea" stroke-width="1.6" points="${pts}"/></svg></figure>`;
+    };
     return `<span class="label">HISTORY · ${esc(name).toUpperCase()}</span>
+      ${series.length >= 2 ? `<div class="mini-charts">${spark('g', 'GDP $bn')}${spark('a', 'Forces')}${spark('p', 'Provinces')}</div>` : ''}
       ${events.length ? `<ul class="reports">${events.map((e) => `<li><time class="mono">${new Date(e.at).toISOString().slice(0, 10)}</time> ${esc(e.text)}</li>`).join('')}</ul>` : '<p class="hint">Nothing recorded yet.</p>'}`;
   } catch {
     return '<p class="hint">History is unavailable right now.</p>';

@@ -305,6 +305,13 @@ export class GameMap {
     }
   }
 
+  /** Nations renamed or recoloured: relabel them and repaint the political view. */
+  refreshNations(ids: number[]) {
+    for (const l of this.nationLabels) if (ids.includes(l.id)) l.el.textContent = this.pol.nations.get(l.id)!.short.toUpperCase();
+    this.overlays.delete('political');
+    if (this.mode === 'political' && this.map.getLayer('overlay')) this.setMode('political', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+  }
+
   private borderData: { features: { properties: { k: number; a: number; b: number } }[] } | null = null;
 
   /** Land changed hands: redraw national borders from current ownership. */

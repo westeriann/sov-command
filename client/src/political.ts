@@ -1,3 +1,5 @@
+import type { FlagSpec } from '../../shared/flags';
+import type { NationPublic } from '../../shared/protocol';
 // Provinces, sea zones and nations produced by tools/worldgen/provinces.py.
 import type { BiomeId } from './world';
 
@@ -32,6 +34,8 @@ export interface Nation {
   area: number;
   pop: number;
   neighbours: number[];
+  flag?: FlagSpec; // a player's own flag
+  base?: { name: string; short: string; color: string }; // the map's original values
 }
 
 export const RESOURCE_NAMES: Record<ResourceId, string> = {
@@ -123,6 +127,23 @@ export class Political {
       this.nationProvinces.set(to, [...(this.nationProvinces.get(to) ?? []), p.id]);
       p.nation = to;
       changed = true;
+    }
+    return changed;
+  }
+
+  /** Apply players' names, colours and flags. Returns the nations that changed. */
+  applyCustom(list: Iterable<NationPublic>) {
+    const changed: number[] = [];
+    for (const pub of list) {
+      const n = this.nations.get(pub.id);
+      if (!n) continue;
+      n.base ??= { name: n.name, short: n.short, color: n.color };
+      const next = { name: pub.name ?? n.base.name, short: pub.short ?? n.base.short, color: pub.color ?? n.base.color };
+      const flag = pub.flag;
+      if (next.name !== n.name || next.short !== n.short || next.color !== n.color || JSON.stringify(flag) !== JSON.stringify(n.flag)) {
+        Object.assign(n, next, { flag });
+        changed.push(n.id);
+      }
     }
     return changed;
   }

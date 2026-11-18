@@ -9,6 +9,7 @@ import type { MilitaryPrivate, Mission, UnitType, UnitView, War } from './milita
 import type { Bloc, Deal, DealKind, Pact, Proposal, Resolution, ResolutionKind, SpyMission, Treaty } from './diplomacy';
 import type { Government, ResearchPrivate, TechId } from './research';
 import type { BuildingState, BuildingType } from './buildings';
+import type { FlagSpec } from './flags';
 
 export type Focus = 'economy' | 'military' | 'research' | 'diplomacy';
 export type Personality = 'expansionist' | 'trader' | 'turtle' | 'opportunist' | 'idealist';
@@ -45,6 +46,11 @@ export interface NationPublic {
   government?: Government;
   techs?: number; // technologies researched
   nuclear?: boolean; // holds nuclear warheads
+  // a player's own name, colour and flag for the nation (absent: the map's defaults)
+  name?: string;
+  short?: string;
+  color?: string;
+  flag?: FlagSpec;
 }
 
 /** What only the nation's own player may know. */
@@ -153,6 +159,7 @@ export type Order =
   | { kind: 'spy'; target: number; mission: SpyMission }
   | { kind: 'release'; target: number } // free a vassal
   | { kind: 'rally'; province: number | null } // new land units march here
+  | { kind: 'customize'; name?: string; short?: string; color?: string; flag?: FlagSpec }
   | { kind: 'nuke'; province: number }
   | { kind: 'government'; government: Government };
 

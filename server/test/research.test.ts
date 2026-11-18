@@ -85,3 +85,19 @@ test('private chat: direct lines reach only the two nations; allied lines only a
   assert.equal(w.canRead(line, 3), false, 'others cannot read it');
   assert.equal(w.chat({ id: 1, name: 'alice', guest: false }, 'friends?', 'allies').ok, false, 'no allies yet');
 });
+
+test('players rename and recolour their nation, design a flag; names are unique and change once a day', () => {
+  const w = setup();
+  const flag = { pattern: 'tricolor_v' as const, colors: ['#112233', '#ffffff', '#cc0000'] as [string, string, string], emblem: 'star' as const };
+  assert.equal(w.submit(1, { kind: 'customize', name: 'Nation 2', short: 'N9' }, 'human').ok, false, 'name taken');
+  assert.equal(w.submit(1, { kind: 'customize', name: 'Free Republic', short: 'Free', color: '#3366aa', flag }, 'human').ok, true);
+  const pub = w.publicView(w.nations.get(1)!);
+  assert.equal(pub.name, 'Free Republic');
+  assert.equal(pub.flag?.pattern, 'tricolor_v');
+  assert.equal(w.defs.get(1)!.name, 'Free Republic', 'news uses the new name');
+  assert.equal(w.submit(1, { kind: 'customize', name: 'Another Name' }, 'human').ok, false, 'once a day');
+  assert.equal(w.submit(1, { kind: 'customize', flag: { ...flag, pattern: 'nope' } as never }, 'human').ok, false, 'bad flags are refused');
+  assert.equal(w.submit(2, { kind: 'customize', name: 'Robot Land' }, 'ai').ok, false, 'the AI keeps the map names');
+  w.release(1);
+  assert.equal(w.defs.get(1)!.name, 'Nation 1', 'a released nation gets its own name back');
+});

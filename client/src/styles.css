@@ -477,3 +477,16 @@ body.cb .up { color: #6bb8ff; }
 #account .link + .link { margin-left: 12px; }
 .admin-actions { white-space: normal; }
 .admin-window .league th, .admin-window .league td { padding-left: 6px; padding-right: 6px; }
+
+/* flags and nation customisation */
+.flag { flex: none; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25); vertical-align: middle; }
+.flag-link { display: inline-flex; align-items: center; gap: 6px; }
+.customize { width: min(560px, calc(100vw - 32px)); }
+.cz-grid { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+.cz-grid label { display: block; margin-top: 8px; }
+.cz-grid input:not([type=color]), .cz-grid select { width: 100%; }
+.cz-colors { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.cz-colors label { width: 100%; margin: 0; }
+.cz-grid input[type=color] { width: 40px; height: 28px; padding: 0; border: 1px solid var(--edge); background: none; }
+.cz-preview { padding: 10px; border: 1px solid var(--edge-soft); border-radius: 4px; }
+@media (max-width: 560px) { .cz-grid { grid-template-columns: 1fr; } }

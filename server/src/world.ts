@@ -24,6 +24,7 @@ import { Military, type MilEvent, type NationMil, type Province } from './milita
 import { UNIT_SPECS, UNIT_TYPES, type MilitaryPrivate, type UnitType, type UnitView } from '../../shared/military.ts';
 import type { WarState } from '../../shared/protocol.ts';
 import { Diplomacy } from './diplomacy.ts';
+import { cleanFlag, isColor, type FlagSpec } from '../../shared/flags.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, type BuildingType } from '../../shared/buildings.ts';
 import { GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, UNITS_PER_GENERAL, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import {
@@ -65,6 +66,7 @@ export interface NationState {
   econ: NationEcon;
   mil: NationMil;
   annexedBy?: number; // conquered: the nation no longer exists
+  custom?: { name?: string; short?: string; color?: string; flag?: FlagSpec; renamedAt?: number };
   reports?: string[]; // intelligence reports for the player
   spyOps?: { target: number; mission: SpyMission; day: number }[];
   intel?: Record<number, number>; // nation -> game day our view of its forces lasts until
@@ -265,6 +267,7 @@ export class World {
       n.tech ??= { partial: {}, done: [] };
       n.gov ??= { government: startingGovernment(n.personality, n.id) };
     }
+    for (const n of this.nations.values()) this.applyCustom(n);
     this.military.bonus = (nation, kind) => this.effects(nation)[kind];
     this.military.onEconomicDamage = (nation, share) => {
       const e = this.nations.get(nation)?.econ;
@@ -444,7 +447,10 @@ export class World {
   publicView(n: NationState): NationPublic {
     const army = Math.round((this.military?.unitsOf(n.id).length ?? 0) / 5) * 5;
     if (n.annexedBy) return { id: n.id, controller: 'ai', focus: n.policy.focus, army: 0, annexedBy: n.annexedBy };
-    const pol = { government: n.gov?.government, techs: n.tech?.done.length, nuclear: (n.mil?.warheads ?? 0) > 0 || undefined };
+    const pol = {
+      government: n.gov?.government, techs: n.tech?.done.length, nuclear: (n.mil?.warheads ?? 0) > 0 || undefined,
+      name: n.custom?.name, short: n.custom?.short, color: n.custom?.color, flag: n.custom?.flag,
+    };
     return n.controller === 'human'
       ? { id: n.id, controller: 'human', player: n.player, online: this.online.has(n.userId!), autopilot: n.autopilot, focus: n.policy.focus, army, ...pol }
       : { id: n.id, controller: 'ai', personality: n.personality, focus: n.policy.focus, army, ...pol };
@@ -629,6 +635,7 @@ export class World {
       claimedAt: undefined, lastSeen: undefined, nextThink: this.gameNow(),
     });
     this.event('release', n.id, `${name} ${reason}; the ${this.defs.get(n.id)!.name} is run by the AI again.`);
+    if (n.custom) { n.custom = undefined; this.applyCustom(n); } // the nation goes back to its own name and flag
     this.touch(n);
     this.listener?.mine(userId, null);
     return ok;
@@ -942,6 +949,39 @@ export class World {
         this.touch(n, false);
         return ok;
       }
+      case 'customize': {
+        if (actor !== 'human') return fail('not_allowed', 'Only players customise nations.');
+        const c = { ...(n.custom ?? {}) };
+        const clean = (s: unknown, max: number) => String(s ?? '').replace(/[^\p{L}\p{N} '\-.&]/gu, '').replace(/\s+/g, ' ').trim().slice(0, max);
+        if (order.name !== undefined || order.short !== undefined) {
+          const name = clean(order.name ?? c.name ?? this.defs.get(n.id)!.name, 40);
+          const short = clean(order.short ?? c.short ?? this.defs.get(n.id)!.short, 16);
+          if (name.length < 3 || short.length < 2) return fail('bad_request', 'Names need at least 3 letters, short names 2.');
+          const taken = [...this.defs.values()].some((d) => d.id !== n.id && (d.name.toLowerCase() === name.toLowerCase() || d.short.toLowerCase() === short.toLowerCase()));
+          if (taken) return fail('not_allowed', 'Another nation already uses that name.');
+          const changing = name !== this.defs.get(n.id)!.name || short !== this.defs.get(n.id)!.short;
+          if (changing) {
+            if (c.renamedAt && Date.now() - c.renamedAt < 86_400_000) return fail('not_allowed', 'A nation can be renamed once a day.');
+            const old = this.defs.get(n.id)!.name;
+            Object.assign(c, { name, short, renamedAt: Date.now() });
+            n.custom = c;
+            this.applyCustom(n);
+            this.event('politics', n.id, `The ${old} is now known as the ${name}.`);
+          }
+        }
+        if (order.color !== undefined) {
+          if (!isColor(order.color)) return fail('bad_request', 'Choose a colour.');
+          c.color = order.color.toLowerCase();
+        }
+        if (order.flag !== undefined) {
+          const f = cleanFlag(order.flag);
+          if (!f) return fail('bad_request', 'That flag is not valid.');
+          c.flag = f;
+        }
+        n.custom = c;
+        this.touch(n);
+        return ok;
+      }
       case 'rally': {
         if (order.province === null) { n.mil.rally = undefined; this.touch(n, false); return ok; }
         const p = this.military.provinces.get(Number(order.province));
@@ -1247,6 +1287,16 @@ export class World {
         this.touch(n, false);
       }
     }
+  }
+
+  /** A player's chosen name replaces the map's in everything the server says. */
+  private applyCustom(n: NationState) {
+    const d = this.defs.get(n.id);
+    if (!d) return;
+    const original = (d as NationDef & { original?: { name: string; short: string } });
+    original.original ??= { name: d.name, short: d.short };
+    d.name = n.custom?.name ?? original.original.name;
+    d.short = n.custom?.short ?? original.original.short;
   }
 
   // ---- strategic warfare -----------------------------------------------------------

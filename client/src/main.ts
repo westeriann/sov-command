@@ -3,6 +3,7 @@ import { DiplomacyPanel } from './diplomacy-panel';
 import { Cities } from './cities';
 import { AccountDialog } from './account';
 import { AdminPanel } from './admin';
+import { CustomizeDialog } from './customize';
 import { ResearchPanel } from './research-panel';
 import { RankingsPanel } from './rankings-panel';
 import { Lobby } from './lobby';
@@ -102,6 +103,7 @@ async function start() {
     },
     worlds: () => void lobby?.open(),
     account: () => account.openChangePassword(),
+    customize: () => { const n = game.mine && pol.nations.get(game.mine.id); if (n) customize.open(n); },
     admin: () => adminPanel?.toggle(),
     report: async (from, text) => {
       const r = await fetch('/api/report', {
@@ -252,6 +254,7 @@ async function start() {
   const account = new AccountDialog(hudRoot, (r) => { conn.stop(); signedIn(r.token); });
   login = new LoginDialog(hudRoot, afterAuth, (name) => account.openRecover(name));
   const adminPanel: AdminPanel | null = new AdminPanel(hudRoot, pol);
+  const customize = new CustomizeDialog(hudRoot, (order) => conn.send({ t: 'order', order }));
   conn.onAuthFailed = () => login.open();
 
   await gameMap.ready();
@@ -266,6 +269,10 @@ async function start() {
     try { new Notification(title, { body, tag: 'sovereign' }); } catch { /* not allowed here */ }
   };
   game.on((c) => {
+    if (c.has('nations')) {
+      const renamed = pol.applyCustom(game.nations.values());
+      if (renamed.length) gameMap.refreshNations(renamed);
+    }
     if (c.has('nations') || c.has('mine') || c.has('status')) {
       gameMap.setControllers(new Set(game.humanNations().map((n) => n.id)), game.mine?.id ?? null);
     }

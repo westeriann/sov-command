@@ -1,6 +1,8 @@
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO } from '../../shared/research';
 import { historyHtml } from './rankings-panel';
+import { flagSvg } from '../../shared/flags';
+import { flagOf } from './customize';
 import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
 import { MISSILE_COST } from '../../shared/military';
 import { SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
@@ -38,6 +40,7 @@ export interface HudActions {
   toggleRankings(): void;
   worlds(): void;
   account(): void;
+  customize(): void;
   admin(): void;
   report(from: string, text: string): Promise<void>;
   rally(province: number | null): void;
@@ -384,6 +387,7 @@ export class Hud {
       else if (a === 'guide') this.actions.guide();
       else if (a === 'worlds') this.actions.worlds();
       else if (a === 'account') this.actions.account();
+      else if (a === 'customize') this.actions.customize();
       else if (a === 'admin') this.actions.admin();
       else if (a === 'report') {
         if (act.dataset.done) return;
@@ -535,11 +539,13 @@ export class Hud {
       el.innerHTML = '';
       return;
     }
-    if (el.dataset.nation !== String(mine.id)) {
-      el.dataset.nation = String(mine.id);
+    const stamp = `${mine.id}:${def.name}:${def.color}:${JSON.stringify(def.flag ?? '')}`;
+    if (el.dataset.nation !== stamp) {
+      el.dataset.nation = stamp;
       el.innerHTML = `
         <div class="row-between"><span class="label">YOUR NATION</span><button type="button" class="link" data-province="${def.capital}">Go to capital</button></div>
-        <div class="nation-name"><i style="background:${def.color}" aria-hidden="true"></i>${esc(def.name)}</div>
+        <div class="nation-name">${flagSvg(flagOf(def), 27, def.name)}${esc(def.name)}</div>
+        <button type="button" class="link" data-act="customize">Name, colour and flag…</button>
         <span class="label">NATIONAL FOCUS</span>
         <div class="seg focus" role="group" aria-label="National focus">
           ${FOCI.map((f) => `<button type="button" data-act="focus" data-focus="${f}" aria-pressed="false">${FOCUS_NAMES[f]}</button>`).join('')}
@@ -821,7 +827,7 @@ export class Hud {
       ${n ? `
       <div class="nation-card">
         <div class="row-between"><span class="label">NATION</span>${capital ? '' : `<button type="button" class="link" data-province="${n.capital}">Go to capital</button>`}</div>
-        <div class="nation-name"><i style="background:${n.color}" aria-hidden="true"></i>${esc(n.name)}</div>
+        <div class="nation-name">${flagSvg(flagOf(n), 27, n.name)}${esc(n.name)}</div>
         <div class="kv mono">
           ${this.econRows(n.id)}
           <span>Population</span><span>${people(this.game.economy.get(n.id)?.pop ?? n.pop)}</span>
