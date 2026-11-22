@@ -5,6 +5,7 @@ import { flagSvg } from '../../shared/flags';
 import { flagOf } from './customize';
 import { ACHIEVEMENTS, MISSION_REWARD_DAYS, type AchievementKey } from '../../shared/goals';
 import type { Political } from './political';
+import { keepScrollOn } from './keep-scroll';
 
 export interface RankingsActions {
   goToNation(id: number): void;
@@ -24,6 +25,7 @@ export class RankingsPanel {
   constructor(root: HTMLElement, private game: Game, private pol: Political, private actions: RankingsActions) {
     this.panel = document.createElement('section');
     this.panel.className = 'panel econ-window rankings-window';
+    keepScrollOn(this.panel); // redraws keep your place in the list
     this.panel.setAttribute('aria-label', 'Rankings');
     this.panel.hidden = true;
     root.appendChild(this.panel);

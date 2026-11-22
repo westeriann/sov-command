@@ -37,7 +37,7 @@ async function hasRelief() {
 
 /** How much the mountains are raised: strong from orbit, gentler up close, times the player's Relief setting. */
 function exaggeration(zoom: number, relief: number) {
-  const base = Math.min(45, Math.max(6, 45 / Math.pow(1.75, Math.max(0, zoom - 1.5))));
+  const base = Math.min(14, Math.max(2.5, 14 / Math.pow(1.6, Math.max(0, zoom - 1.5))));
   return base * relief;
 }
 /** The camera leans over the map as you zoom in, like a commander bending over a table. */
@@ -233,6 +233,8 @@ export class GameMap {
       minZoom: 0.6,
       maxZoom: max + 1.5,
       maxPitch: 70,
+      // the camera stays at sea level instead of riding up and down over the raised mountains
+      centerClampedToGround: false,
       attributionControl: { compact: true },
       renderWorldCopies: false,
     });
@@ -250,6 +252,37 @@ export class GameMap {
     this.map.on('pitchstart', (e) => { if ((e as { originalEvent?: Event }).originalEvent) this.autoTilt = false; });
     this.map.on('zoomend', () => this.followZoom());
     this.map.once('load', () => void this.enableRelief());
+    this.keyboardPan();
+  }
+
+  /** WASD moves the camera over the globe, smoothly, for as long as the keys are held. */
+  private keyboardPan() {
+    const held = new Set<string>();
+    const dirs: Record<string, [number, number]> = { w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] };
+    let fast = false, last = 0, frame = 0;
+    const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea, [contenteditable]');
+    const step = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
+      last = now;
+      let x = 0, y = 0;
+      for (const k of held) { x += dirs[k][0]; y += dirs[k][1]; }
+      if (x || y) {
+        const len = Math.hypot(x, y);
+        const speed = (fast ? 1500 : 650) * dt; // screen pixels a second, the same feel at any zoom
+        this.map.panBy([(x / len) * speed, (y / len) * speed], { animate: false });
+      }
+      frame = held.size ? requestAnimationFrame(step) : 0;
+    };
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      fast = e.shiftKey;
+      if (!(k in dirs) || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
+      e.preventDefault();
+      held.add(k);
+      if (!frame) { last = performance.now(); frame = requestAnimationFrame(step); }
+    });
+    window.addEventListener('keyup', (e) => { held.delete(e.key.toLowerCase()); fast = e.shiftKey; });
+    window.addEventListener('blur', () => held.clear()); // a key released in another window never sends keyup
   }
 
   // ---- 3D relief -----------------------------------------------------------

@@ -6,6 +6,7 @@ import {
 import type { Order } from '../../shared/protocol';
 import type { Game } from './game';
 import type { Political } from './political';
+import { keepScrollOn } from './keep-scroll';
 
 export interface DiplomacyActions {
   propose(target: number, deal: Deal): void;
@@ -23,6 +24,7 @@ export class DiplomacyPanel {
   constructor(root: HTMLElement, private game: Game, private pol: Political, private actions: DiplomacyActions) {
     this.panel = document.createElement('section');
     this.panel.className = 'panel econ-window diplo-window';
+    keepScrollOn(this.panel); // redraws keep your place in the list
     this.panel.setAttribute('aria-label', 'Diplomacy');
     this.panel.hidden = true;
     root.appendChild(this.panel);

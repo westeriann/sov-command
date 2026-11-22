@@ -7,6 +7,7 @@ import {
 import { LIMITS } from '../../shared/protocol';
 import type { Change, Game } from './game';
 import type { Political } from './political';
+import { keepScrollOn } from './keep-scroll';
 
 export interface EconomyActions {
   budget(b: Partial<Budget>): void;
@@ -66,6 +67,7 @@ export class EconomyPanel {
   constructor(root: HTMLElement, private game: Game, private pol: Political, private actions: EconomyActions) {
     this.el = document.createElement('section');
     this.el.className = 'panel econ-window';
+    keepScrollOn(this.el); // redraws keep your place in the list
     this.el.setAttribute('aria-label', 'Economy');
     this.el.hidden = true;
     root.appendChild(this.el);

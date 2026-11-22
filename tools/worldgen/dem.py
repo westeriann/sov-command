@@ -40,6 +40,16 @@ def mercator(src: np.ndarray, size: int) -> np.ndarray:
     return (top * (1 - ty) + bot * ty).astype(np.float32)
 
 
+def smooth(a: np.ndarray, r: int) -> np.ndarray:
+    """Two passes of a (2r+1)-wide box blur, wrapping east-west: close to a Gaussian."""
+    for _ in range(2):
+        c = np.cumsum(np.pad(a, ((0, 0), (r + 1, r)), mode="wrap"), axis=1)
+        a = (c[:, 2 * r + 1:] - c[:, :-2 * r - 1]) / (2 * r + 1)
+        c = np.cumsum(np.pad(a, ((r + 1, r), (0, 0)), mode="edge"), axis=0)
+        a = (c[2 * r + 1:] - c[:-2 * r - 1]) / (2 * r + 1)
+    return a.astype(np.float32)
+
+
 def terrarium(h: np.ndarray) -> np.ndarray:
     v = h + 32768.0
     r = np.floor(v / 256)
@@ -55,6 +65,9 @@ def main():
 
     elev = np.asarray(Image.open(WORLD / "elevation.png")).astype(np.float32) - 11000
     elev = np.maximum(elev, 0)  # flat seas
+    # soften single-cell spikes and cliffs: raised by the map's exaggeration they become
+    # walls that the terrain photo is stretched down
+    elev = smooth(elev, 2)
     size = TILE << args.max_zoom
     print(f"relief: {elev.shape[1]}x{elev.shape[0]} -> mercator {size}x{size}")
     level = mercator(elev, size)

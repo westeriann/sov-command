@@ -8,6 +8,7 @@ import {
 import type { Game } from './game';
 import { seasonSlow } from '../../shared/seasons';
 import type { Political } from './political';
+import { keepScrollOn } from './keep-scroll';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 /** Filled silhouettes (24×24), drawn in the nation's contrast colour. */
@@ -112,6 +113,7 @@ export class Forces {
 
     this.panel = document.createElement('section');
     this.panel.className = 'panel econ-window forces-window';
+    keepScrollOn(this.panel); // redraws keep your place in the list
     this.panel.setAttribute('aria-label', 'Ground forces');
     this.panel.hidden = true;
     root.appendChild(this.panel);

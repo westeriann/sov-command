@@ -6,6 +6,7 @@ import {
 import type { Game } from './game';
 import { FACTIONS, FACTION_INFO, PROPAGANDA_COST, type PropagandaMode } from '../../shared/society';
 import type { Political } from './political';
+import { keepScrollOn } from './keep-scroll';
 
 export interface ResearchActions {
   research(tech: TechId): void;
@@ -21,6 +22,7 @@ export class ResearchPanel {
   constructor(root: HTMLElement, private game: Game, private pol: Political, private actions: ResearchActions) {
     this.panel = document.createElement('section');
     this.panel.className = 'panel econ-window research-window';
+    keepScrollOn(this.panel); // redraws keep your place in the list
     this.panel.setAttribute('aria-label', 'Research and government');
     this.panel.hidden = true;
     root.appendChild(this.panel);
