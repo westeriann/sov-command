@@ -54,7 +54,7 @@ export const ASAT_COST = 4;
 export const domainOf = (t: UnitType) => UNIT_SPECS[t].domain;
 /** Land units crossing the sea ride transports: slow, and helpless if enemy warships catch them. */
 export const TRANSPORT_SPEED = 300; // km per game day
-export const EMBARK_DAYS = 1;
+export const EMBARK_DAYS = 3; // loading troops onto ships, or landing them
 
 export type MissionKind = 'patrol' | 'support' | 'bomb';
 export interface Mission {
@@ -139,6 +139,50 @@ export function findRoute(
   const path: number[] = [];
   for (let c = to; c !== from; c = prev.get(c)!) path.unshift(c);
   return { path, days: dist.get(to)! };
+}
+
+/**
+ * The route a commander would pick. Land units march over land whenever they can,
+ * and only take ship when there is no way by land or the sea is far quicker (a third
+ * the time or less), as for an island or across a gulf. When the destination
+ * cannot be entered at all (a neutral country), they go as close to it as they may.
+ */
+export function bestRoute(
+  nodes: Map<number, RouteNode>,
+  from: number,
+  to: number,
+  type: UnitType,
+  canEnter: (id: number) => boolean,
+): { path: number[]; days: number; to: number } | null {
+  const land = UNIT_SPECS[type].domain === 'land';
+  let target = to;
+  if (!canEnter(to)) {
+    const near = nearestEnterable(nodes, from, to, canEnter);
+    if (near === undefined || near === from) return null;
+    target = near;
+  }
+  const mixed = findRoute(nodes, from, target, type, canEnter);
+  if (!land || nodes.get(target)?.kind !== 'land') return mixed && { ...mixed, to: target };
+  const dry = findRoute(nodes, from, target, type, (p) => canEnter(p) && nodes.get(p)?.kind === 'land');
+  if (dry && (!mixed || dry.days <= mixed.days * 3)) return { ...dry, to: target };
+  return mixed && { ...mixed, to: target };
+}
+
+/** Of the provinces reachable from `from`, the one closest to `to`. */
+function nearestEnterable(nodes: Map<number, RouteNode>, from: number, to: number, canEnter: (id: number) => boolean) {
+  const goal = nodes.get(to)?.label;
+  if (!goal) return undefined;
+  const seen = new Set([from]);
+  const queue = [from];
+  let best: number | undefined, bestKm = Infinity;
+  while (queue.length) {
+    const u = queue.shift()!;
+    const n = nodes.get(u)!;
+    const km = distanceKm(n.label, goal);
+    if (km < bestKm && n.kind === nodes.get(to)!.kind) { bestKm = km; best = u; }
+    for (const v of n.adj) if (!seen.has(v) && canEnter(v) && seen.size < 6000) { seen.add(v); queue.push(v); }
+  }
+  return best;
 }
 
 export const daysToMs = (days: number) => days * DAY;

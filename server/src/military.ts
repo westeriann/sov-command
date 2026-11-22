@@ -6,7 +6,7 @@ import { DAY } from '../../shared/clock.ts';
 import type { BuildingState, BuildingType } from '../../shared/buildings.ts';
 import { WINTER_ATTRITION, coldLand, seasonAt, seasonSlow } from '../../shared/seasons.ts';
 import {
-  BEACHHEAD, GENERAL_BONUS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, distanceKm, domainOf, findRoute, legDays,
+  BEACHHEAD, GENERAL_BONUS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, bestRoute, distanceKm, domainOf, legDays,
   type Domain, type General, type Mission, type QueueItem, type RouteNode, type UnitType, type UnitView, type War,
 } from '../../shared/military.ts';
 
@@ -25,6 +25,7 @@ export interface Unit {
   supplied?: boolean; // land units: false when cut off
   general?: General;
   landedAt?: number; // game ms it came ashore from the sea
+  goal?: number; // where it was ordered to: a march halted by a battle resumes toward it
 }
 
 export interface NationMil {
@@ -303,10 +304,11 @@ export class Military {
         continue;
       }
       const start = u.next ?? u.province;
-      const route = findRoute(this.provinces, start, to, u.type, (p) => this.canEnter(nation, p, domain));
+      const route = bestRoute(this.provinces, start, to, u.type, (p) => this.canEnter(nation, p, domain));
       if (!route) continue;
       moved++;
       u.path = route.path;
+      u.goal = route.to;
       if (u.next) {
         days = Math.max(days, route.days + Math.max(0, (u.legEnd! - now) / DAY));
       } else {
@@ -342,7 +344,7 @@ export class Military {
   halt(nation: number, ids: number[]) {
     for (const id of ids) {
       const u = this.units.get(id);
-      if (u && u.nation === nation) u.path = []; // finish the current leg, then stop
+      if (u && u.nation === nation) { u.path = []; u.goal = undefined; } // finish the current leg, then stop
     }
   }
 
@@ -350,6 +352,7 @@ export class Military {
     const next = u.path.shift();
     if (next === undefined) {
       u.next = u.legStart = u.legEnd = undefined;
+      if (u.goal === u.province) u.goal = undefined; // arrived
       return;
     }
     u.next = next;
@@ -377,7 +380,7 @@ export class Military {
       if (u.mission && !this.atWar(u.nation, this.controller(u.mission.target)) && this.controller(u.mission.target) !== u.nation) u.mission = undefined;
       if (domainOf(u.type) === 'land' && !this.canEnter(u.nation, u.province)) {
         const home = homeOf(u.nation);
-        if (home) Object.assign(u, { province: home, path: [], next: undefined, legStart: undefined, legEnd: undefined, fighting: false });
+        if (home) Object.assign(u, { province: home, path: [], next: undefined, legStart: undefined, legEnd: undefined, fighting: false, goal: undefined });
       }
     }
   }
@@ -387,6 +390,11 @@ export class Military {
   advance(now: number, events: MilEvent[]) {
     for (const u of this.units.values()) {
       const domain = domainOf(u.type);
+      // a march stopped by a battle it won: carry on to where it was sent
+      if (u.goal !== undefined && u.next === undefined && !u.fighting && domain !== 'air' && u.goal !== u.province) {
+        const route = bestRoute(this.provinces, u.province, u.goal, u.type, (p) => this.canEnter(u.nation, p, domain));
+        if (route?.path.length) { u.path = route.path; this.startLeg(u, now); } else u.goal = undefined;
+      }
       while (u.next !== undefined && u.legEnd! <= now) {
         const target = u.next;
         const legEnd = u.legEnd!;
@@ -636,6 +644,7 @@ export class Military {
     }
     u.fighting = false;
     u.path = [];
+    u.goal = undefined; // beaten back: the attack is called off
     u.next = safe;
     u.legStart = 0;
     u.legEnd = 0; // falls back immediately on the next advance()

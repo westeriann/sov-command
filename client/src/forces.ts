@@ -3,7 +3,7 @@
 import { Marker, type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import { money } from '../../shared/economy';
 import {
-  distanceKm, domainOf, findRoute, legDays, STRIKERS, UNIT_ROLE, UNIT_SPECS, UNIT_TECH, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
+  bestRoute, distanceKm, domainOf, legDays, STRIKERS, UNIT_ROLE, UNIT_SPECS, UNIT_TECH, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
 } from '../../shared/military';
 import type { Game } from './game';
 import { seasonSlow } from '../../shared/seasons';
@@ -345,7 +345,7 @@ export class Forces {
         days = Math.max(days, distanceKm(this.label(u.province), target.label) / UNIT_SPECS[u.type].speed);
         continue;
       }
-      const r = findRoute(this.nodes, u.next ?? u.province, to, u.type, canEnter(domain));
+      const r = bestRoute(this.nodes, u.next ?? u.province, to, u.type, canEnter(domain));
       if (!r) return null;
       // winter roads: the same slowdown the server applies, leg by leg
       const now = this.game.gameNow().getTime();

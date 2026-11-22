@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DAY } from '../../shared/clock.ts';
-import { findRoute, legDays, UNIT_SPECS } from '../../shared/military.ts';
+import { bestRoute, findRoute, legDays, UNIT_SPECS } from '../../shared/military.ts';
 import { openDb } from '../src/db.ts';
 import type { Province } from '../src/military.ts';
 import { World, type NationDef } from '../src/world.ts';
@@ -99,4 +99,36 @@ test('production builds units over game days, paid from the defence budget', () 
   for (let d = 0; d < 4; d++) { t += realPerDay; w.tick(t); }
   assert.equal(w.military.unitsOf(1).length, 1, 'ready after its build time');
   assert.equal(n.mil.queue.length, 0, 'queue emptied');
+});
+
+test('troops march over land instead of sailing round, unless the sea is far quicker', () => {
+  // land 1-2-3 in a line, and a sea zone 9 touching both ends
+  const strip = new Map<number, Province>([
+    ...[1, 2, 3].map((id) => [id, { id, kind: 'land' as const, label: [id - 1, 0] as [number, number], terrain: 'grassland', adj: [id - 1, id + 1, 9].filter((x) => (x >= 1 && x <= 3) || (x === 9 && id !== 2)), owner: 1, pop: 1e6, name: `L${id}` }] as const),
+    [9, { id: 9, kind: 'sea' as const, label: [1, -1] as [number, number], terrain: 'ocean', adj: [1, 3], owner: undefined, pop: 0, name: 'Sea' }],
+  ]);
+  const r = bestRoute(strip, 1, 3, 'infantry', () => true)!;
+  assert.deepEqual(r.path, [2, 3], 'two short marches beat embarking and landing again');
+});
+
+test('a march halted by a battle carries on to its destination after winning', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  const tank = w.military.spawn(1, 'armored', 4);
+  const guard = w.military.spawn(2, 'infantry', 6, 15); // a weak defender in the way
+  assert.equal(w.submit(1, { kind: 'move', units: [tank.id], to: 8 }, 'human').ok, true);
+  let fought = false;
+  for (let d = 1; d <= 40 && tank.province !== 8; d++) {
+    w.tick(Date.now() + realPerDay * d);
+    fought ||= !!tank.fighting || !w.military.units.has(guard.id);
+  }
+  assert.ok(fought, 'it met the defender on the way');
+  assert.equal(tank.province, 8, 'and still reached the province it was sent to');
+});
+
+test('an order into a country we may not enter goes as close as we may', () => {
+  const w = setup();
+  const u = w.military.spawn(1, 'infantry', 1);
+  assert.equal(w.submit(1, { kind: 'move', units: [u.id], to: 7 }, 'human').ok, true, 'not refused outright');
+  assert.equal(u.goal, 4, 'heads for the border province nearest the target');
 });
