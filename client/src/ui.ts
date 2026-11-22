@@ -39,6 +39,7 @@ export interface HudActions {
   signIn(): void;
   signOut(): void;
   toggleEconomy(): void;
+  toggleMarket(): void;
   toggleForces(view?: 'land' | 'sea' | 'air'): void;
   toggleDiplomacy(): void;
   toggleResearch(): void;
@@ -71,6 +72,7 @@ export interface HudActions {
 const MODULES: [string, string, string | null][] = [
   ['Theatre map', 'map', null],
   ['Economy', 'economy', null],
+  ['Market', 'market', null],
   ['Ground forces', 'army', null],
   ['Naval ops', 'navy', null],
   ['Air command', 'air', null],
@@ -82,7 +84,8 @@ const MODULES: [string, string, string | null][] = [
 /** What each window is for, shown when hovering its button. */
 const MODULE_TIPS: Record<string, string> = {
   map: tip('Theatre map', 'Close windows and look at the map', 'Key: M'),
-  economy: tip('Economy', 'Budget, taxes, trade, energy and the world market', 'Key: E'),
+  economy: tip('Economy', 'Budget, taxes, stability, buildings and migration', 'Key: E'),
+  market: tip('Market', 'Every good and electricity: your output, use and trade, and world prices, with charts', 'Key: X'),
   army: tip('Ground forces', 'Recruit divisions and see your armies', 'Key: F'),
   navy: tip('Naval ops', 'Build fleets and see where they are', 'Key: N'),
   air: tip('Air command', 'Raise air wings, satellites and strategic weapons', 'Key: B'),
@@ -401,6 +404,7 @@ export class Hud {
     if (mod === 'diplomacy' || (mod === 'map' && this.openPanel === 'diplomacy')) { this.actions.toggleDiplomacy(); return; }
     if (mod === 'research' || (mod === 'map' && this.openPanel === 'research')) { this.actions.toggleResearch(); return; }
     if (mod === 'rankings' || (mod === 'map' && this.openPanel === 'rankings')) { this.actions.toggleRankings(); return; }
+    if (mod === 'market' || (mod === 'map' && this.openPanel === 'market')) { this.actions.toggleMarket(); return; }
     if (mod === 'economy' || mod === 'map') {
       if (mod === 'economy' || (mod === 'map' && this.openPanel === 'economy')) this.actions.toggleEconomy();
       return;
@@ -504,10 +508,10 @@ export class Hud {
     b.setAttribute('aria-pressed', String(on));
   }
 
-  private openPanel: 'economy' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null = null;
+  private openPanel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null = null;
 
   /** Highlight the module whose window is open (or the map when none is). */
-  setOpenPanel(panel: 'economy' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null) {
+  setOpenPanel(panel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null) {
     this.openPanel = panel;
     this.root.querySelectorAll<HTMLElement>('[data-module]').forEach((b) => {
       const active = b.dataset.module === (panel ?? 'map');

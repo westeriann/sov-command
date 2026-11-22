@@ -64,6 +64,10 @@ export interface HistoryPoint {
   gdp: number;
   treasury: number;
   stability: number;
+  /** goods that week, per year: [output, use, net trade (+ exports)] */
+  g?: Partial<Record<Commodity, [number, number, number]>>;
+  /** electricity that week: [demand, grid + power stations] */
+  e?: [number, number];
 }
 
 /** Everything a player sees about their own economy. */
@@ -117,7 +121,8 @@ export interface EconomyPublic {
 export interface MarketSnapshot {
   day: number;
   prices: Record<Commodity, number>; // $bn per unit
-  history: { d: number; p: Record<Commodity, number> }[];
+  /** weekly: prices, and the world's total output (s) and use (u) per year */
+  history: { d: number; p: Record<Commodity, number>; s?: Partial<Record<Commodity, number>>; u?: Partial<Record<Commodity, number>> }[];
 }
 
 export function money(bn: number) {

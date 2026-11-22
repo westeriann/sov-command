@@ -27,6 +27,7 @@ import '@fontsource/ibm-plex-mono/500.css';
 import './styles.css';
 import './theme-command.css';
 import { EconomyPanel } from './economy-panel';
+import { MarketPanel } from './market-panel';
 import { Forces } from './forces';
 import { Models3D } from './models3d';
 import { UnitCard } from './unit-card';
@@ -116,7 +117,17 @@ async function start() {
     },
     guide: () => tutorial?.start(),
     toggleSound: () => { sound.toggle(); return sound.on; },
+    toggleMarket: () => {
+      rankings?.close();
+      forces?.close();
+      diplomacy?.close();
+      research?.close();
+      economy.close();
+      market.toggle();
+      hud.setOpenPanel(market.isOpen ? 'market' : null);
+    },
     toggleEconomy: () => {
+      market.close();
       rankings?.close();
       forces?.close();
       diplomacy?.close();
@@ -127,6 +138,7 @@ async function start() {
     toggleForces: (view = 'land') => {
       if (!forces) return;
       economy.close();
+      market.close();
       diplomacy?.close();
       research?.close();
       rankings?.close();
@@ -159,6 +171,7 @@ async function start() {
     toggleRankings: () => {
       if (!rankings) return;
       economy.close();
+      market.close();
       forces?.close();
       diplomacy?.close();
       research?.close();
@@ -169,6 +182,7 @@ async function start() {
       rankings?.close();
       if (!research) return;
       economy.close();
+      market.close();
       forces?.close();
       diplomacy?.close();
       research.toggle();
@@ -178,6 +192,7 @@ async function start() {
       if (!diplomacy) return;
       rankings?.close();
       economy.close();
+      market.close();
       forces?.close();
       research?.close();
       diplomacy.toggle();
@@ -201,6 +216,7 @@ async function start() {
   let research: ResearchPanel | null = null;
   let rankings: RankingsPanel | null = null;
   let lobby: Lobby | null = null;
+  const market = new MarketPanel(hudRoot, game);
   const economy = new EconomyPanel(hudRoot, game, pol, {
     budget: (budget) => conn.send({ t: 'order', order: { kind: 'budget', budget } }),
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
@@ -213,6 +229,8 @@ async function start() {
     },
   });
   document.addEventListener('economy-closed', () => hud.setOpenPanel(null));
+  document.addEventListener('market-closed', () => hud.setOpenPanel(null));
+  document.addEventListener('open-market', () => { if (!market.isOpen) hudRoot.querySelector<HTMLElement>('.left [data-module="market"]')?.click(); });
   document.addEventListener('forces-closed', () => hud.setOpenPanel(null));
   document.addEventListener('diplomacy-closed', () => hud.setOpenPanel(null));
   document.addEventListener('research-closed', () => hud.setOpenPanel(null));
@@ -245,7 +263,7 @@ async function start() {
     if (cb) { document.body.classList.add('cb'); gameMap.setColorBlind(true); (hudRoot.querySelector('#colorBlind') as HTMLInputElement | null)?.setAttribute('checked', ''); }
   }
   // keyboard shortcuts (ignored while typing)
-  const keys: Record<string, string> = { e: 'economy', f: 'army', n: 'navy', b: 'air', p: 'diplomacy', r: 'research', k: 'rankings', m: 'map' };
+  const keys: Record<string, string> = { e: 'economy', x: 'market', f: 'army', n: 'navy', b: 'air', p: 'diplomacy', r: 'research', k: 'rankings', m: 'map' };
   document.addEventListener('keydown', (ev) => {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || (ev.target as HTMLElement).closest('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea')) return;
     const mod = keys[ev.key.toLowerCase()];
@@ -253,14 +271,14 @@ async function start() {
     else if (ev.key.toLowerCase() === 'c') hudRoot.querySelector<HTMLElement>('[data-open="chat"]')?.click();
     else if (ev.key.toLowerCase() === 'g') tutorial?.start();
     else if (ev.key === '?') shortcuts.hidden = !shortcuts.hidden;
-    else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); hud.setOpenPanel(null); }
+    else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); market.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); hud.setOpenPanel(null); }
   });
   const shortcuts = document.createElement('section');
   shortcuts.className = 'panel shortcuts';
   shortcuts.hidden = true;
   shortcuts.setAttribute('aria-label', 'Keyboard shortcuts');
   shortcuts.innerHTML = `<span class="label">KEYBOARD</span><dl>
-    <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>R</dt><dd>Research &amp; government</dd>
+    <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>X</dt><dd>Market</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>R</dt><dd>Research &amp; government</dd>
     <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd>
     <dt>Q</dt><dd>Selected units: give an order, then click a province</dd><dt>H T L U</dt><dd>Selected units: halt, go to, appoint a general, stand down aircraft</dd><dt>Tab</dt><dd>Next army, fleet or air wing (Shift: back)</dd><dt>Esc</dt><dd>Cancel an order, close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
   hudRoot.appendChild(shortcuts);

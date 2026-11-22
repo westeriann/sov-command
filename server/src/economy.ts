@@ -64,7 +64,7 @@ export interface NationEcon {
 export interface MarketState {
   day: number; // last simulated game day
   prices: Record<Commodity, number>;
-  history: { d: number; p: Record<Commodity, number> }[];
+  history: { d: number; p: Record<Commodity, number>; s?: Partial<Record<Commodity, number>>; u?: Partial<Record<Commodity, number>> }[];
 }
 
 const zero = () => Object.fromEntries(COMMODITIES.map((c) => [c, 0])) as Record<Commodity, number>;
@@ -271,14 +271,23 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     e.stability += (stabTarget - e.stability) * 0.03;
 
     if (day % HISTORY_EVERY_DAYS === 0) {
-      e.history.push({ d: day, gdp: round(e.gdp, 1), treasury: round(e.treasury, 1), stability: round(e.stability, 1) });
+      e.history.push({
+        d: day, gdp: round(e.gdp, 1), treasury: round(e.treasury, 1), stability: round(e.stability, 1),
+        g: Object.fromEntries(COMMODITIES.map((c) => [c, [round(e.capacity[c], 2), round(usePerYear(c, e.gdp, e.pop), 2), round(e.trade[c], 2)]])),
+        e: [round(e.gdp, 0), round((e.grid ?? e.gdp) * (1 - (e.blackout ?? 0)) + e.gdp * (e.blackout ?? 0), 0)],
+      });
       if (e.history.length > HISTORY_POINTS) e.history.splice(0, e.history.length - HISTORY_POINTS);
     }
   }
 
   market.day = day;
   if (day % HISTORY_EVERY_DAYS === 0) {
-    market.history.push({ d: day, p: { ...market.prices } });
+    const s: Partial<Record<Commodity, number>> = {}, u: Partial<Record<Commodity, number>> = {};
+    for (const c of COMMODITIES) {
+      s[c] = round(nations.reduce((t, n) => t + n.econ.capacity[c], 0), 1);
+      u[c] = round(nations.reduce((t, n) => t + usePerYear(c, n.econ.gdp, n.econ.pop), 0), 1);
+    }
+    market.history.push({ d: day, p: { ...market.prices }, s, u });
     if (market.history.length > HISTORY_POINTS) market.history.splice(0, market.history.length - HISTORY_POINTS);
   }
 }

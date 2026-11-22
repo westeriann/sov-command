@@ -1,8 +1,8 @@
 import { BUILDINGS } from '../../shared/buildings';
 // The Economy window: your national accounts, budget, goods and the world market.
 import {
-  BUDGET_KEYS, COMMODITIES, COMMODITY_INFO, money, normalizeBudget,
-  type Budget, type Commodity, type EconomyPrivate, type HistoryPoint,
+  BUDGET_KEYS, money, normalizeBudget,
+  type Budget, type EconomyPrivate, type HistoryPoint,
 } from '../../shared/economy';
 import { LIMITS } from '../../shared/protocol';
 import type { Change, Game } from './game';
@@ -33,11 +33,6 @@ function people(n: number) {
   return `${Math.round(n / 1e3)} k`;
 }
 
-function qty(v: number, unit: string) {
-  const a = Math.abs(v);
-  const s = a >= 1e4 ? `${(a / 1e3).toFixed(0)}k` : a >= 100 ? a.toFixed(0) : a >= 1 ? a.toFixed(1) : a.toFixed(2);
-  return `${v < 0 ? '−' : ''}${s} ${unit}`;
-}
 
 /** Small area chart: faint grid, filled area, emphasised last point. Colours come from CSS tokens. */
 function spark(values: number[], cls: string, label: string) {
@@ -80,6 +75,7 @@ export class EconomyPanel {
     this.el.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-econ="close"]')) this.close();
+      if (t.closest('[data-econ="market"]')) document.dispatchEvent(new CustomEvent('open-market'));
       const at = t.closest<HTMLElement>('[data-build-at]');
       if (at) { this.actions.buildAt(Number(at.dataset.buildAt)); return; }
       const b = t.closest<HTMLElement>('[data-borders]');
@@ -149,7 +145,7 @@ export class EconomyPanel {
       </div>
       <div class="econ-body">
         ${e && mine ? this.nationHtml(e, mine.tax) : `<p class="hint">${this.game.status === 'online' ? 'Take command of a nation to manage its budget, taxes and trade. The world market and the largest economies are below.' : 'Sign in to see live economic data.'}</p>`}
-        ${this.marketHtml()}
+        ${this.worldHtml()}
         ${this.leagueHtml()}
       </div>`;
   }
@@ -169,12 +165,9 @@ export class EconomyPanel {
       warn('gas', 'Gas shortage: gas power stations falter'),
     ].filter(Boolean).join('');
     return `<section class="energy">
-      <span class="label">ELECTRICITY AND SUPPLY CHAINS</span>
-      <div class="energy-bar" role="img" aria-label="Electricity supply ${Math.round(cover * 100)}% of demand">
-        <i style="width:${Math.min(100, (en.grid / Math.max(1, en.demand)) * 100 / Math.max(1, cover))}%" class="grid"></i><i style="width:${Math.min(100, (en.plants / Math.max(1, en.demand)) * 100 / Math.max(1, cover))}%" class="plants"></i>
-      </div>
-      <p class="hint">Supply ${Math.round(cover * 100)}% of demand · national grid ${Math.round((en.grid / Math.max(1, en.demand)) * 100)}% · power stations ${Math.round((en.plants / Math.max(1, en.demand)) * 100)}%. Demand grows with the economy; the grid alone grows more slowly (faster with infrastructure spending). Armed forces burn ${en.militaryOil}bn barrels of oil a year.</p>
-      ${problems ? `<ul class="supply-warnings">${problems}</ul>` : '<p class="hint up">All supply chains running.</p>'}
+      <span class="label">GOODS, ELECTRICITY AND TRADE</span>
+      <p class="hint">Electricity supply ${Math.round(cover * 100)}% of demand.${problems ? '' : ' All supply chains running.'} Everything you make, use, buy and sell, with charts, is in the <button type="button" class="link" data-econ="market">Market</button> window.</p>
+      ${problems ? `<ul class="supply-warnings">${problems}</ul>` : ''}
     </section>
     ${this.migrationHtml(e)}
     ${this.constructionHtml()}`;
@@ -252,23 +245,10 @@ export class EconomyPanel {
           </div>
         </section>
         <section>
-          <span class="label">GOODS · PER YEAR</span>
-          <div class="table-wrap"><table class="goods">
-            <thead><tr><th scope="col">Good</th><th scope="col">Output</th><th scope="col">Use</th><th scope="col">Trade</th><th scope="col">Stock</th></tr></thead>
-            <tbody>${COMMODITIES.map((c) => this.goodRow(c, e)).join('')}</tbody>
-          </table></div>
-          <p class="hint">Surpluses are sold and shortfalls bought on the world market each day. Unmet need causes shortages, which hurt growth and stability.</p>
+          <span class="label">GOODS</span>
+          <p class="hint">Output, use, trade and stocks of every good, electricity included, with local and world charts: <button type="button" class="link" data-econ="market">open the Market</button> (key X).</p>
         </section>
       </div>`;
-  }
-
-  private goodRow(c: Commodity, e: EconomyPrivate) {
-    const g = e.goods[c], u = COMMODITY_INFO[c].unit;
-    const days = g.use > 0 ? Math.round((g.stock / g.use) * 365) : 0;
-    const trade = Math.abs(g.trade) < 1e-6 ? '—' : `<span class="${g.trade > 0 ? 'up' : 'down'}">${g.trade > 0 ? 'exports' : 'imports'} ${qty(Math.abs(g.trade), u)}</span>`;
-    return `<tr${g.short > 0.01 ? ' class="short"' : ''}>
-      <th scope="row">${COMMODITY_INFO[c].name}${g.short > 0.01 ? ` <span class="pill">short ${(g.short * 100).toFixed(0)}%</span>` : ''}</th>
-      <td>${qty(g.prod, u)}</td><td>${qty(g.use, u)}</td><td>${trade}</td><td>${days} days</td></tr>`;
   }
 
   /** What is happening to everyone: the current global event and the climate. */
@@ -280,30 +260,6 @@ export class EconomyPanel {
       ${w.event ? `<p class="down"><b>${esc(w.event.text)}</b> ${Math.max(0, w.event.until - day)} days left.</p>` : ''}
       <p class="hint">Climate: ${w.warming.toFixed(2)} °C warmer than in 2026, driven by the coal and gas the world burns.${w.warming > 0.15 ? ' Low-lying coasts are losing people to the sea; farmland is moving toward the poles.' : ' Above 0.15 °C, low coasts start to flood.'}</p>
     </div>`;
-  }
-
-  private marketHtml() {
-    const m = this.game.market;
-    if (!m) return '';
-    return `
-      <section class="market">
-        <span class="label">WORLD MARKET · DAY ${m.day}</span>
-        ${this.worldHtml()}
-        <div class="market-grid">
-          ${COMMODITIES.map((c) => {
-            const info = COMMODITY_INFO[c];
-            const rel = m.prices[c] / info.basePrice - 1;
-            // prices are $bn per stock unit (Mt, Mbbl, bcm, kt); ×1000 gives $/t, $/bbl, $/1000 m³ and $k/t
-            const per = m.prices[c] * 1000;
-            const label = c === 'oil' ? `$${per.toFixed(1)}/bbl` : c === 'gas' ? `$${per.toFixed(0)}/1000 m³` : c === 'rare_earths' ? `$${per.toFixed(1)}k/t` : `$${per.toFixed(0)}/t`;
-            return `<div class="price">
-              <span>${info.name}</span><b class="mono">${label}</b>
-              <em class="mono ${rel > 0.005 ? 'up-price' : rel < -0.005 ? 'down-price' : ''}">${pct(rel)} since day 0</em>
-              ${spark(m.history.map((h) => h.p[c]), 'c-price', `${info.name} price`)}
-            </div>`;
-          }).join('')}
-        </div>
-      </section>`;
   }
 
   private leagueHtml() {

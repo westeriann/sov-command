@@ -316,3 +316,32 @@ body.arming .maplibregl-canvas { cursor: crosshair !important; }
 
 /* the side panels scroll: their sections keep their full height instead of being squeezed to nothing */
 .left > *, .right > * { flex-shrink: 0; }
+
+/* ---- market ---- */
+.market-window .econ-head { align-items: center; gap: 16px; }
+.mk-tabs { display: flex; gap: 2px; margin-left: auto; }
+.mk-tabs button { background: linear-gradient(180deg, #2c3238, #1a1e22); border: 1px solid #4b4234; color: var(--muted); padding: 6px 14px; font: 500 13px var(--f-display); letter-spacing: 0.08em; cursor: pointer; border-radius: 1px; }
+.mk-tabs button[aria-selected="true"] { background: linear-gradient(180deg, #e0bd63, #a8853a); color: #17130c; border-color: #edd08a; }
+.market-table tbody tr { cursor: pointer; }
+.market-table tbody tr:hover { background: rgba(217, 180, 90, 0.06); }
+.market-table tbody tr.picked { background: rgba(217, 180, 90, 0.14); box-shadow: inset 3px 0 0 var(--cyan); }
+.market-table td, .market-table th { white-space: nowrap; }
+.market-chart { margin: 2px 0 6px; padding: 10px 12px 8px; border: 1px solid var(--edge-soft); background: rgba(0, 0, 0, 0.25); }
+.market-chart svg { width: 100%; height: auto; display: block; }
+.market-chart .g { stroke: rgba(255, 255, 255, 0.07); stroke-width: 1; }
+.market-chart .z { stroke: rgba(255, 255, 255, 0.28); stroke-width: 1; stroke-dasharray: 3 3; }
+.market-chart .l { fill: none; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.market-chart .ax { fill: var(--muted); font: 10px var(--f-mono); }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.chart-legend span { display: flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 12px; height: 3px; border-radius: 1px; }
+.chart-legend b { color: var(--fg); font-weight: 500; }
+.chart-empty { padding: 18px; border: 1px dashed var(--edge-soft); color: var(--muted); text-align: center; font-size: 12px; }
+.market-window .market-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.market-window .price { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; cursor: pointer; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--edge-soft); border-radius: 1px; color: var(--fg); }
+.market-window .price:hover { border-color: var(--edge); }
+.market-window .price.picked { border-color: var(--cyan); background: rgba(217, 180, 90, 0.1); }
+.market-window .price span { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.market-window .price b { font-size: 16px; }
+@media (max-width: 900px) { .market-window .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.market-window .table-wrap { max-height: none; overflow: visible; }
