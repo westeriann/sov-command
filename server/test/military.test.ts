@@ -92,6 +92,7 @@ test('production builds units over game days, paid from the defence budget', () 
   const w = setup();
   const n = w.nations.get(1)!;
   n.mil.funds = 50;
+  w.submit(1, { kind: 'policy', policy: { focus: 'economy' } }, 'human'); // base build speed (a military focus builds faster)
   assert.equal(w.submit(1, { kind: 'recruit', unit: 'infantry' }, 'human').ok, true);
   let t = Date.now();
   for (let d = 0; d < UNIT_SPECS.infantry.days - 2; d++) { t += realPerDay; w.tick(t); }
@@ -131,4 +132,18 @@ test('an order into a country we may not enter goes as close as we may', () => {
   const u = w.military.spawn(1, 'infantry', 1);
   assert.equal(w.submit(1, { kind: 'move', units: [u.id], to: 7 }, 'human').ok, true, 'not refused outright');
   assert.equal(u.goal, 4, 'heads for the border province nearest the target');
+});
+
+test('a military focus builds units sooner', () => {
+  const days = (focus: 'economy' | 'military') => {
+    const w = setup();
+    const n = w.nations.get(1)!;
+    n.mil.funds = 50;
+    w.submit(1, { kind: 'policy', policy: { focus } }, 'human');
+    w.submit(1, { kind: 'recruit', unit: 'infantry' }, 'human');
+    let t = Date.now();
+    for (let d = 1; d <= 200; d++) { t += realPerDay; w.tick(t); if (w.military.unitsOf(1).length) return d; }
+    return Infinity;
+  };
+  assert.ok(days('military') < days('economy'));
 });
