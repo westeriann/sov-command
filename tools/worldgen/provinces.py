@@ -221,13 +221,17 @@ def main():
     d, a = cKDTree(land_seeds).query(lw, k=2, workers=-1)
     labels = np.zeros(H * W, np.int32)
     # only the heart of each province is fixed; the rest is settled by the terrain below
-    core = (d[:, 1] - d[:, 0]) > 0.18 * r
+    core = (d[:, 1] - d[:, 0]) > 0.4 * r  # a small heart: most of each province is settled by rivers and ridges
     labels[land_idx[core]] = a[core, 0] + 1
     # borders follow rivers where one runs nearby (rivers are walls the flood cannot cross),
     # otherwise they settle on ridges
-    rivers = ndimage.binary_dilation(river_class >= 2, iterations=1)
-    relief = (elev.astype(np.float32) / 1500.0) + 3.0 * rivers + 0.6 * (river_class >= 4) + 0.15 * np.abs(
-        fbm(Perlin3(seed + 1002), P.T.reshape(3, H, W), 3, freq=1.0 / r))
+    # big rivers are wide walls, so a border anywhere near one snaps onto it
+    rivers = ndimage.binary_dilation(river_class >= 2, iterations=1) | ndimage.binary_dilation(river_class >= 3, iterations=2)
+    sph = P.T.reshape(3, H, W)
+    relief = ((elev.astype(np.float32) / 1500.0) + 8.0 * rivers + 2.0 * (river_class >= 4)
+              # coarse wander plus fine raggedness: borders are irregular, not straight or gently curved
+              + 0.2 * np.abs(fbm(Perlin3(seed + 1002), sph, 3, freq=1.0 / r))
+              + 0.45 * np.abs(fbm(Perlin3(seed + 1003), sph, 3, freq=5.0 / r)))
     pad = W // 8
     ws = watershed(pad_x(relief, pad), pad_x(labels.reshape(H, W), pad), mask=pad_x(land2d, pad))[:, pad:-pad]
     labels = ws.ravel().astype(np.int32)
@@ -543,7 +547,7 @@ def main():
             kind = 3
         segs_l = [tuple(s) for s in grp.tolist()]
         for line in chain(segs_l):
-            line = chaikin(rdp(line, 0.75), 2)
+            line = chaikin(rdp(line, 0.35), 1)  # keep the raggedness: light simplification, one smoothing pass
             lons = np.round(line[:, 0] / W * 360 - 180, 2)
             lats = np.round(90 - line[:, 1] / H * 180, 2)
             features.append({"type": "Feature", "properties": {"k": kind, "a": pa, "b": pb},

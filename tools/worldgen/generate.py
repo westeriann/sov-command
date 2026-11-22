@@ -215,11 +215,16 @@ def make_terrain(seed, dw):
     log("climate")
     tn, mn, vn = field(lat, lon, climate_noise)
     alat = np.abs(lat)[:, None]
-    temp = 27 - 45 * (alat / 90) ** 1.6 - 6.5 * np.clip(elev, 0, None) / 1000 + 6 * tn
     band = (0.62 * np.exp(-(alat / 13) ** 2) + 0.38 * np.exp(-((alat - 52) / 14) ** 2)
             + 0.18 - 0.22 * np.exp(-((alat - 24) / 9) ** 2))
     moist = band * (0.3 + 0.7 * np.exp(-inland_km / 1300)) + 0.32 * mn + 0.08
     moist = np.clip(moist, 0, 1)
+    # mean temperature: ~28 C at the equator, ~20 at 30 deg, ~13 at 45, ~3 at 60, ~-22 at the poles;
+    # 6.5 C colder per km of height; dry lands in the warm latitudes bake (hot deserts), humid ones are a little cooler
+    warm = np.clip(1 - alat / 50, 0, 1)
+    arid = np.clip((0.32 - moist) / 0.32, 0, 1) * land
+    temp = (28 - 50 * (alat / 90) ** 1.7 - 6.5 * np.clip(elev, 0, None) / 1000
+            + 8 * arid * warm - 2 * np.clip(moist - 0.6, 0, 1) * land + 3 * tn)
 
     cell_km2 = (km_px * km_px * coslat * np.ones((1, dw))).astype(np.float32)
     nflat = Perlin3(seed + 77)

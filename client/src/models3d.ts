@@ -278,6 +278,7 @@ export class Models3D implements CustomLayerInterface {
   private cities: City[] = [];
   private enabled = true;
   private start = performance.now();
+  private repaintQueued = false;
   /** Pixels a vehicle model spans on screen right now; 0 while models are hidden. */
   sizePx = 0;
   onSize: (px: number) => void = () => {};
@@ -461,7 +462,11 @@ export class Models3D implements CustomLayerInterface {
     this.renderer.resetState();
     this.renderer.clearDepth();
     this.renderer.render(this.scene, this.camera);
-    this.map.triggerRepaint(); // keep animating
+    // keep animating, at most ~30 frames a second, so map data still loads between frames on slower machines
+    if (!this.repaintQueued) {
+      this.repaintQueued = true;
+      window.setTimeout(() => { this.repaintQueued = false; this.map.triggerRepaint(); }, 33);
+    }
   }
 
   private drawCities(t: number, mpp: number) {

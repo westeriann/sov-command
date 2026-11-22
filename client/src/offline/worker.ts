@@ -58,7 +58,9 @@ async function start(base: string) {
   const raw = await (await fetch(`${base}world/provinces.json`)).json();
   const { seed, nations, provinces } = nationDefsFrom(raw);
   // a save made on a different map (the planet was regenerated) cannot continue: start fresh
-  const stamp = `${raw.seed}:${raw.provinces.length}:${raw.nations.length}`;
+  // where every province sits, folded into one number: any change to the map's shapes changes it
+  const shape = (raw.provinces as { label: [number, number] }[]).reduce((h, p) => (Math.imul(h, 31) + Math.round(p.label[0] * 100) * 7 + Math.round(p.label[1] * 100)) >>> 0, 7);
+  const stamp = `${raw.seed}:${raw.provinces.length}:${raw.nations.length}:${shape}`;
   let saved = await load();
   restarted = false;
   if (saved && JSON.parse(saved).meta?.mapStamp !== stamp) { saved = undefined; restarted = true; }

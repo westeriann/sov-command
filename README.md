@@ -207,6 +207,28 @@ Desktop edition (3D, single player):
   whole front costs a few dozen draw calls
 - F11 or Alt+Enter: full screen
 
+Command and control (desktop edition):
+
+- W A S D move the camera over the globe (Shift: faster); the camera no longer
+  rides up and down over the raised mountains while you drag
+- Select units and a command card shows what you have and every order, each
+  with a key: Q order (then click a province: move, attack or fly a mission),
+  H halt, T go to, L appoint a general, U stand down aircraft, Tab / Shift+Tab
+  next stack. Right-click still moves at once
+- Smarter marches: land units keep to land unless the sea saves two thirds of
+  the time, resume their march after winning a battle on the way, and an
+  order into a country you may not enter goes to the nearest province you can
+- Notifications under the date: news about your nation, urgent items (war on
+  you, occupied provinces, lost divisions, strikes, revolts, coups) in red with
+  their own alarm; alert icons in the command bar for standing problems (at
+  war, no research or an empty queue, blackouts, debt, unrest, shortages,
+  units out of supply, proposals waiting); click one to open its window
+- Hover tooltips everywhere, benefits in green and costs in red
+- A research queue of up to 8 technologies; AI nations research steadily
+- Windows keep their scroll position as the world updates
+- Keys: E economy, F ground forces, N naval ops, B air command, P diplomacy,
+  R research, K rankings, M map, C chat, G guide, ? all keys
+
 ## Run it
 
 Needs Node 20+ and Python 3.11+.
