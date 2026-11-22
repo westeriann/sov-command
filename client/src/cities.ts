@@ -143,8 +143,31 @@ function buildingIcon(type: BuildingType): ImageData {
 // icons sit in an arc below the city, in pixels
 const SLOTS: [number, number][] = [[-34, 30], [0, 38], [34, 30], [-56, 10], [56, 10], [0, 62]]; // clear of unit markers
 
+export interface CityShape { at: [number, number]; km: number; core: [number, number][][]; suburbs: [number, number][]; capital: boolean; pop: number; terrain: string }
+
 export class Cities {
   readonly at = new Map<number, [number, number]>(); // where each city stands
+  /** Each city's built-up shapes (lon/lat rings, already cut to the land), for the 3D skyline. */
+  readonly shapes = new Map<number, CityShape>();
+
+  private land(lon: number, lat: number) {
+    return this.pol.provinceAt(lat, lon)?.kind === 'land';
+  }
+
+  /** Pull each point of a ring back toward its centre until it stands on land. */
+  private onLand(lon: number, lat: number, ring: [number, number][]): [number, number][] {
+    const out = ring.map(([x, y]) => {
+      let keep = 0.15; // the centre itself is on land
+      for (let k = 1; k <= 10; k++) {
+        const t = k / 10;
+        if (!this.land(lon + (x - lon) * t, lat + (y - lat) * t)) break;
+        keep = t;
+      }
+      return [lon + (x - lon) * keep, lat + (y - lat) * keep] as [number, number];
+    });
+    out[out.length - 1] = out[0];
+    return out;
+  }
 
   /** Night lights: brightness by electricity supply (and wealth). */
   setLights(on: boolean) {
@@ -171,12 +194,16 @@ export class Cities {
       const pop = p.pop ?? 0;
       if (pop < MIN_POP && !capital) continue;
       const rand = rng(p.id * 7919);
-      // port cities sit toward the shore
+      // port cities sit toward the shore, but always on dry land
       let [lon, lat] = p.label;
       const sea = p.adj.map((q) => pol.provinces.get(q)).find((q) => q?.kind === 'sea');
       if (sea) {
         const dl = Math.max(-1.2, Math.min(1.2, (sea.label[0] - lon) * 0.3)), dt = Math.max(-1.2, Math.min(1.2, (sea.label[1] - lat) * 0.3));
-        lon += dl; lat += dt;
+        // walk toward the sea and stop well short of the water's edge
+        let last = 0;
+        for (let k = 1; k <= 12; k++) { if (!this.land(lon + (dl * k) / 12, lat + (dt * k) / 12)) break; last = k; }
+        const t = Math.max(0, last - 3) / 12;
+        lon += dl * t; lat += dt * t;
       }
       this.at.set(p.id, [lon, lat]);
       const km = (5 + 14 * Math.sqrt(pop / 1e7)) * (capital ? 1.35 : 1);
@@ -185,16 +212,21 @@ export class Cities {
       const pat = `u-${style}-${climateOf(p.terrain)}-${p.id % VARIANTS}`;
       const sprawl = `u-sprawl-${climateOf(p.terrain)}-${(p.id + 1) % VARIANTS}`;
       // a dense core, then thinner rings, so the city fades into the countryside
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35 }, geometry: { type: 'Polygon', coordinates: [blob(lon, lat, km * 1.9, rand)] } });
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45 }, geometry: { type: 'Polygon', coordinates: [blob(lon, lat, km * 1.35, rand)] } });
-      const rings = [blob(lon, lat, km * 0.8, rand)];
+      // every shape is cut back to the shore, so cities follow the coast instead of spilling into the sea
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35 }, geometry: { type: 'Polygon', coordinates: [this.onLand(lon, lat, blob(lon, lat, km * 1.9, rand))] } });
+      const suburbs = this.onLand(lon, lat, blob(lon, lat, km * 1.35, rand));
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45 }, geometry: { type: 'Polygon', coordinates: [suburbs] } });
+      const rings = [this.onLand(lon, lat, blob(lon, lat, km * 0.8, rand))];
       // suburbs and satellite towns around bigger cities
       const extra = Math.min(4, Math.floor(pop / 3e6) + (capital ? 1 : 0));
       for (let i = 0; i < extra; i++) {
         const a = rand() * Math.PI * 2, d = km * (1.1 + rand() * 0.9);
         const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
-        rings.push(blob(lon + (d / 111) * Math.cos(a) / cos, lat + (d / 111) * Math.sin(a), km * (0.25 + rand() * 0.3), rand));
+        const sx = lon + (d / 111) * Math.cos(a) / cos, sy = lat + (d / 111) * Math.sin(a);
+        if (!this.land(sx, sy)) continue; // no towns at sea
+        rings.push(this.onLand(sx, sy, blob(sx, sy, km * (0.25 + rand() * 0.3), rand)));
       }
+      this.shapes.set(p.id, { at: [lon, lat], km, core: rings, suburbs, capital, pop, terrain: p.terrain });
       rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8 }, geometry: { type: 'Polygon', coordinates: [r] } }));
       cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1), nation: p.nation ?? 0 }, geometry: { type: 'Point', coordinates: [lon, lat] } });
     }

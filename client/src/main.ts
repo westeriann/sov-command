@@ -358,7 +358,7 @@ async function start() {
   });
   forces.onSelectionChange = () => hud.refreshSelection();
   // 3D troops, cities and buildings once zoomed in; counters float above their models
-  const models = new Models3D(map, game, pol, forces, cities.at);
+  const models = new Models3D(map, game, pol, forces, cities.shapes);
   models.onSize = (px) => { forces?.setLift(px ? px * 0.8 + 12 : 0); map.setLayoutProperty('buildings', 'visibility', px && models3dOn ? 'none' : 'visible'); };
   let models3dOn = true;
   try { models3dOn = localStorage.getItem('sov.models') !== 'off'; } catch { /* storage blocked */ }

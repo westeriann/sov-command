@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BuildingType } from '../../shared/buildings';
 import { domainOf, UNIT_SPECS, UNIT_TYPES, type UnitType, type UnitView } from '../../shared/military';
+import type { CityShape } from './cities';
 import type { Forces } from './forces';
 import type { Game } from './game';
 import type { Political } from './political';
@@ -251,7 +252,17 @@ const OLIVE = new THREE.Color('#5d6b45');
 const WHITE = new THREE.Color('#ffffff');
 const _m = new THREE.Matrix4(), _l = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
 
-interface City { id: number; at: Pos; pop: number; capital: boolean; towers: { x: number; z: number; w: number; d: number; h: number; color: THREE.Color }[] }
+/** A city's buildings in metres from its centre (x east, z south), laid out once over its flat picture. */
+interface City { id: number; at: Pos; pop: number; capital: boolean; size: number; towers: { x: number; z: number; w: number; d: number; h: number; color: THREE.Color }[] }
+
+function inRing(x: number, y: number, ring: Pos[]) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
 
 export class Models3D implements CustomLayerInterface {
   id = 'models-3d';
@@ -271,13 +282,8 @@ export class Models3D implements CustomLayerInterface {
   sizePx = 0;
   onSize: (px: number) => void = () => {};
 
-  constructor(private map: MLMap, private game: Game, private pol: Political, private forces: Forces, cityAt: Map<number, Pos>) {
-    const capitals = new Set([...pol.nations.values()].map((n) => n.capital));
-    for (const [id, at] of cityAt) {
-      const p = pol.provinces.get(id);
-      if (!p) continue;
-      this.cities.push(this.planCity(id, at, p.pop ?? 0, capitals.has(id), p.terrain));
-    }
+  constructor(private map: MLMap, private game: Game, private pol: Political, private forces: Forces, shapes: Map<number, CityShape>) {
+    for (const [id, shape] of shapes) this.cities.push(this.planCity(id, shape));
   }
 
   setEnabled(on: boolean) {
@@ -286,27 +292,45 @@ export class Models3D implements CustomLayerInterface {
     if (!on) { this.sizePx = 0; this.onSize(0); }
   }
 
-  /** A city's skyline, laid out once: towers in the middle, low blocks around. */
-  private planCity(id: number, at: Pos, pop: number, capital: boolean, terrain: string): City {
+  /**
+   * A city's skyline, laid out once over its flat picture: towers in the built-up core,
+   * low blocks across the suburbs, every one inside the city's land-cut shapes.
+   */
+  private planCity(id: number, c: CityShape): City {
     const rand = rng(id * 2654435761);
-    // towns get a few low blocks; cities a skyline that grows with their people
-    const town = pop < 2.5e6 && !capital;
-    const n = town ? 3 + Math.floor(rand() * 3) : Math.min(24, 6 + Math.round(pop / 7e5));
-    const big = pop > 4e6 || capital;
-    const arid = ['desert_sand', 'desert_rock', 'savanna', 'shrubland', 'steppe'].includes(terrain);
+    const [lon0, lat0] = c.at;
+    const kx = 111_320 * Math.cos(lat0 * RAD), kz = 110_540;
+    const local = ([lon, lat]: Pos): [number, number] => [(lon - lon0) * kx, -(lat - lat0) * kz];
+    const big = c.pop > 4e6 || c.capital;
+    const arid = ['desert_sand', 'desert_rock', 'savanna', 'shrubland', 'steppe'].includes(c.terrain);
     const tones = arid ? ['#c9b48f', '#d8c7a5', '#b59f7c', '#e2d6bd'] : ['#a9a59e', '#bdb8ae', '#8f949a', '#cfc8ba', '#9aa3ab'];
+    const block = c.km * 1000 * 0.16; // footprint of one block: chunky, sized to the city
     const towers: City['towers'] = [];
-    for (let i = 0; i < n; i++) {
-      const r = Math.sqrt(rand()) * (town ? 0.28 : 0.4 + n / 60);
-      const a = rand() * Math.PI * 2;
-      const central = 1 - Math.min(1, r / 1.1);
-      const tall = big && central > 0.45 && rand() < 0.6;
-      const h = tall ? 0.45 + rand() * 0.7 * (pop > 9e6 ? 1.4 : 1) : 0.06 + rand() * 0.12 + central * 0.12;
-      const w = tall ? 0.08 + rand() * 0.05 : (town ? 0.07 : 0.08) + rand() * 0.08;
-      const color = new THREE.Color(tall && rand() < 0.5 ? GLASS : tones[Math.floor(rand() * tones.length)]);
-      towers.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, w, d: w * (0.7 + rand() * 0.6), h, color });
-    }
-    return { id, at, pop, capital, towers };
+    const sample = (ring: Pos[], n: number, place: (x: number, z: number, centrality: number) => void) => {
+      const xs = ring.map((q) => q[0]), ys = ring.map((q) => q[1]);
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      const rMax = Math.max(1, Math.hypot(...local([x1, y1])), Math.hypot(...local([x0, y0])));
+      for (let i = 0, tries = 0; i < n && tries < n * 12; tries++) {
+        const lon = x0 + rand() * (x1 - x0), lat = y0 + rand() * (y1 - y0);
+        if (!inRing(lon, lat, ring)) continue;
+        const [x, z] = local([lon, lat]);
+        place(x, z, 1 - Math.min(1, Math.hypot(x, z) / rMax));
+        i++;
+      }
+    };
+    // the core: denser and taller toward the middle
+    c.core.forEach((ring, k) => sample(ring, Math.round(Math.min(34, Math.max(5, c.km * 1.5)) * (k ? 0.35 : 1)), (x, z, central) => {
+      const tall = big && !k && central > 0.35 && rand() < 0.55;
+      const w = block * (tall ? 0.7 + rand() * 0.4 : 0.8 + rand() * 0.6);
+      const h = tall ? w * (2.2 + rand() * 2.8) * (c.pop > 9e6 ? 1.3 : 1) : w * (0.4 + rand() * 0.6 + central * 0.6);
+      towers.push({ x, z, w, d: w * (0.7 + rand() * 0.6), h, color: new THREE.Color(tall && rand() < 0.5 ? GLASS : tones[Math.floor(rand() * tones.length)]) });
+    }));
+    // suburbs: scattered low houses and sheds, outside the core
+    sample(c.suburbs, Math.round(Math.min(30, Math.max(4, c.km * 1.2))), (x, z) => {
+      const w = block * (0.45 + rand() * 0.35);
+      towers.push({ x, z, w, d: w * (0.7 + rand() * 0.6), h: w * (0.5 + rand() * 0.6), color: new THREE.Color(tones[Math.floor(rand() * tones.length)]) });
+    });
+    return { id, at: c.at, pop: c.pop, capital: c.capital, size: block, towers };
   }
 
   onAdd(map: MLMap, gl: WebGLRenderingContext | WebGL2RenderingContext) {
@@ -425,7 +449,7 @@ export class Models3D implements CustomLayerInterface {
     const t = (performance.now() - this.start) / 1000;
     for (const k of this.meshes.keys()) this.counts.set(k, 0);
 
-    this.drawCities(unit * 1.25, t);
+    this.drawCities(t, mpp);
     this.drawBuildings(unit * 1.05, t);
     this.drawForces(unit * 1.6, t, px * 1.6);
 
@@ -440,20 +464,21 @@ export class Models3D implements CustomLayerInterface {
     this.map.triggerRepaint(); // keep animating
   }
 
-  private drawCities(unit: number, t: number) {
+  private drawCities(t: number, mpp: number) {
     for (const city of this.cities) {
       const [lon, lat] = city.at;
       if (!this.visible(lon, lat)) continue;
-      this.at(lon, lat, unit);
+      this.at(lon, lat, 1); // the city in real metres, on its flat picture
+      // zoomed out, blocks swell in place (never move) so the city still reads; up close they are true to size
+      const g = Math.min(2.5, Math.max(1, (4 * mpp) / city.size));
       for (const b of city.towers) {
-        this.put('tower', b.x, 0, b.z, 0, b.w, b.h, b.d, b.color);
-        if (b.h > 0.45) this.put('roofCap', b.x, 0, b.z, 0, b.w, b.h, b.d);
+        this.put('tower', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g, b.color);
+        if (b.h > b.w * 2.5) this.put('roofCap', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g);
       }
-      if (city.capital) this.put('dome', 0, 0, 0.05, 0.3, 0.32, 0.32, 0.32);
-      // traffic of light along the ground is too small to see: a slow blink of rooftop beacons instead
+      if (city.capital) { const s = city.size * 2.2; this.put('dome', 0, 0, 0, 0.3, s, s, s); }
       if (city.pop > 4e6 && Math.sin(t * 3 + city.id) > 0.6) {
         const top = city.towers.reduce((m, x) => (x.h > m.h ? x : m), city.towers[0]);
-        this.put('flash', top.x, top.h + 0.02, top.z, 0, 0.015, 0.015, 0.015, new THREE.Color('#ff4a3a'));
+        if (top) { const s = city.size * 0.15; this.put('flash', top.x, top.h + s, top.z, 0, s, s, s, new THREE.Color('#ff4a3a')); }
       }
     }
   }
