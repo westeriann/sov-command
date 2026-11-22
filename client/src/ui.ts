@@ -38,7 +38,7 @@ export interface HudActions {
   signIn(): void;
   signOut(): void;
   toggleEconomy(): void;
-  toggleForces(): void;
+  toggleForces(view?: 'land' | 'sea' | 'air'): void;
   toggleDiplomacy(): void;
   toggleResearch(): void;
   toggleRankings(): void;
@@ -368,12 +368,13 @@ export class Hud {
     const prov = t.closest<HTMLElement>('[data-province]:not([data-act])'); // action buttons carry a province too
     if (prov) return this.events.onSelectProvince(Number(prov.dataset.province));
     const mod = t.closest<HTMLElement>('[data-module]')?.dataset.module;
-    if (mod === 'navy' || mod === 'air') { if (this.openPanel !== 'army') this.actions.toggleForces(); return; }
+    const arms = { army: 'land', navy: 'sea', air: 'air' } as const;
+    if (mod === 'army' || mod === 'navy' || mod === 'air') { this.actions.toggleForces(arms[mod]); return; }
+    if (mod === 'map' && (this.openPanel === 'army' || this.openPanel === 'navy' || this.openPanel === 'air')) { this.actions.toggleForces(arms[this.openPanel]); return; }
     if (mod === 'diplomacy' || (mod === 'map' && this.openPanel === 'diplomacy')) { this.actions.toggleDiplomacy(); return; }
     if (mod === 'research' || (mod === 'map' && this.openPanel === 'research')) { this.actions.toggleResearch(); return; }
     if (mod === 'rankings' || (mod === 'map' && this.openPanel === 'rankings')) { this.actions.toggleRankings(); return; }
-    if (mod === 'economy' || mod === 'map' || mod === 'army') {
-      if (mod === 'army' || (mod === 'map' && this.openPanel === 'army')) this.actions.toggleForces();
+    if (mod === 'economy' || mod === 'map') {
       if (mod === 'economy' || (mod === 'map' && this.openPanel === 'economy')) this.actions.toggleEconomy();
       return;
     }
@@ -476,10 +477,10 @@ export class Hud {
     b.setAttribute('aria-pressed', String(on));
   }
 
-  private openPanel: 'economy' | 'army' | 'diplomacy' | 'research' | 'rankings' | null = null;
+  private openPanel: 'economy' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null = null;
 
   /** Highlight the module whose window is open (or the map when none is). */
-  setOpenPanel(panel: 'economy' | 'army' | 'diplomacy' | 'research' | 'rankings' | null) {
+  setOpenPanel(panel: 'economy' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null) {
     this.openPanel = panel;
     this.root.querySelectorAll<HTMLElement>('[data-module]').forEach((b) => {
       const active = b.dataset.module === (panel ?? 'map');

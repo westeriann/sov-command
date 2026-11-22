@@ -120,14 +120,14 @@ async function start() {
       economy.toggle();
       hud.setOpenPanel(economy.isOpen ? 'economy' : null);
     },
-    toggleForces: () => {
+    toggleForces: (view = 'land') => {
       if (!forces) return;
       economy.close();
       diplomacy?.close();
       research?.close();
       rankings?.close();
-      forces.toggle();
-      hud.setOpenPanel(forces.isOpen ? 'army' : null);
+      forces.toggle(view);
+      hud.setOpenPanel(forces.isOpen ? ({ land: 'army', sea: 'navy', air: 'air' } as const)[forces.view] : null);
     },
     worlds: () => void lobby?.open(),
     account: () => account.openChangePassword(),

@@ -200,9 +200,26 @@ body { font: 13px/1.45 var(--f-body); background: var(--space); }
   .brand { flex: none; }
   .resources { flex-wrap: nowrap; overflow: hidden; min-width: 0; }
   .resources div { min-width: 0; padding: 3px 8px 4px; white-space: nowrap; }
+  .resources div { flex: none; } /* never squeeze a figure into its neighbour: drop whole boxes instead */
   .resources b { font-size: 14px; }
   .clock { flex-wrap: nowrap; white-space: nowrap; flex: none; }
   .clock .date { font-size: 15px; padding: 3px 10px; }
 }
 @media (max-width: 1900px) { .speed { display: none; } }
 @media (max-width: 1500px) { .brand .sub { display: none; } .title { font-size: 16px; } }
+
+/* narrower screens: short resource labels so they never run into each other */
+@media (max-width: 1500px) {
+  .resources b { font-size: 13px; }
+  .resources b i, .clock .status { display: none; }
+  .clock .date { font-size: 13px; letter-spacing: 0.04em; }
+}
+@media (max-width: 1300px) {
+  .brand .title { font-size: 14px; letter-spacing: 0.1em; }
+  .clock [data-act="worlds"], .clock [data-act="alerts"] { display: none; }
+}
+/* figures leave the bar from the least urgent; the Economy window has them all */
+@media (max-width: 1440px) { .resources div:nth-child(5) { display: none; } }
+@media (max-width: 1300px) { .resources div:nth-child(4) { display: none; } }
+@media (max-width: 1200px) { .resources div:nth-child(3) { display: none; } }
+@media (max-width: 1150px) { .resources div:nth-child(2) { display: none; } }

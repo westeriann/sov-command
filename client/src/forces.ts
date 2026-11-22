@@ -26,6 +26,12 @@ export const ICON: Record<UnitType, string> = {
   bombers: '<path d="M12 2l1.4 5V9l9.6 4v2l-9.6-2v4l3 2.5V21L12 20l-4.4 1v-1.5l3-2.5v-4L1 15v-2l9.6-4V7z"/><path d="M5 14h2v2H5zM17 14h2v2h-2z"/>',
 };
 const DOMAIN_NAMES: Record<Domain, string> = { land: 'LAND', sea: 'SEA', air: 'AIR' };
+/** The forces window has a view per arm: its title, what its units are called, and how to use them. */
+const VIEWS: Record<Domain, { title: string; units: string; none: string; where: string; empty: string }> = {
+  land: { title: 'GROUND FORCES', units: 'div', none: 'Take command of a nation to raise and move armies.', where: 'ARMIES BY LOCATION', empty: 'No divisions yet: recruit some above.' },
+  sea: { title: 'NAVAL OPS', units: 'ships', none: 'Take command of a nation to build fleets.', where: 'FLEETS BY LOCATION', empty: 'No fleets yet: recruit ships above. They put to sea from a coastal province.' },
+  air: { title: 'AIR COMMAND', units: 'wings', none: 'Take command of a nation to raise an air force.', where: 'AIR WINGS BY BASE', empty: 'No air wings yet: recruit some above. Air bases let them fly 30% farther.' },
+};
 
 function circle(center: [number, number], km: number): [number, number][] {
   const pts: [number, number][] = [];
@@ -114,7 +120,17 @@ export class Forces {
 
   set onSelectionChange(fn: () => void) { this.onSelect = fn; }
   get isOpen() { return !this.panel.hidden; }
-  toggle() { this.panel.hidden = !this.panel.hidden; if (!this.panel.hidden) this.renderPanel(); }
+  /** Which arm the window shows. */
+  view: Domain = 'land';
+  /** Open the window on an arm, or close it if that arm is already showing. */
+  toggle(view: Domain = 'land') {
+    if (!this.panel.hidden && this.view === view) { this.panel.hidden = true; return; }
+    this.view = view;
+    this.panel.setAttribute('aria-label', VIEWS[view].title.toLowerCase());
+    this.panel.hidden = false;
+    this.lastPanel = '';
+    this.renderPanel();
+  }
   close() { this.panel.hidden = true; }
 
   // ---- markers --------------------------------------------------------------------
@@ -391,21 +407,23 @@ export class Forces {
   renderPanel() {
     const mine = this.game.mine;
     const mil = mine?.mil;
-    const name = mine ? this.pol.nations.get(mine.id)?.name ?? '' : 'Ground forces';
+    const view = VIEWS[this.view];
+    const name = mine ? this.pol.nations.get(mine.id)?.name ?? '' : view.title.charAt(0) + view.title.slice(1).toLowerCase();
     if (!mine || !mil) {
       this.lastPanel = '';
-      this.panel.innerHTML = `<div class="econ-head"><div><span class="label">GROUND FORCES</span><h2>${esc(name)}</h2></div><button type="button" class="link" data-f="close">Close</button></div>
-        <div class="econ-body"><p class="hint">Take command of a nation to raise and move armies.</p></div>`;
+      this.panel.innerHTML = `<div class="econ-head"><div><span class="label">${view.title}</span><h2>${esc(name)}</h2></div><button type="button" class="link" data-f="close">Close</button></div>
+        <div class="econ-body"><p class="hint">${view.none}</p></div>`;
       return;
     }
     const units = this.game.units.filter((u) => u.nation === mine.id);
+    const armUnits = units.filter((u) => domainOf(u.type) === this.view);
     const byProv = new Map<number, UnitView[]>();
-    for (const u of units) { const k = u.next ?? u.province; byProv.set(k, [...(byProv.get(k) ?? []), u]); }
+    for (const u of armUnits) { const k = u.next ?? u.province; byProv.set(k, [...(byProv.get(k) ?? []), u]); }
     const wars = this.game.war.wars.filter((w) => w.a === mine.id || w.b === mine.id);
     const day = this.game.market?.day ?? 0;
     const sel = units.filter((u) => this.selected.has(u.id));
     const html = `
-      <div class="econ-head"><div><span class="label">GROUND FORCES</span><h2>${esc(name)}</h2></div><button type="button" class="link" data-f="close">Close</button></div>
+      <div class="econ-head"><div><span class="label">${view.title}</span><h2>${esc(name)}</h2></div><button type="button" class="link" data-f="close">Close</button></div>
       <div class="econ-body">
         <div class="econ-kpis">
           <div><span>Forces</span><b>${units.length}</b><em>${(['land', 'sea', 'air'] as Domain[]).map((d) => `${units.filter((u) => domainOf(u.type) === d).length} ${d}`).join(' · ')}</em></div>
@@ -432,17 +450,17 @@ export class Forces {
         <div class="econ-cols">
           <section>
             <span class="label">RECRUIT</span>
-            ${UNIT_TYPES.map((t, i) => { const s = UNIT_SPECS[t]; return `
-              ${i === 0 || UNIT_SPECS[UNIT_TYPES[i - 1]].domain !== s.domain ? `<span class="label sub">${DOMAIN_NAMES[s.domain]}</span>` : ''}
+            ${UNIT_TYPES.filter((t) => UNIT_SPECS[t].domain === this.view).map((t, i) => { const s = UNIT_SPECS[t]; return `
+              ${i === 0 ? `<span class="label sub">${DOMAIN_NAMES[s.domain]}</span>` : ''}
               <div class="recruit">
                 <div><b class="recruit-name"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${s.name}</b>${UNIT_ROLE[t] ? `<span>${UNIT_ROLE[t]}</span>` : ''}<span class="mono">attack ${s.attack} · defense ${s.defense} · ${s.range ? `radius ${s.range} km` : `${s.speed} km/day`}</span>
                 <span class="mono">${money(s.cost)} · ${s.days} days (~${Math.round((s.days * 10) / 60)} min) · ${(s.men / 1e3).toFixed(0)}k men · upkeep ${money(s.upkeep)}/yr</span></div>
                 <button type="button" class="claim primary" data-f="recruit" data-type="${t}" ${mil.manpower < s.men || mil.queue.length >= 10 || (UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never)) ? 'disabled' : ''}>${UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never) ? 'Needs research' : 'Recruit'}</button>
               </div>`; }).join('')}
-            ${mine.research?.done.includes('orbital_recon') ? `<span class="label sub">SPACE</span>
+            ${this.view === 'air' && mine.research?.done.includes('orbital_recon') ? `<span class="label sub">SPACE</span>
               <div class="recruit"><div><b>Satellites in orbit: ${mil.satellites}</b><span class="mono">$10bn a launch · while you have one, you see every unit of nations you are at war with (not submarines)</span></div>
               <button type="button" class="claim" data-f="satellite" ${mil.funds < 10 ? 'disabled' : ''}>Launch</button></div>` : ''}
-            ${mine.research?.done.includes('nuclear') ? `<span class="label sub">STRATEGIC</span>
+            ${this.view === 'air' && mine.research?.done.includes('nuclear') ? `<span class="label sub">STRATEGIC</span>
               <div class="recruit"><div><b>Nuclear warheads: ${mil.warheads}</b><span class="mono">$40bn each · strike from an enemy province's panel</span></div>
               <button type="button" class="claim danger" data-f="warhead" ${mil.funds < 40 ? 'disabled' : ''}>Build</button></div>` : ''}
             <span class="label">PRODUCTION QUEUE</span>
@@ -461,10 +479,11 @@ export class Forces {
               return `<div class="war-row"><div><b>${esc(n?.name ?? String(foe))}</b><span class="mono">${day - w.since} days · we hold ${ours} of theirs, they hold ${theirs} of ours</span></div>
                 <button type="button" class="claim${offered ? ' primary' : ''}" data-f="peace" data-target="${foe}">${offered ? 'Accept peace' : 'Offer peace'}</button></div>`;
             }).join('') : '<p class="hint">At peace. Declare war from a nation\'s panel: click its territory, then "Declare war".</p>'}
-            <span class="label">ARMIES BY LOCATION</span>
+            <span class="label">${view.where}</span>
+            ${byProv.size ? '' : `<p class="hint">${view.empty}</p>`}
             <div class="table-wrap"><table class="league"><tbody>
               ${[...byProv].map(([p, us]) => `<tr><th scope="row"><button type="button" class="link" data-f="goto" data-province="${p}">${esc(this.pol.provinces.get(p)?.name ?? String(p))}</button></th>
-                <td>${us.length} div</td><td>${Math.round(us.reduce((s, u) => s + u.strength, 0) / us.length)}%</td>
+                <td>${us.length} ${view.units}</td><td>${Math.round(us.reduce((s, u) => s + u.strength, 0) / us.length)}%</td>
                 <td>${us.some((u) => u.status === 'fighting') ? '<span class="down">fighting</span>' : us.some((u) => u.status === 'moving') ? 'moving' : 'holding'}</td></tr>`).join('')}
             </tbody></table></div>
           </section>
