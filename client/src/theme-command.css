@@ -223,3 +223,9 @@ body { font: 13px/1.45 var(--f-body); background: var(--space); }
 @media (max-width: 1300px) { .resources div:nth-child(4) { display: none; } }
 @media (max-width: 1200px) { .resources div:nth-child(3) { display: none; } }
 @media (max-width: 1150px) { .resources div:nth-child(2) { display: none; } }
+
+/* research queue */
+.tech.queued { border-color: rgba(217, 180, 90, 0.6); border-style: dashed; }
+.tech .actions-row { gap: 6px; margin-top: 4px; align-items: center; }
+.tech .actions-row .claim { padding: 5px 9px; font-size: 12px; }
+.tech .actions-row em { color: var(--cyan); font-style: normal; font-size: 11px; }

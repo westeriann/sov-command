@@ -35,7 +35,7 @@ import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import {
-  GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
+  GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
   type Effects, type Government, type ResearchPrivate, type TechId,
 } from '../../shared/research.ts';
 import {
@@ -82,7 +82,7 @@ export interface NationState {
   reports?: string[]; // intelligence reports for the player
   spyOps?: { target: number; mission: SpyMission; day: number }[];
   intel?: Record<number, number>; // nation -> game day our view of its forces lasts until
-  tech: { current?: TechId; partial: Partial<Record<TechId, number>>; done: TechId[] };
+  tech: { current?: TechId; partial: Partial<Record<TechId, number>>; done: TechId[]; queue?: TechId[] };
   gov: { government: Government; reformUntil?: number; reformedAt?: number; nextElection?: number; oppositionUntil?: number };
 }
 
@@ -421,7 +421,7 @@ export class World {
   private researchView(n: NationState): ResearchPrivate {
     return {
       current: n.tech.current, progress: Math.round(n.tech.current ? n.tech.partial[n.tech.current] ?? 0 : 0),
-      rate: Math.round(this.researchRate(n) * 10) / 10, done: [...n.tech.done], government: n.gov.government,
+      rate: Math.round(this.researchRate(n) * 10) / 10, done: [...n.tech.done], queue: [...(n.tech.queue ?? [])], government: n.gov.government,
       reformUntil: n.gov.reformUntil, reformedAt: n.gov.reformedAt, nextElection: n.gov.nextElection, oppositionUntil: n.gov.oppositionUntil,
     };
   }
@@ -919,6 +919,27 @@ export class World {
         const pre = prerequisite(t);
         if (pre && !n.tech.done.includes(pre.id)) return fail('not_allowed', `Research ${pre.name} first.`);
         n.tech.current = t.id; // progress on any other tech is kept for later
+        n.tech.queue = (n.tech.queue ?? []).filter((q) => q !== t.id);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'research_queue': {
+        const t = TECH_BY_ID.get(order.tech);
+        if (!t) return fail('bad_request', 'Unknown technology.');
+        const queue = n.tech.queue ?? [];
+        if (order.remove) {
+          // anything later in the queue that needed it goes too
+          const gone = new Set([t.id]);
+          n.tech.queue = queue.filter((q) => { const pre = prerequisite(TECH_BY_ID.get(q)!); if (gone.has(q) || (pre && gone.has(pre.id))) { gone.add(q); return false; } return true; });
+          this.touch(n, false);
+          return ok;
+        }
+        if (n.tech.done.includes(t.id) || n.tech.current === t.id || queue.includes(t.id)) return fail('not_allowed', 'Already researched or lined up.');
+        if (queue.length >= MAX_RESEARCH_QUEUE) return fail('not_allowed', `The queue holds ${MAX_RESEARCH_QUEUE} technologies.`);
+        const pre = prerequisite(t);
+        if (pre && !n.tech.done.includes(pre.id) && n.tech.current !== pre.id && !queue.includes(pre.id)) return fail('not_allowed', `Line up ${pre.name} first.`);
+        if (!n.tech.current && (!pre || n.tech.done.includes(pre.id))) n.tech.current = t.id; // nothing under way: start at once
+        else n.tech.queue = [...queue, t.id];
         this.touch(n, false);
         return ok;
       }
@@ -2036,7 +2057,11 @@ export class World {
           n.tech.current = undefined;
           this.effectCache.delete(n.id);
           if (human) this.event('research', n.id, `${name}: researchers complete ${t.name} (${t.text}).`);
-          if (n.controller === 'ai' || n.autopilot) n.tech.current = this.brain.pickResearch(n);
+          // the next in the queue whose prerequisite is now known
+          const queue = n.tech.queue ?? [];
+          const next = queue.find((q) => { const pre = prerequisite(TECH_BY_ID.get(q)!); return !pre || n.tech.done.includes(pre.id); });
+          if (next) { n.tech.current = next; n.tech.queue = queue.filter((q) => q !== next); }
+          else if (n.controller === 'ai' || n.autopilot) n.tech.current = this.brain.pickResearch(n);
           this.touch(n, human);
         } else n.tech.partial[cur] = p;
       } else if (n.controller === 'ai' || n.autopilot) n.tech.current = this.brain.pickResearch(n);

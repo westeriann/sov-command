@@ -1,6 +1,6 @@
 // The R&D window: the technology tree and the form of government.
 import {
-  BRANCHES, BRANCH_NAMES, GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, TECHS, TIER_COST, prerequisite,
+  BRANCHES, BRANCH_NAMES, GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, TECHS, TIER_COST, prerequisite,
   type Government, type TechId,
 } from '../../shared/research';
 import type { Game } from './game';
@@ -10,6 +10,7 @@ import { keepScrollOn } from './keep-scroll';
 
 export interface ResearchActions {
   research(tech: TechId): void;
+  queue(tech: TechId, remove?: boolean): void;
   government(g: Government): void;
   propaganda(mode: PropagandaMode, target?: number): void;
 }
@@ -40,6 +41,8 @@ export class ResearchPanel {
     const r = act.dataset.r;
     if (r === 'close') { this.close(); document.dispatchEvent(new CustomEvent('research-closed')); }
     else if (r === 'tech') this.actions.research(act.dataset.tech as TechId);
+    else if (r === 'queue') this.actions.queue(act.dataset.tech as TechId);
+    else if (r === 'unqueue') this.actions.queue(act.dataset.tech as TechId, true);
     else if (r === 'prop') {
       const mode = act.dataset.mode as PropagandaMode;
       const target = mode === 'abroad' ? Number((this.panel.querySelector('#propTarget') as HTMLSelectElement).value) : undefined;
@@ -101,6 +104,7 @@ export class ResearchPanel {
         <div class="econ-kpis">
           <div><span>Researching</span><b>${cur ? esc(cur.name) : '—'}</b><em>${cur ? `${Math.round((r.progress / TIER_COST[cur.tier]) * 100)}% · ~${Math.ceil((TIER_COST[cur.tier] - r.progress) / Math.max(0.1, r.rate))} days (${time((TIER_COST[cur.tier] - r.progress) / Math.max(0.1, r.rate))})` : 'choose a technology below'}</em></div>
           <div><span>Research rate</span><b>${r.rate}</b><em>points a day · raise the research budget in Economy</em></div>
+          <div><span>Queue</span><b>${(r.queue ?? []).length} / ${MAX_RESEARCH_QUEUE}</b><em>${(r.queue ?? []).length ? (r.queue ?? []).map((q, i) => `${i + 1}. ${esc(TECHS.find((t) => t.id === q)!.name)}`).join(' → ') : cur ? 'nothing lined up: research stops after this one' : 'line up technologies below'}</em></div>
           <div><span>Technologies</span><b>${r.done.length} / ${TECHS.length}</b><em>bonuses are permanent</em></div>
           <div><span>Government</span><b>${esc(gov.name)}</b><em>${reforming ? `reform under way · ${r.reformUntil! - day} days left` : cooldown ? `next reform in ${cooldown} days` : 'reform possible'}${r.nextElection !== undefined && r.government === 'democracy' ? ` · election in ${Math.max(0, r.nextElection - day)} days` : ''}${(r.oppositionUntil ?? -1) > day ? ` · opposition parliament for ${r.oppositionUntil! - day} days` : ''}</em></div>
         </div>
@@ -109,10 +113,15 @@ export class ResearchPanel {
             ${TECHS.filter((t) => t.branch === b).map((t) => {
               const done = r.done.includes(t.id), active = r.current === t.id;
               const pre = prerequisite(t), locked = !!pre && !r.done.includes(pre.id);
-              return `<div class="tech${done ? ' done' : ''}${active ? ' active' : ''}">
+              const queue = r.queue ?? [], slot = queue.indexOf(t.id);
+              // can line it up once its prerequisite is known, under way, or already in the queue
+              const queueable = !pre || r.done.includes(pre.id) || r.current === pre.id || queue.includes(pre.id);
+              return `<div class="tech${done ? ' done' : ''}${active ? ' active' : ''}${slot >= 0 ? ' queued' : ''}">
                 <b>${esc(t.name)}</b><span class="mono">Tier ${t.tier} · ${TIER_COST[t.tier].toLocaleString('en-US')} pts</span><span>${esc(t.text)}</span>
                 ${done ? '<em>Researched</em>' : active ? `<div class="bar"><i style="width:${Math.round((r.progress / TIER_COST[t.tier]) * 100)}%"></i></div>`
-                  : `<button type="button" class="claim" data-r="tech" data-tech="${t.id}" ${locked ? 'disabled' : ''}>${locked ? `Needs ${esc(pre!.name)}` : 'Research'}</button>`}
+                  : slot >= 0 ? `<div class="actions-row"><em>Queued #${slot + 1}</em><button type="button" class="claim" data-r="unqueue" data-tech="${t.id}">Remove</button></div>`
+                  : `<div class="actions-row">${locked ? '' : `<button type="button" class="claim primary" data-r="tech" data-tech="${t.id}">Research now</button>`}
+                     <button type="button" class="claim" data-r="queue" data-tech="${t.id}" ${queueable && queue.length < MAX_RESEARCH_QUEUE ? '' : 'disabled'}>${queueable ? 'Queue' : `Needs ${esc(pre!.name)}`}</button></div>`}
               </div>`;
             }).join('')}</section>`).join('')}
         </div>

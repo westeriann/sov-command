@@ -26,6 +26,10 @@ function report(label: string) {
   console.log(`${label}: GDP $${(gdp / 1000).toFixed(1)}T, pop ${(pop / 1e9).toFixed(2)}bn, per person $${Math.round(pcs[0])} / $${Math.round(pcs[mid])} / $${Math.round(pcs[pcs.length - 1])}`);
   console.log(`   stability min ${stab[0].toFixed(0)} median ${stab[mid].toFixed(0)} max ${stab[stab.length - 1].toFixed(0)}; ${short} nations short of goods; ${debt} in debt`);
   console.log(`   prices vs start: ${prices}`);
+  { const live = [...w.nations.values()].filter((n) => !n.annexedBy && !n.born);
+    const done = live.map((n) => n.tech.done.length).sort((x, y) => x - y);
+    const rates = live.map((n) => w.researchRate(n)).sort((x, y) => x - y);
+    console.log(`   research: techs known min ${done[0]} median ${done[Math.floor(done.length / 2)]} max ${done[done.length - 1]} (of 13); ${live.filter((n) => !n.tech.current).length} idle; points/day median ${rates[Math.floor(rates.length / 2)].toFixed(1)}`); }
   const m = w.military;
   const by = (d: string) => [...m.units.values()].filter((u) => ['infantry','mechanized','armored'].includes(u.type) === (d === 'land') && (d === 'land' || (d === 'sea') === ['destroyers','submarines','carrier'].includes(u.type))).length;
   console.log(`   forces: ${by('land')} land, ${by('sea')} naval, ${by('air')} air; ${m.wars.length} wars now; ${m.occupied.size} provinces occupied`);

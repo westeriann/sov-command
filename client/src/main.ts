@@ -267,6 +267,7 @@ async function start() {
   game.on((c) => { if (c.has('me') && game.me) tutorial?.maybeStart(); }); // first visit: after signing in
   research = new ResearchPanel(hudRoot, game, pol, {
     research: (tech) => conn.send({ t: 'order', order: { kind: 'research', tech } }),
+    queue: (tech, remove) => conn.send({ t: 'order', order: { kind: 'research_queue', tech, remove } }),
     government: (government) => conn.send({ t: 'order', order: { kind: 'government', government } }),
     propaganda: (mode, target) => conn.send({ t: 'order', order: { kind: 'propaganda', mode, target } }),
   });

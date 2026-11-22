@@ -33,8 +33,10 @@ export interface Tech {
   text: string;
 }
 
-/** Research points per tier. At the default 15% research budget a tier-1 tech takes about 2 game months (10 real minutes). */
-export const TIER_COST = { 1: 2000, 2: 4500, 3: 9000, 4: 15000 } as const;
+/** Research points per tier. At the default 15% research budget a tier-1 tech takes about 5 game weeks (6 real minutes). */
+export const TIER_COST = { 1: 1200, 2: 2700, 3: 5400, 4: 9000 } as const;
+/** Technologies a nation can line up after the current one. */
+export const MAX_RESEARCH_QUEUE = 8;
 
 export const TECHS: Tech[] = [
   { id: 'automation', name: 'Industrial automation', branch: 'economy', tier: 1, effects: { growth: 0.002 }, text: '+0.2% growth a year' },
@@ -76,6 +78,7 @@ export interface ResearchPrivate {
   progress: number; // points into the current tech
   rate: number; // points per game day right now
   done: TechId[];
+  queue?: TechId[]; // next in line, in order
   government: Government;
   reformUntil?: number; // game day the current reform ends
   reformedAt?: number; // game day of the last reform

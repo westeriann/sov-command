@@ -168,6 +168,7 @@ export type Order =
   | { kind: 'answer'; from: number; deal: DealKind; accept: boolean }
   | { kind: 'cancel'; target: number; pact: Pact }
   | { kind: 'research'; tech: TechId }
+  | { kind: 'research_queue'; tech: TechId; remove?: boolean } // line up (or take out) a technology after the current one
   | { kind: 'build'; province: number; building: BuildingType }
   | { kind: 'general'; unit: number }
   | { kind: 'missile'; province: number }

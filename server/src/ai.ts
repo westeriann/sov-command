@@ -39,11 +39,11 @@ const ALLY_WILL: Record<Personality, number> = { expansionist: 0.2, trader: 0.35
 const WARINESS: Record<Personality, number> = { expansionist: 0.05, trader: 0.03, turtle: 0.12, opportunist: 0.15, idealist: 0.02 };
 const SWITCH_MARGIN = 0.12; // hysteresis: avoid flip-flopping between foci
 const BUDGETS: Record<Personality, Budget> = {
-  expansionist: { military: 40, infrastructure: 25, welfare: 25, research: 10 },
-  trader: { military: 10, infrastructure: 40, welfare: 35, research: 15 },
-  turtle: { military: 30, infrastructure: 25, welfare: 35, research: 10 },
-  opportunist: { military: 25, infrastructure: 30, welfare: 30, research: 15 },
-  idealist: { military: 8, infrastructure: 25, welfare: 42, research: 25 },
+  expansionist: { military: 40, infrastructure: 22, welfare: 22, research: 16 },
+  trader: { military: 10, infrastructure: 37, welfare: 32, research: 21 },
+  turtle: { military: 30, infrastructure: 22, welfare: 32, research: 16 },
+  opportunist: { military: 25, infrastructure: 27, welfare: 27, research: 21 },
+  idealist: { military: 8, infrastructure: 22, welfare: 39, research: 31 },
 };
 const BUDGET_STEP = 4; // only rebalance when a share is this far off
 

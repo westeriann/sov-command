@@ -121,3 +121,29 @@ test('season missions: three goals per player; completing one pays points and ca
   awarded.push('champion');
   assert.equal(w.submit(1, { kind: 'customize', flag: eagle }, 'human').ok, true);
 });
+
+test('a research queue starts the next technology when one finishes, once its prerequisite is known', async () => {
+  const { World } = await import('../src/world.ts');
+  const { openDb } = await import('../src/db.ts');
+  const { DAY } = await import('../../shared/clock.ts');
+  const provinces = [1, 2].map((id) => ({ id, kind: 'land' as const, label: [id, 0] as [number, number], terrain: 'grassland', adj: [3 - id], owner: id, pop: 1e7, name: `P${id}` }));
+  const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2 } };
+  const w = new World(openDb(':memory:'), 1, [
+    { id: 1, name: 'A', short: 'A', capital: 1, neighbours: [2], provinces: 1, pop: 4e7, area: 1e5, seed },
+    { id: 2, name: 'B', short: 'B', capital: 2, neighbours: [1], provinces: 1, pop: 4e7, area: 1e5, seed },
+  ], { speed: 8640, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 0, autopilotAfterMs: 1e12, releaseAfterMs: 1e12 }, provinces);
+  w.claim({ id: 1, name: 'alice', guest: false }, 1);
+  assert.equal(w.submit(1, { kind: 'research_queue', tech: 'automation' }, 'human').ok, true, 'empty: starts at once');
+  assert.equal(w.submit(1, { kind: 'research_queue', tech: 'logistics_ai' }, 'human').ok, true, 'its follow-up can be lined up');
+  assert.equal(w.submit(1, { kind: 'research_queue', tech: 'fusion_grid' }, 'human').ok, true);
+  assert.equal(w.submit(1, { kind: 'research_queue', tech: 'stealth' }, 'human').ok, false, 'not without its prerequisite');
+  const n = w.nations.get(1)!;
+  assert.equal(n.tech.current, 'automation');
+  assert.deepEqual(n.tech.queue, ['logistics_ai', 'fusion_grid']);
+  w.submit(1, { kind: 'research_queue', tech: 'logistics_ai', remove: true }, 'human');
+  assert.deepEqual(n.tech.queue, [], 'removing one drops what depended on it');
+  w.submit(1, { kind: 'research_queue', tech: 'logistics_ai' }, 'human');
+  for (let d = 1; d <= 400 && !n.tech.done.includes('automation'); d++) w.tick(Date.now() + (DAY / 8640) * d);
+  assert.ok(n.tech.done.includes('automation'));
+  assert.equal(n.tech.current, 'logistics_ai', 'the queue moved on by itself');
+});
