@@ -9,6 +9,7 @@ import type { Game } from './game';
 import { seasonSlow } from '../../shared/seasons';
 import type { Political } from './political';
 import { keepScrollOn } from './keep-scroll';
+import { attr, tip } from './tooltip';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 /** Filled silhouettes (24×24), drawn in the nation's contrast colour. */
@@ -192,7 +193,10 @@ export class Forces {
       m.el.style.setProperty('--nation', nation?.color ?? '#888');
       const summary = counts.map(([t, c]) => `${c} ${UNIT_SPECS[t].name.toLowerCase()}`).join(', ');
       m.el.setAttribute('aria-label', `${nation?.short ?? ''} forces: ${summary}; ${strength}% strength${general ? `; led by ${general.name} (skill ${general.skill})` : ''}${cutOff ? '; OUT OF SUPPLY' : ''}`);
-      m.el.title = `${nation?.name ?? ''}\n${counts.map(([t, c]) => `${c} × ${UNIT_SPECS[t].name}`).join('\n')}\nStrength ${strength}%`;
+      m.el.removeAttribute('title');
+      m.el.dataset.tip = tip(`${nation?.name ?? ''} forces`, ...counts.map(([t, c]) => `${c} × ${UNIT_SPECS[t].name}`),
+        [`Strength ${strength}%`, strength >= 60 ? 'good' : 'bad'], cutOff ? ['Out of supply: weaker, losing strength', 'bad'] : null,
+        general ? [`Led by ${general.name} (skill ${general.skill})`, 'good'] : null, side === 'own' ? 'Click to select · right-click a province to move' : side === 'enemy' ? ['Enemy', 'bad'] : null);
       const extras = counts.filter(([t]) => t !== lead).slice(0, 3);
       const inner = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[lead]}</svg>`
         + (units.length > 1 ? `<b>${units.length}</b>` : '')
@@ -454,7 +458,7 @@ export class Forces {
             <span class="label">RECRUIT</span>
             ${UNIT_TYPES.filter((t) => UNIT_SPECS[t].domain === this.view).map((t, i) => { const s = UNIT_SPECS[t]; return `
               ${i === 0 ? `<span class="label sub">${DOMAIN_NAMES[s.domain]}</span>` : ''}
-              <div class="recruit">
+              <div class="recruit" data-tip="${attr(tip(s.name, UNIT_ROLE[t] ?? null, [`Attack ${s.attack}, defense ${s.defense}`, 'good'], s.range ? `Combat radius ${s.range} km` : `Moves ${s.speed} km a day`, [`Costs ${money(s.cost)} and ${(s.men / 1e3).toFixed(0)}k reservists`, 'bad'], [`Upkeep ${money(s.upkeep)} a year`, 'bad'], `Ready in ${s.days} game days`))}">
                 <div><b class="recruit-name"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${s.name}</b>${UNIT_ROLE[t] ? `<span>${UNIT_ROLE[t]}</span>` : ''}<span class="mono">attack ${s.attack} · defense ${s.defense} · ${s.range ? `radius ${s.range} km` : `${s.speed} km/day`}</span>
                 <span class="mono">${money(s.cost)} · ${s.days} days (~${Math.round((s.days * 10) / 60)} min) · ${(s.men / 1e3).toFixed(0)}k men · upkeep ${money(s.upkeep)}/yr</span></div>
                 <button type="button" class="claim primary" data-f="recruit" data-type="${t}" ${mil.manpower < s.men || mil.queue.length >= 10 || (UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never)) ? 'disabled' : ''}>${UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never) ? 'Needs research' : 'Recruit'}</button>

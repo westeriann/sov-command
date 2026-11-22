@@ -361,6 +361,7 @@ export class World {
     if (!n) return effectsOf('democracy', []);
     e = effectsOf(n.gov.government, n.tech.done, n.gov.reformUntil !== undefined);
     if (n.gov.government === 'democracy' && this.military.enemiesOf(nation).length) e.stability -= 5; // war weariness
+    if (n.policy.focus === 'military') { e.build += 0.2; e.manpower += 0.15; } // a war footing: faster arms output, more men called up
     if ((n.gov.oppositionUntil ?? -1) > this.market.day) { e.growth -= 0.002; e.stability += 3; } // a new government's honeymoon
     // society: how well the government suits the people, what the factions think, propaganda at home
     if (n.soc) {
@@ -778,6 +779,7 @@ export class World {
         }
         const focusChanged = next.focus !== n.policy.focus;
         n.policy = next;
+        if (focusChanged) this.effectCache.delete(n.id);
         if (focusChanged && actor === 'human') {
           this.event('policy', n.id, `The ${this.defs.get(n.id)!.name} shifts its national focus to ${next.focus}.`);
         }

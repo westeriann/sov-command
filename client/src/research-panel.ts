@@ -7,6 +7,7 @@ import type { Game } from './game';
 import { FACTIONS, FACTION_INFO, PROPAGANDA_COST, type PropagandaMode } from '../../shared/society';
 import type { Political } from './political';
 import { keepScrollOn } from './keep-scroll';
+import { attr, effectLines, tip } from './tooltip';
 
 export interface ResearchActions {
   research(tech: TechId): void;
@@ -116,7 +117,8 @@ export class ResearchPanel {
               const queue = r.queue ?? [], slot = queue.indexOf(t.id);
               // can line it up once its prerequisite is known, under way, or already in the queue
               const queueable = !pre || r.done.includes(pre.id) || r.current === pre.id || queue.includes(pre.id);
-              return `<div class="tech${done ? ' done' : ''}${active ? ' active' : ''}${slot >= 0 ? ' queued' : ''}">
+              const tipText = tip(t.name, ...effectLines(t.text), `Tier ${t.tier} · ${TIER_COST[t.tier].toLocaleString('en-US')} research points`, pre ? `Needs ${pre.name}` : null);
+              return `<div class="tech${done ? ' done' : ''}${active ? ' active' : ''}${slot >= 0 ? ' queued' : ''}" data-tip="${attr(tipText)}">
                 <b>${esc(t.name)}</b><span class="mono">Tier ${t.tier} · ${TIER_COST[t.tier].toLocaleString('en-US')} pts</span><span>${esc(t.text)}</span>
                 ${done ? '<em>Researched</em>' : active ? `<div class="bar"><i style="width:${Math.round((r.progress / TIER_COST[t.tier]) * 100)}%"></i></div>`
                   : slot >= 0 ? `<div class="actions-row"><em>Queued #${slot + 1}</em><button type="button" class="claim" data-r="unqueue" data-tech="${t.id}">Remove</button></div>`
@@ -128,7 +130,7 @@ export class ResearchPanel {
         ${this.societyHtml()}
         <span class="label">FORM OF GOVERNMENT</span>
         <div class="gov-grid">
-          ${GOVERNMENTS.map((g) => `<div class="tech${g === r.government ? ' active' : ''}"><b>${esc(GOVERNMENT_INFO[g].name)}</b><span>${esc(GOVERNMENT_INFO[g].text)}</span>
+          ${GOVERNMENTS.map((g) => `<div class="tech${g === r.government ? ' active' : ''}" data-tip="${attr(tip(GOVERNMENT_INFO[g].name, ...effectLines(GOVERNMENT_INFO[g].text), g === r.government ? null : ['Reform: 30 days of turmoil, −10 stability', 'bad']))}"><b>${esc(GOVERNMENT_INFO[g].name)}</b><span>${esc(GOVERNMENT_INFO[g].text)}</span>
             ${g === r.government ? '<em>Current</em>' : `<button type="button" class="claim" data-r="gov" data-gov="${g}" ${reforming || cooldown ? 'disabled' : ''}>Reform</button>`}</div>`).join('')}
         </div>
         <p class="hint">A reform takes 30 game days (5 minutes) of turmoil, −10 stability meanwhile, and the next is possible a game year later. Stability below 25 risks a coup or revolution. Random national events (booms, strikes, disasters, scandals, breakthroughs) appear in Dispatches.</p>

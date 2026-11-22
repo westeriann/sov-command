@@ -13,6 +13,7 @@ import type { Change, Game } from './game';
 import { WEALTH_STOPS, type MapMode } from './map';
 import { RESOURCE_NAMES, type Nation, type Political, type Province, type ResourceId } from './political';
 import { BIOME_INFO, formatLatLon, type BiomeId, type Sample, type World } from './world';
+import { attr, effectLines, tip } from './tooltip';
 
 export interface HudEvents {
   onMode(mode: MapMode, opacity: number): void;
@@ -77,6 +78,32 @@ const MODULES: [string, string, string | null][] = [
   ['R&D', 'research', null],
   ['Rankings', 'rankings', null],
 ];
+
+/** What each window is for, shown when hovering its button. */
+const MODULE_TIPS: Record<string, string> = {
+  map: tip('Theatre map', 'Close windows and look at the map', 'Key: M'),
+  economy: tip('Economy', 'Budget, taxes, trade, energy and the world market', 'Key: E'),
+  army: tip('Ground forces', 'Recruit divisions and see your armies', 'Key: F'),
+  navy: tip('Naval ops', 'Build fleets and see where they are', 'Key: N'),
+  air: tip('Air command', 'Raise air wings, satellites and strategic weapons', 'Key: B'),
+  diplomacy: tip('Diplomacy', 'Treaties, alliances, proposals, spies and the world council', 'Key: P'),
+  research: tip('R&D and government', 'Technologies, the research queue, society and reforms', 'Key: R'),
+  rankings: tip('Rankings', 'Scores, leaderboards, comparisons and map replays', 'Key: K'),
+};
+const RESOURCE_TIPS: Record<string, string> = {
+  gdp: tip('Gross domestic product', 'The size of your economy each year, and its growth', 'Taxes on it pay for everything else'),
+  defence: tip('Defence budget', 'Money a year for building and keeping your forces', 'Set the military share in Economy'),
+  fuel: tip('Fuel reserve', 'Days of oil your forces have in store', ['Running out: forces fight up to 40% weaker', 'bad']),
+  munitions: tip('Munitions', 'Ammunition stocks for battle', ['Empty: units fight much weaker', 'bad']),
+  reservists: tip('Reservists', 'Trained men free to form new units'),
+  approval: tip('Approval (stability)', 'How content your people are', ['Below 25: coups and revolutions become possible', 'bad']),
+};
+const FOCUS_TIPS: Record<string, string> = {
+  economy: tip('Economy focus', ['+0.6% growth a year', 'good']),
+  military: tip('Military focus', ['Units built 20% faster', 'good'], ['+15% reservists', 'good'], ['−0.3% growth a year', 'bad']),
+  research: tip('Research focus', ['Research 25% faster', 'good'], ['+0.2% growth a year', 'good']),
+  diplomacy: tip('Diplomacy focus', ['+3 stability', 'good'], ['+0.2% growth a year', 'good'], ['Other nations trust you more', 'good']),
+};
 
 const RESOURCES: [string, string][] = [
   ['gdp', 'GDP'], ['defence', 'Defence budget'], ['fuel', 'Fuel reserve'],
@@ -185,7 +212,7 @@ export class Hud {
           </div>
         </div>
         <div class="resources mono" aria-label="National resources">
-          ${RESOURCES.map(([id, r]) => `<div><span>${r.toUpperCase()}</span><b id="res-${id}">—</b></div>`).join('')}
+          ${RESOURCES.map(([id, r]) => `<div data-tip="${attr(RESOURCE_TIPS[id] ?? r)}"><span>${r.toUpperCase()}</span><b id="res-${id}">—</b></div>`).join('')}
         </div>
         <div class="clock">
           <button type="button" class="status mono" id="status"></button>
@@ -204,7 +231,7 @@ export class Hud {
       <nav class="panel left" aria-label="Command modules">
         <span class="label">MODULES</span>
         ${MODULES.map(([name, id, stage]) => `
-          <button type="button" class="module${id === 'map' ? ' active' : ''}" data-module="${id}" ${stage ? 'disabled' : ''} ${id === 'map' ? 'aria-current="page"' : ''}>
+          <button type="button" class="module${id === 'map' ? ' active' : ''}" data-module="${id}" data-tip="${attr(MODULE_TIPS[id] ?? '')}" ${stage ? 'disabled' : ''} ${id === 'map' ? 'aria-current="page"' : ''}>
             <span>${name.toUpperCase()}</span>${stage ? `<em>${stage}</em>` : ''}
           </button>`).join('')}
         <span class="label sep">MAP MODE</span>
@@ -584,7 +611,7 @@ export class Hud {
         <button type="button" class="link" data-act="customize">Name, colour and flag…</button>
         <span class="label">NATIONAL FOCUS</span>
         <div class="seg focus" role="group" aria-label="National focus">
-          ${FOCI.map((f) => `<button type="button" data-act="focus" data-focus="${f}" aria-pressed="false">${FOCUS_NAMES[f]}</button>`).join('')}
+          ${FOCI.map((f) => `<button type="button" data-act="focus" data-focus="${f}" aria-pressed="false" data-tip="${attr(FOCUS_TIPS[f])}">${FOCUS_NAMES[f]}</button>`).join('')}
         </div>
         <div class="slider">
           <label for="tax"><span>TAX RATE</span><output id="taxOut"></output></label>
@@ -797,7 +824,7 @@ export class Hud {
       ${nuked ? '<p class="hint down">Struck by a nuclear weapon: a third of its people are gone.</p>' : ''}
       ${list.length ? `<div class="bars">${list.map((b) => `<span>${BUILDINGS[b.type].name}</span><div class="bar"><i style="width:${Math.round(b.progress * 100)}%"></i></div><span class="mono">${b.progress >= 1 ? 'ready' : `${Math.round(b.progress * 100)}%`}</span>`).join('')}</div>` : '<p class="hint">None yet.</p>'}
       ${mine ? `<div class="actions-row">${g.mine?.mil?.rally === p.id ? `<button type="button" class="claim" data-act="rally">Clear rally point</button>` : `<button type="button" class="claim" data-act="rally" data-province="${p.id}" title="New land units march here when they are ready">Set rally point here</button>`}</div>` : ''}
-      ${mine && missing.length ? `<div class="build-list">${missing.map((t) => `<button type="button" class="claim" data-act="build" data-province="${p.id}" data-building="${t}" title="${BUILDINGS[t].text}">
+      ${mine && missing.length ? `<div class="build-list">${missing.map((t) => `<button type="button" class="claim" data-act="build" data-province="${p.id}" data-building="${t}" data-tip="${attr(tip(BUILDINGS[t].name, ...effectLines(BUILDINGS[t].text), [`Costs $${BUILDINGS[t].cost}bn from the treasury`, 'bad'], `Takes ${BUILDINGS[t].days} game days to build`))}">
         <b>${BUILDINGS[t].name}</b><span class="mono">$${BUILDINGS[t].cost}bn · ${BUILDINGS[t].days} days</span><span>${BUILDINGS[t].text}</span></button>`).join('')}</div>` : ''}`;
   }
 
