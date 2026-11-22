@@ -276,6 +276,7 @@ export class Models3D implements CustomLayerInterface {
   counts = new Map<Kind, number>();
   private sun = new THREE.DirectionalLight('#fff4e0', 2.2);
   private cities: City[] = [];
+  private cityById = new Map<number, City>();
   private enabled = true;
   private start = performance.now();
   private repaintQueued = false;
@@ -285,6 +286,7 @@ export class Models3D implements CustomLayerInterface {
 
   constructor(private map: MLMap, private game: Game, private pol: Political, private forces: Forces, shapes: Map<number, CityShape>) {
     for (const [id, shape] of shapes) this.cities.push(this.planCity(id, shape));
+    this.cityById = new Map(this.cities.map((c) => [c.id, c]));
   }
 
   setEnabled(on: boolean) {
@@ -415,10 +417,14 @@ export class Models3D implements CustomLayerInterface {
 
   // ---- what is visible ----------------------------------------------------------
   private centre = new THREE.Vector3();
+  /** The camera, in the globe's own space (the planet is a unit sphere there). */
+  private eye = new THREE.Vector3();
   private visible(lon: number, lat: number) {
     if (!this.flat) {
+      // above the horizon: seen from the camera, the point faces us (its normal points at the eye)
       const la = lat * RAD, lo = lon * RAD;
-      if (Math.sin(lo) * Math.cos(la) * this.centre.x + Math.sin(la) * this.centre.y + Math.cos(lo) * Math.cos(la) * this.centre.z < 0.35) return false;
+      const x = Math.sin(lo) * Math.cos(la), y = Math.sin(la), z = Math.cos(lo) * Math.cos(la);
+      if (x * this.eye.x + y * this.eye.y + z * this.eye.z < 1.0005) return false;
     }
     const p = this.map.project([lon, lat]);
     const c = this.map.getCanvas();
@@ -439,19 +445,21 @@ export class Models3D implements CustomLayerInterface {
     { const la = c.lat * RAD, lo = c.lng * RAD; this.centre.set(Math.sin(lo) * Math.cos(la), Math.sin(la), Math.cos(lo) * Math.cos(la)); }
     this.frame(c.lng, c.lat, 0, this.origin);
     this.originInv.copy(this.origin).invert();
-    this.camera.projectionMatrix.fromArray(args.defaultProjectionData.mainMatrix as unknown as number[]).multiply(this.origin);
+    const main = new THREE.Matrix4().fromArray(args.defaultProjectionData.mainMatrix as unknown as number[]);
+    // the eye is where the projection sends to infinity: main * eye = (0, 0, c, 0)
+    { const e = new THREE.Vector4(0, 0, 1, 0).applyMatrix4(main.clone().invert()); this.eye.set(e.x / e.w, e.y / e.w, e.z / e.w); }
+    this.camera.projectionMatrix.copy(main).multiply(this.origin);
     this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
     this.sun.position.set(-0.6, 1, -0.5).multiplyScalar(1e6); // from the north-west, like the hill shading
 
-    // metres per pixel here, measured on screen
-    const a = this.map.project([c.lng, c.lat]), b = this.map.project([c.lng + 0.5 / Math.max(0.2, Math.cos(c.lat * RAD)), c.lat]);
-    const mpp = 55_660 / Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+    // metres per pixel at the view centre, from the zoom alone: tilting or turning the camera never changes model sizes
+    const mpp = (40_075_016.686 * Math.cos(c.lat * RAD)) / (512 * 2 ** z);
     const unit = px * mpp; // metres in one model unit
     const t = (performance.now() - this.start) / 1000;
     for (const k of this.meshes.keys()) this.counts.set(k, 0);
 
     this.drawCities(t, mpp);
-    this.drawBuildings(unit * 1.05, t);
+    this.drawBuildings(t, mpp);
     this.drawForces(unit * 1.6, t, px * 1.6);
 
     for (const [k, mesh] of this.meshes) {
@@ -488,22 +496,36 @@ export class Models3D implements CustomLayerInterface {
     }
   }
 
-  private drawBuildings(unit: number, t: number) {
+  /** Building models are this many metres across: about the size of a few city blocks. */
+  private static BUILDING_M = 3200;
+
+  private drawBuildings(t: number, mpp: number) {
+    const unitM = Models3D.BUILDING_M;
+    // like city blocks: swell in place when zoomed out, never move, true size up close
+    const g = Math.min(2.5, Math.max(1, (5 * mpp) / unitM));
     for (const [pid, list] of Object.entries(this.game.war.buildings)) {
       const done = list.filter((x) => x.progress >= 1).map((x) => x.type);
       if (!done.length) continue;
-      const p = this.pol.provinces.get(Number(pid));
-      if (!p || !this.visible(p.label[0], p.label[1])) continue;
+      const id = Number(pid);
+      const p = this.pol.provinces.get(id);
+      if (!p) continue;
+      const city = this.cityById.get(id);
+      const [lon0, lat0] = city?.at ?? p.label;
+      if (!this.visible(lon0, lat0)) continue;
+      // a ring just outside the built-up area, in fixed metres, on land
+      const ring = (city ? city.size / 0.16 * 0.9 : 0) + unitM * 1.2;
       const types = [...new Set(done)];
+      const kx = 111_320 * Math.max(0.2, Math.cos(lat0 * RAD));
       types.forEach((type, i) => {
-        // around the province's point, clear of the troops and the city
-        const ang = 3.6 + i * 0.95;
-        const r = 1.45 + Math.floor(i / 6) * 0.7;
-        const [lon, lat] = p.label;
-        const dLon = (Math.cos(ang) * r * unit) / (111_320 * Math.max(0.2, Math.cos(lat * RAD)));
-        const dLat = (Math.sin(ang) * r * unit) / 110_540;
-        this.at(lon + dLon, lat + dLat, unit);
-        this.drawBuilding(type, done.filter((x) => x === type).length, t, Number(pid) * 31 + i);
+        for (let k = 0; k < 8; k++) {
+          const ang = 3.6 + (i + k * 0.37) * 0.95;
+          const r = ring + Math.floor(i / 6) * unitM * 1.4;
+          const lon = lon0 + (Math.cos(ang) * r) / kx, lat = lat0 + (Math.sin(ang) * r) / 110_540;
+          if (k < 7 && this.pol.provinceAt(lat, lon)?.kind !== 'land' && type !== 'port') continue; // try another spot on land
+          this.at(lon, lat, unitM * g);
+          this.drawBuilding(type, done.filter((x) => x === type).length, t, id * 31 + i);
+          break;
+        }
       });
     }
   }

@@ -268,8 +268,18 @@ export class Forces {
   private renderRoutes() {
     const mine = this.game.mine?.id;
     const own = this.game.units.filter((u) => u.nation === mine);
+    // keep each step within 180 degrees of the last, so a route over the date line takes the short way
+    const unwrap = (pts: [number, number][]) => {
+      const out: [number, number][] = [];
+      for (const [lon, lat] of pts) {
+        let x = lon;
+        if (out.length) { const prev = out[out.length - 1][0]; while (x - prev > 180) x -= 360; while (x - prev < -180) x += 360; }
+        out.push([x, lat]);
+      }
+      return out;
+    };
     const line = (k: string, sel: boolean, coordinates: [number, number][]) =>
-      ({ type: 'Feature' as const, properties: { k, sel }, geometry: { type: 'LineString' as const, coordinates } });
+      ({ type: 'Feature' as const, properties: { k, sel }, geometry: { type: 'LineString' as const, coordinates: unwrap(coordinates) } });
     const features = [
       ...own.filter((u) => u.next !== undefined).map((u) =>
         line('route', this.selected.has(u.id), [u.province, u.next!, ...(u.path ?? [])].map((p) => this.label(p)))),

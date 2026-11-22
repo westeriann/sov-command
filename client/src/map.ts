@@ -231,7 +231,7 @@ export class GameMap {
       center: [40, 20],
       zoom: 2.1,
       minZoom: 0.6,
-      maxZoom: max + 1.5,
+      maxZoom: max + 0.6, // just past the photo's full detail: further in only blurs it
       maxPitch: 70,
       // the camera stays at sea level instead of riding up and down over the raised mountains
       centerClampedToGround: false,

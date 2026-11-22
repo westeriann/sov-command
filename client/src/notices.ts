@@ -28,7 +28,7 @@ const ICONS: Record<string, string> = {
 };
 export const icon = (name: string) => `<svg viewBox="0 0 16 16" aria-hidden="true">${ICONS[name] ?? ''}</svg>`;
 
-export interface NoticeActions { openModule(id: string): void; goToNation(id: number): void }
+export interface NoticeActions { openModule(id: string): void; goToNation(id: number): void; goToProvince(id: number): void }
 
 export class Notices {
   private list: Notice[] = [];
@@ -54,6 +54,11 @@ export class Notices {
         try { localStorage.setItem('sov.notices', this.open ? 'open' : 'closed'); } catch { /* storage blocked */ }
         this.render();
       } else if (t.closest('[data-n="clear"]')) { this.list = []; this.unread = 0; this.render(); }
+      else {
+        const li = t.closest<HTMLElement>('[data-key]');
+        const n = li && this.list.find((x) => x.key === li.dataset.key);
+        if (n) this.follow(n);
+      }
     });
 
     // alert icons live in the command bar, just before the clock
@@ -122,6 +127,24 @@ export class Notices {
     this.render();
   }
 
+  /** Open the window a notice is about, and look at the place it names. */
+  private follow(n: Notice) {
+    const t = n.text;
+    const module = n.kind === 'war' ? 'army'
+      : n.kind === 'diplomacy' || n.kind === 'peace' ? 'diplomacy'
+      : n.kind === 'research' ? 'research'
+      : /completed in|blackout|power|market|trade|budget|tax/i.test(t) ? 'economy'
+      : /mission|achievement|points/i.test(t) ? 'rankings'
+      : n.kind === 'politics' ? 'research' : 'economy';
+    this.actions.openModule(module);
+    // the longest province name the text mentions, if any
+    let best: { id: number; len: number } | null = null;
+    for (const p of this.pol.provinces.values()) {
+      if (p.name.length >= 3 && p.name.length > (best?.len ?? 0) && new RegExp(`\\b${p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)) best = { id: p.id, len: p.name.length };
+    }
+    if (best) this.actions.goToProvince(best.id);
+  }
+
   private render() {
     this.el.classList.toggle('open', this.open);
     this.el.hidden = !this.game.mine;
@@ -134,7 +157,7 @@ export class Notices {
         <span class="latest">${!this.open && latest ? esc(latest.text) : ''}</span><i class="chev">${this.open ? '▴' : '▾'}</i>
       </button>
       ${this.open ? `<ol class="notices-list" data-keep-scroll>
-        ${this.list.length ? this.list.map((n) => `<li class="lv-${n.level}"><time class="mono">${date(n.at)}</time><span>${esc(n.text)}</span></li>`).join('')
+        ${this.list.length ? this.list.map((n) => `<li class="lv-${n.level}" data-key="${esc(n.key)}" role="button" tabindex="0" title="Open"><time class="mono">${date(n.at)}</time><span>${esc(n.text)}</span></li>`).join('')
           : '<li class="empty-row">Nothing yet. News about your nation appears here.</li>'}
       </ol><div class="notices-foot"><button type="button" class="link" data-n="clear">Clear</button></div>` : ''}`;
     document.documentElement.style.setProperty('--notices-h', `${this.el.hidden ? 0 : this.el.offsetHeight + 8}px`);

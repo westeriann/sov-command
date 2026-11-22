@@ -308,6 +308,7 @@ async function start() {
   new Notices(hudRoot, game, pol, sound, {
     openModule: (id) => { if (!hudRoot.querySelector(`.left [data-module="${id}"].active`)) hudRoot.querySelector<HTMLElement>(`.left [data-module="${id}"]`)?.click(); },
     goToNation: (id) => { const n = pol.nations.get(id); const p = n && pol.provinces.get(n.capital); if (p) select(p.label[1], p.label[0], true); },
+    goToProvince: (id) => { const p = pol.provinces.get(id); if (p) select(p.label[1], p.label[0], true); },
   }, notify);
   game.on((c) => {
     if (c.has('nations')) {

@@ -311,3 +311,8 @@ body { font: 13px/1.45 var(--f-body); background: var(--space); }
 .uc-hint { margin: 0; font-size: 12px; color: var(--cyan); }
 body.arming .maplibregl-canvas { cursor: crosshair !important; }
 @media (max-width: 760px) { .unit-card { bottom: 66px; } .uc-str { display: none; } }
+.notices-list li[data-key] { cursor: pointer; }
+.notices-list li[data-key]:hover { background: rgba(217, 180, 90, 0.08); }
+
+/* the side panels scroll: their sections keep their full height instead of being squeezed to nothing */
+.left > *, .right > * { flex-shrink: 0; }
