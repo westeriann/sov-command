@@ -29,6 +29,7 @@ import './theme-command.css';
 import { EconomyPanel } from './economy-panel';
 import { Forces } from './forces';
 import { Models3D } from './models3d';
+import { UnitCard } from './unit-card';
 import { Game } from './game';
 import { LoginDialog } from './login';
 import { GameMap } from './map';
@@ -261,7 +262,7 @@ async function start() {
   shortcuts.innerHTML = `<span class="label">KEYBOARD</span><dl>
     <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>R</dt><dd>Research &amp; government</dd>
     <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd>
-    <dt>Esc</dt><dd>Close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
+    <dt>Q</dt><dd>Selected units: give an order, then click a province</dd><dt>H T L U</dt><dd>Selected units: halt, go to, appoint a general, stand down aircraft</dd><dt>Tab</dt><dd>Next army, fleet or air wing (Shift: back)</dd><dt>Esc</dt><dd>Cancel an order, close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
   hudRoot.appendChild(shortcuts);
   hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.module, .claim, [data-r], [data-d]')) sound.play('click'); });
   // phones: picking a module closes the menu sheet
@@ -346,7 +347,13 @@ async function start() {
     satellite: () => conn.send({ t: 'order', order: { kind: 'satellite' } }),
     goToProvince: goTo,
   });
-  forces.onSelectionChange = () => hud.refreshSelection();
+  const card = new UnitCard(hudRoot, map, game, pol, forces, {
+    halt: (units) => conn.send({ t: 'order', order: { kind: 'halt', units } }),
+    standDown: (units) => conn.send({ t: 'order', order: { kind: 'mission', units, mission: null } }),
+    general: (unit) => conn.send({ t: 'order', order: { kind: 'general', unit } }),
+    toast: (text) => hud.toast(text),
+  });
+  forces.onSelectionChange = () => { hud.refreshSelection(); card.render(); };
   // 3D troops, cities and buildings once zoomed in; counters float above their models
   const models = new Models3D(map, game, pol, forces, cities.shapes);
   models.onSize = (px) => { forces?.setLift(px ? px * 0.8 + 12 : 0); map.setLayoutProperty('buildings', 'visibility', px && models3dOn ? 'none' : 'visible'); };
@@ -430,7 +437,11 @@ async function start() {
     hud.hover(world.sample(lat, lon), pol.provinceAt(lat, lon));
   });
   map.on('mouseout', () => hud.hover(null));
-  map.on('click', (e) => select(e.lngLat.lat, e.lngLat.wrap().lng));
+  map.on('click', (e) => {
+    // an armed order (Q on the command card) goes where you click
+    if (card.mapClick(pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng) ?? null)) return;
+    select(e.lngLat.lat, e.lngLat.wrap().lng);
+  });
 
   // join the world if a server is running; otherwise stay in offline preview
   if (localWorld) {

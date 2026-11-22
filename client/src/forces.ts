@@ -308,6 +308,16 @@ export class Forces {
     if (!this.panel.hidden) this.renderPanel();
   }
 
+  /** Select these units of ours (the command card's Tab). */
+  selectUnits(ids: number[]) {
+    const me = this.game.mine?.id;
+    this.selected = new Set(this.game.units.filter((u) => u.nation === me && ids.includes(u.id)).map((u) => u.id));
+    this.openStack = null;
+    this.render();
+    this.onSelect();
+    if (!this.panel.hidden) this.renderPanel();
+  }
+
   /** Select your units standing in a province. */
   selectAt(province: number) {
     const me = this.game.mine?.id;
