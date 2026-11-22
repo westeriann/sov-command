@@ -1,7 +1,7 @@
 // Interface sound, synthesised with Web Audio (no audio files to download).
 // Quiet, short cues for things that happen to your own nation.
 
-export type Cue = 'click' | 'notice' | 'war' | 'peace' | 'research' | 'alert' | 'battle';
+export type Cue = 'click' | 'notice' | 'war' | 'peace' | 'research' | 'alert' | 'battle' | 'urgent';
 
 const KEY = 'sov.sound';
 
@@ -64,6 +64,14 @@ export class Sound {
         this.tone(ctx, 110, 0, 0.6, 'sawtooth', 0.08, 55);
         this.tone(ctx, 220, 0.05, 0.4, 'square', 0.03, 110);
         this.tone(ctx, 98, 0.45, 0.7, 'sawtooth', 0.07, 49);
+        break;
+      case 'urgent':
+        // a klaxon: three rising-falling two-tone wails, unmistakable for anything else
+        for (let i = 0; i < 3; i++) {
+          this.tone(ctx, 620, i * 0.42, 0.2, 'square', 0.05, 900);
+          this.tone(ctx, 900, i * 0.42 + 0.2, 0.2, 'square', 0.05, 620);
+        }
+        this.tone(ctx, 82, 0, 1.2, 'sawtooth', 0.05, 60);
         break;
       case 'battle': this.tone(ctx, 90, 0, 0.25, 'sawtooth', 0.05, 40); this.tone(ctx, 70, 0.18, 0.3, 'sawtooth', 0.04, 35); break;
     }

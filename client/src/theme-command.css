@@ -229,3 +229,58 @@ body { font: 13px/1.45 var(--f-body); background: var(--space); }
 .tech .actions-row { gap: 6px; margin-top: 4px; align-items: center; }
 .tech .actions-row .claim { padding: 5px 9px; font-size: 12px; }
 .tech .actions-row em { color: var(--cyan); font-style: normal; font-size: 11px; }
+
+/* ---- notifications, under the date on the right ---- */
+.notices { position: absolute; top: calc(var(--bar-h) + 14px); right: var(--gap); width: 320px; z-index: 6; padding: 0; display: flex; flex-direction: column; }
+@media (max-width: 1100px) { .notices { width: 280px; } }
+@media (min-width: 761px) {
+  .right { top: calc(var(--bar-h) + 14px + var(--notices-h, 0px)); max-height: calc(100% - var(--bar-h) - 90px - var(--notices-h, 0px)); }
+}
+.notices-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; background: none; border: 0; cursor: pointer; text-align: left; min-width: 0;
+}
+.notices-head svg { width: 15px; height: 15px; color: var(--cyan); flex: none; }
+.notices-head .label { flex: none; }
+.notices-head .latest { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.notices-head .chev { font-style: normal; color: var(--muted); flex: none; }
+.notices-head .badge { flex: none; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--cyan); color: #17130c; font: 600 11px/18px var(--f-display); text-align: center; }
+.notices-head.urgent .badge { background: var(--red); color: #fff; }
+.notices-head.urgent svg { color: var(--red); }
+.notices.flash { animation: notice-flash 0.6s ease-out 3; }
+@keyframes notice-flash { 50% { box-shadow: 0 0 0 2px var(--red), 0 0 22px rgba(216, 72, 58, 0.8); } }
+.notices-list { list-style: none; margin: 0; padding: 4px 12px 6px; max-height: min(320px, 40vh); overflow-y: auto; border-top: 1px solid var(--edge-soft); display: flex; flex-direction: column; gap: 2px; }
+.notices-list li { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 5px 0 5px 8px; border-left: 3px solid transparent; font-size: 12px; line-height: 1.35; }
+.notices-list li + li { border-top: 1px solid rgba(255, 255, 255, 0.04); }
+.notices-list time { color: var(--muted); font-size: 10px; padding-top: 2px; }
+.notices-list .lv-urgent { border-left-color: var(--red); background: rgba(216, 72, 58, 0.1); }
+.notices-list .lv-urgent span { color: #ffc3ba; font-weight: 600; }
+.notices-list .lv-important { border-left-color: var(--cyan); }
+.notices-list .lv-info span { color: var(--muted); }
+.notices-list .empty-row { display: block; color: var(--muted); border: 0; }
+.notices-foot { display: flex; justify-content: flex-end; padding: 2px 12px 8px; }
+@media (max-width: 760px) { .notices { left: var(--gap); right: var(--gap); width: auto; top: calc(var(--bar-h) + 8px); } }
+
+/* ---- alert icons in the command bar ---- */
+.alert-icons { display: flex; gap: 6px; flex: none; margin-left: auto; }
+.alert-icons:empty { display: none; }
+.alert-icon {
+  width: 28px; height: 28px; display: grid; place-items: center; padding: 0; cursor: pointer; border-radius: 2px;
+  background: linear-gradient(180deg, #2c3238, #1a1e22); border: 1px solid #5a4e3a;
+}
+.alert-icon svg { width: 16px; height: 16px; }
+.alert-icon.warn { color: #f0b54e; border-color: rgba(240, 181, 78, 0.55); }
+.alert-icon.bad { color: #ff7a6a; border-color: rgba(216, 72, 58, 0.7); animation: alert-pulse 2.4s ease-in-out infinite; }
+.alert-icon:hover { filter: brightness(1.25); }
+@keyframes alert-pulse { 50% { box-shadow: 0 0 10px rgba(216, 72, 58, 0.65); } }
+.alert-icons:not(:empty) + .clock { margin-left: 10px; }
+@media (prefers-reduced-motion: reduce) { .alert-icon.bad, .notices.flash { animation: none; } }
+
+/* ---- tooltips ---- */
+.tooltip {
+  position: fixed; z-index: 1000; max-width: 300px; padding: 8px 11px; pointer-events: none;
+  background: linear-gradient(180deg, #262c31, #16191c); border: 1px solid var(--edge); border-radius: 2px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6); font: 12px/1.45 var(--f-body); color: var(--fg);
+}
+.tooltip b { display: block; font: 500 13px/1.3 var(--f-display); letter-spacing: 0.04em; color: #f1e7cf; margin-bottom: 2px; }
+.tip-good { color: #8fd17a; }
+.tip-bad { color: #ff8a7a; }

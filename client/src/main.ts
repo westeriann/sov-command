@@ -12,8 +12,10 @@ import { stableClicks } from './stable-clicks';
 import { ResearchPanel } from './research-panel';
 import { RankingsPanel } from './rankings-panel';
 import { Lobby } from './lobby';
-import { Sound, type Cue } from './sound';
+import { Sound } from './sound';
 import { Tutorial } from './tutorial';
+import { installTooltips } from './tooltip';
+import { Notices } from './notices';
 import '@fontsource/oswald/400.css';
 import '@fontsource/oswald/500.css';
 import '@fontsource/oswald/600.css';
@@ -49,6 +51,7 @@ async function start() {
   }
 
   stableClicks(document);
+  installTooltips(document);
   const game = new Game();
   let localWorld: Worker | null = null;
   if (OFFLINE) {
@@ -296,13 +299,15 @@ async function start() {
   game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
   gameMap.setMode('political', 0.72);
   gameMap.addNationLabels();
-  let lastHeard: unknown = null;
-  let lastIncoming = 0;
   /** Browser notifications while the tab is in the background (opt-in). */
   const notify = (title: string, body: string) => {
     if (!alerts || !document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
     try { new Notification(title, { body, tag: 'sovereign' }); } catch { /* not allowed here */ }
   };
+  new Notices(hudRoot, game, pol, sound, {
+    openModule: (id) => { if (!hudRoot.querySelector(`.left [data-module="${id}"].active`)) hudRoot.querySelector<HTMLElement>(`.left [data-module="${id}"]`)?.click(); },
+    goToNation: (id) => { const n = pol.nations.get(id); const p = n && pol.provinces.get(n.capital); if (p) select(p.label[1], p.label[0], true); },
+  }, notify);
   game.on((c) => {
     if (c.has('nations')) {
       for (const id of pol.addBorn(game.nations.values())) gameMap.addNationLabel(id);
@@ -315,24 +320,8 @@ async function start() {
     if (c.has('economy')) {
       gameMap.setWealth(new Map([...game.economy.values()].map((e) => [e.id, e.gdppc])));
     }
-    if (c.has('events') && game.mine && game.events.length) {
-      // cue sounds for news about our own nation
-      const e = game.events[game.events.length - 1];
-      const me = pol.nations.get(game.mine.id);
-      if (me && e !== lastHeard && (e.nation === me.id || e.text.includes(me.name))) {
-        const cue: Partial<Record<string, Cue>> = { war: 'war', peace: 'peace', research: 'research', politics: 'alert', diplomacy: 'notice' };
-        const c2 = cue[e.kind];
-        if (c2) sound.play(c2);
-        if (c2 && c2 !== 'research') notify('Sovereign Command', e.text);
-      }
-      lastHeard = e;
-    }
+    // news about our own nation: the Notices list plays its sounds and raises alerts
     if (c.has('war') && game.mine && game.war.battles.some((p) => game.units.some((u) => u.nation === game.mine!.id && u.province === p))) sound.play('battle');
-    if (c.has('mine') && game.mine) {
-      const incoming = game.mine.diplo?.incoming.length ?? 0;
-      if (incoming > lastIncoming) notify('Sovereign Command', 'A new diplomatic proposal awaits your answer.');
-      lastIncoming = incoming;
-    }
     if (c.has('war')) {
       const moved = pol.transfer(game.war.owners); // borders changed by treaty
       if (moved) void gameMap.refreshBorders();
