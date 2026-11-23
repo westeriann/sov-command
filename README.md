@@ -1,3 +1,7 @@
+<p align="center"><img src="docs/banner.png" alt="Sovereign Command" width="100%"></p>
+
+<p align="center"><img src="assets/brand/logo.png" alt="Sovereign Command emblem" width="220"></p>
+
 # Sovereign Command
 
 Persistent, real-time grand strategy in the browser. Players run nations on a

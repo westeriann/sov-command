@@ -1,5 +1,5 @@
 import { money } from '../../shared/economy';
-import { GOVERNMENT_INFO } from '../../shared/research';
+import { GOVERNMENT_INFO, TECHS, TIER_COST } from '../../shared/research';
 import { HARVEST, SEASON_NAMES, coldLand, seasonAt } from '../../shared/seasons';
 import { historyHtml } from './rankings-panel';
 import { flagSvg } from '../../shared/flags';
@@ -10,11 +10,13 @@ import { SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, opinionWord, type Deal, type Pact } from '../../shared/diplomacy';
 import { FOCI, LIMITS, type Focus, type NationPublic } from '../../shared/protocol';
 import type { Change, Game } from './game';
-import { WEALTH_STOPS, type MapMode } from './map';
+import { RESOURCE_STOPS, SPECIALTY_COLOURS, WEALTH_STOPS, type MapMode } from './map';
+import { DIPLO_CATS, type DiploCat } from './diplo-map';
 import { RESOURCE_NAMES, type Nation, type Political, type Province, type ResourceId } from './political';
 import { BIOME_INFO, formatLatLon, type BiomeId, type Sample, type World } from './world';
 import { attr, effectLines, tip } from './tooltip';
-import { SPECIALTIES, specialtyOf } from '../../shared/specialties';
+import { ASSET_BASE } from './config';
+import { SPECIALTIES, SPECIALTY_LIST, specialtyOf } from '../../shared/specialties';
 
 /** A figure that leads to where it can be changed (handled by the data-go router in main.ts). */
 const go = (target: string, html: string, hint?: string) => `<a href="#" class="go" data-go="${target}"${hint ? ` data-tip="${attr(tip(hint))}"` : ''}>${html}</a>`;
@@ -32,6 +34,8 @@ export interface HudEvents {
   onRelief(v: number): void;
   onTilt(on: boolean): void;
   onSelectProvince(id: number): void;
+  onResource(key: string): void;
+  onDiploFilter(shown: Set<DiploCat>): void;
 }
 
 /** Things the player can ask the server to do. */
@@ -111,6 +115,14 @@ const MODULE_TIPS: Record<string, string> = {
   rankings: tip('Rankings', 'Scores, leaderboards, comparisons and map replays', 'Key: K'),
 };
 const RESOURCE_TIPS: Record<string, string> = {
+  treasury: tip('Treasury', 'Money in the bank, and the yearly surplus or deficit', ['In debt: interest grows with the debt and with unrest', 'bad'], 'Click: Economy'),
+  stability: tip('Stability', 'How content your people are', ['Below 25: coups and revolutions become possible', 'bad'], 'Click: Politics'),
+  capital: tip('Political capital', 'Spent on laws, appeals, coalitions and autonomy', 'Click: Politics'),
+  forces: tip('Manpower and equipment', 'Reservists free to recruit, and equipment in store', 'Units need both to be built and reinforced', 'Click: Ground forces'),
+  war: tip('War', 'Your wars and the war score of each (−100..100)', 'Click: Diplomacy'),
+  research: tip('Research', 'The technology under way and how far along it is', 'Click: R&D'),
+  power: tip('Electricity', 'Share of demand met', ['Blackouts stop industry and anger the public', 'bad'], 'Click: Market'),
+  support: tip('Parliament support', 'Laws pass at 50% of votes; wars of choice need 40%', 'Click: Politics'),
   gdp: tip('Gross domestic product', 'The size of your economy each year, and its growth', 'Taxes on it pay for everything else'),
   defence: tip('Defence budget', 'Money a year for building and keeping your forces', 'Set the military share in Economy'),
   fuel: tip('Fuel reserve', 'Days of oil your forces have in store', ['Running out: forces fight up to 40% weaker', 'bad']),
@@ -125,21 +137,34 @@ const FOCUS_TIPS: Record<string, string> = {
   diplomacy: tip('Diplomacy focus', ['+3 stability', 'good'], ['+0.2% growth a year', 'good'], ['Other nations trust you more', 'good']),
 };
 
-const RESOURCES: [string, string][] = [
-  ['gdp', 'GDP'], ['defence', 'Defence budget'], ['fuel', 'Fuel reserve'],
-  ['munitions', 'Munitions'], ['reservists', 'Reservists'], ['approval', 'Approval'],
+/** Everything the top bar can show: [id, label]. */
+export const TOPBAR_ITEMS: [string, string][] = [
+  ['treasury', 'Treasury'], ['gdp', 'GDP'], ['stability', 'Stability'], ['capital', 'Pol. capital'], ['forces', 'Manpower · kit'],
+  ['war', 'War'], ['research', 'Research'], ['defence', 'Defence budget'], ['fuel', 'Fuel reserve'], ['munitions', 'Munitions'],
+  ['power', 'Electricity'], ['support', 'Parliament'], ['reservists', 'Reservists'],
 ];
+/** What the top bar shows unless the player picks otherwise (Options, Interface). */
+export const TOPBAR_DEFAULT = ['treasury', 'gdp', 'stability', 'capital', 'forces', 'war', 'research'];
+const TOPBAR_KEY = 'sov.topbar';
+export function topbarChoice(): string[] {
+  try { const v = JSON.parse(localStorage.getItem(TOPBAR_KEY) ?? 'null'); if (Array.isArray(v)) return v.filter((x) => TOPBAR_ITEMS.some(([k]) => k === x)); } catch { /* storage blocked */ }
+  return [...TOPBAR_DEFAULT];
+}
+export function saveTopbarChoice(ids: string[]) { try { localStorage.setItem(TOPBAR_KEY, JSON.stringify(ids)); } catch { /* storage blocked */ } }
+
 
 const MODES: [MapMode, string][] = [
   ['political', 'Political'],
   ['wealth', 'Wealth per person'],
+  ['resource', 'Resources'],
+  ['diplomatic', 'Diplomatic'],
   ['satellite', 'Satellite only'],
   ['terrain', 'Terrain types'],
   ['elevation', 'Elevation'],
   ['climate', 'Temperature'],
   ['lights', 'Night lights (power)'],
 ];
-const DEFAULT_OPACITY: Record<MapMode, number> = { political: 72, wealth: 60, satellite: 0, terrain: 70, elevation: 70, climate: 70, lights: 85 };
+const DEFAULT_OPACITY: Record<MapMode, number> = { political: 72, wealth: 60, resource: 75, diplomatic: 72, satellite: 0, terrain: 70, elevation: 70, climate: 70, lights: 85 };
 const FOCUS_NAMES: Record<Focus, string> = { economy: 'Economy', military: 'Military', research: 'Research', diplomacy: 'Diplomacy' };
 const PERSONALITY_NAMES: Record<string, string> = {
   expansionist: 'Expansionist', trader: 'Trader', turtle: 'Defensive', opportunist: 'Opportunist', idealist: 'Idealist',
@@ -241,20 +266,15 @@ export class Hud {
     this.root.innerHTML = `
       <header class="panel top">
         <div class="brand">
-          <div class="emblem" aria-hidden="true"><i></i></div>
-          <div>
-            <div class="title">SOVEREIGN COMMAND</div>
-            <div class="sub mono" id="whoami"></div>
-          </div>
+          <img class="brand-logo" src="${ASSET_BASE}brand/logo.png" alt="Sovereign Command" title="Sovereign Command" onerror="this.outerHTML='<div class=&quot;emblem&quot; title=&quot;Sovereign Command&quot;><i></i></div>'">
+          <div class="sub mono" id="whoami"></div>
         </div>
-        <div class="resources mono" aria-label="National resources">
-          ${RESOURCES.map(([id, r]) => `<div data-tip="${attr(RESOURCE_TIPS[id] ?? r)}"><span>${r.toUpperCase()}</span><b id="res-${id}">—</b></div>`).join('')}
-        </div>
+        <div class="resources mono" aria-label="National figures">${this.topbarHtml()}</div>
         <div class="clock">
           <button type="button" class="status mono" id="status"></button>
           <span class="mono date" id="clock"></span>
           <span class="speed mono" id="speed" title="The world clock never pauses"></span>
-          <span class="speed-ctl offline-only" role="group" aria-label="Game speed">${[1, 5, 10, 20].map((x) => `<button type="button" data-act="speed" data-x="${x}" aria-pressed="false" title="${x === 1 ? 'A game day every 10 seconds' : `${x} times faster`}">${x}×</button>`).join('')}</span>
+          <span class="speed-ctl offline-only" role="group" aria-label="Game speed"><button type="button" data-act="pause" class="pause-btn" aria-pressed="false" data-tip="${attr(tip('Pause (Space)', 'Stop the clock; press again to resume', 'Single player only'))}">❚❚</button>${[1, 5, 10, 20].map((x) => `<button type="button" data-act="speed" data-x="${x}" aria-pressed="false" title="${x === 1 ? 'A game day every 10 seconds' : `${x} times faster`}">${x}×</button>`).join('')}</span>
           <button type="button" class="link offline-only" data-act="newgame">New game</button>
           <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
@@ -282,6 +302,7 @@ export class Hud {
           ${MODES.map(([id, label], i) => `
             <label class="radio"><input type="radio" name="mode" value="${id}" ${i === 0 ? 'checked' : ''}>${label}</label>`).join('')}
         </div>
+        <div class="mode-options" id="modeOptions" hidden></div>
         <div class="slider" id="opacityRow">
           <label for="opacity"><span>OVERLAY</span><output id="opacityOut">${DEFAULT_OPACITY.political}%</output></label>
           <input id="opacity" type="range" min="0" max="100" value="${DEFAULT_OPACITY.political}">
@@ -349,7 +370,9 @@ export class Hud {
       <footer class="panel taskbar" aria-label="Forces and communications">
         <span class="mono tag">FORCES</span>
         <span class="empty" id="forcesSummary">Take command of a nation to raise armies.</span>
-        <button type="button" data-module="army">ARMY</button>
+        <span class="mono tag lens-tag">LENSES</span>
+        <button type="button" data-lens="military" aria-pressed="false" data-tip="${attr(tip('Military lens', 'Wars, forces, production and supply at a glance, with advice', 'Click again to close'))}">MILITARY</button>
+        <button type="button" data-lens="eco" aria-pressed="false" data-tip="${attr(tip('Eco lens', 'Treasury, taxes, shortages, power and construction at a glance, with advice', 'Click again to close'))}">ECO</button>
         <button type="button" data-open="dispatches" id="btnDispatches">DISPATCHES</button>
         <button type="button" data-open="chat" id="btnChat">CHAT</button>
         <button type="button" class="phone-only" data-act="menu" aria-label="Show or hide the menu">MENU</button>
@@ -378,9 +401,21 @@ export class Hud {
         opacity.value = String(this.opacityByMode[mode]);
         opacityOut.value = `${opacity.value}%`;
         this.renderLegend(mode);
+        this.renderModeOptions(mode);
         this.events.onMode(mode, this.opacityByMode[mode] / 100);
       }),
     );
+    // the resource picker and the diplomatic filter
+    const opts = this.root.querySelector<HTMLElement>('#modeOptions')!;
+    opts.addEventListener('change', (e) => {
+      const t = e.target as HTMLInputElement | HTMLSelectElement;
+      if (t.id === 'resPick') { this.resourceKey = t.value; this.events.onResource(t.value); this.renderLegend('resource'); }
+      else if (t.dataset.cat) {
+        const c = t.dataset.cat as DiploCat;
+        if ((t as HTMLInputElement).checked) this.diploShown.add(c); else this.diploShown.delete(c);
+        this.events.onDiploFilter(this.diploShown);
+      }
+    });
     opacity.addEventListener('input', () => {
       this.opacityByMode[mode] = Number(opacity.value);
       opacityOut.value = `${opacity.value}%`;
@@ -571,24 +606,62 @@ export class Hud {
     });
   }
 
+  /** Where each top-bar figure leads when clicked. */
+  private static TOPBAR_GO: Record<string, string> = {
+    treasury: 'module:economy', gdp: 'module:economy', stability: 'module:politics', capital: 'module:politics', forces: 'module:army', war: 'module:diplomacy',
+    research: 'module:research', defence: 'econ:b-military', fuel: 'market:local:oil', munitions: 'module:army', power: 'market:local:power', support: 'module:politics', reservists: 'module:army',
+  };
+  private topbarHtml() {
+    return topbarChoice().map((id) => {
+      const label = TOPBAR_ITEMS.find(([k]) => k === id)![1];
+      return `<div data-tip="${attr(RESOURCE_TIPS[id] ?? label)}" data-go="${Hud.TOPBAR_GO[id] ?? ''}"><span>${label.toUpperCase()}</span><b id="res-${id}">—</b></div>`;
+    }).join('');
+  }
+
+  /** The player changed what the top bar shows. */
+  setTopbar(ids: string[]) {
+    saveTopbarChoice(ids);
+    const el = this.root.querySelector<HTMLElement>('.top .resources');
+    if (el) el.innerHTML = this.topbarHtml();
+    this.renderResources();
+  }
+
   private renderResources() {
-    const e = this.game.mine?.econ;
+    const e = this.game.mine?.econ, mine = this.game.mine;
     const set = (id: string, v: string, cls = '') => {
-      const el = this.root.querySelector<HTMLElement>(`#res-${id}`)!;
+      const el = this.root.querySelector<HTMLElement>(`#res-${id}`);
+      if (!el) return;
       el.innerHTML = v;
       el.className = cls;
     };
-    if (!e) {
-      for (const [id] of RESOURCES) set(id, '—');
+    if (!e || !mine) {
+      for (const [id] of TOPBAR_ITEMS) set(id, '—');
       return;
     }
+    const bal = e.revenue - e.spending;
+    set('treasury', `${e.treasury < 0 ? '−' : ''}${money(Math.abs(e.treasury))} <i class="${bal >= 0 ? 'up' : 'down'}">${bal >= 0 ? '+' : '−'}${money(Math.abs(bal))}</i>`, e.treasury < 0 ? 'live warn' : 'live');
+    set('stability', `${e.stability.toFixed(0)}%`, e.stability < 40 ? 'live bad' : e.stability < 55 ? 'live warn' : 'live good');
+    set('capital', `${Math.floor(mine.politics?.capital ?? 0)}`, 'live');
+    const kit = mine.mil?.equipment ?? 0;
+    set('forces', `${people(e.reservists).toUpperCase()} · ${kit}`, kit < (mine.mil?.equipmentNeed ?? 0) * 3 ? 'live warn' : 'live');
+    const wars = this.game.war.wars.filter((w) => w.a === mine.id || w.b === mine.id);
+    if (!wars.length) set('war', 'AT PEACE', 'live good');
+    else {
+      const scores = wars.map((w) => mine.warScores?.[w.a === mine.id ? w.b : w.a] ?? 0);
+      const worst = Math.min(...scores);
+      set('war', `${wars.length} · ${worst > 0 ? '+' : ''}${worst}`, worst < -20 ? 'live bad' : 'live warn');
+    }
+    const r = mine.research, cur = r?.current ? TECHS.find((t) => t.id === r.current) : undefined;
+    set('research', cur ? `${Math.round(((r!.progress ?? 0) / TIER_COST[cur.tier]) * 100)}% ${esc(cur.name.split(' ')[0].toUpperCase())}` : 'IDLE', cur ? 'live' : 'live warn');
+    const cover = e.energy.demand > 0 ? e.energy.supply / e.energy.demand : 1;
+    set('power', `${Math.round(Math.min(1, cover) * 100)}%`, cover < 0.99 ? 'live bad' : 'live');
+    set('support', mine.politics?.support !== undefined && (mine.politics.legislature === 'parliament' || mine.politics.legislature === 'council') ? `${mine.politics.support}%` : 'DECREE', 'live');
     const g = (x: number) => `<i class="${x >= 0 ? 'up' : 'down'}">${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%</i>`;
     set('gdp', `${money(e.gdp)} ${g(e.growth)}`, 'live');
     set('defence', money(e.defence), 'live');
     set('fuel', `${e.fuelDays} DAYS`, e.fuelDays < 20 ? 'live warn' : 'live');
     set('munitions', `${e.munitions}%`, e.munitions < 40 ? 'live warn' : 'live');
     set('reservists', people(e.reservists).toUpperCase(), 'live');
-    set('approval', `${e.stability.toFixed(0)}%`, e.stability < 40 ? 'live bad' : e.stability < 55 ? 'live warn' : 'live good');
   }
 
   private renderForcesSummary() {
@@ -604,7 +677,7 @@ export class Hud {
 
   private onGame(c: Set<Change>) {
     if (c.has('units') || c.has('war') || c.has('mine') || c.has('status')) this.renderForcesSummary();
-    if (c.has('mine') || c.has('status')) this.renderResources();
+    if (c.has('mine') || c.has('status') || c.has('war')) this.renderResources();
     if (c.has('status') || c.has('me') || c.has('mine') || c.has('online')) this.renderHeader();
     if (c.has('mine') || c.has('status')) this.renderMyNation();
     if (c.has('nations') || c.has('online') || c.has('status')) this.renderStats();
@@ -671,7 +744,8 @@ export class Hud {
           <label for="tax"><span>TAX RATE</span><output id="taxOut"></output></label>
           <input id="tax" type="range" min="${LIMITS.taxMin}" max="${LIMITS.taxMax}" step="1">
         </div>
-        <label class="check plain"><input type="checkbox" id="autopilot">Let advisers govern while I'm away</label>
+        <label class="check plain online-only"><input type="checkbox" id="autopilot">Let advisers govern while I'm away</label>
+        <p class="hint offline-only">Advisers can run parts of your nation for you: choose which in <a href="#" class="go" data-go="politics:advisers">Politics</a>.</p>
         <p class="hint">Focus shifts growth, research or military strength; open <button type="button" class="link" data-module="economy">Economy</button> for the full budget. While you are offline for more than a day, advisers take over and hand back when you return.</p>
       `;
     }
@@ -720,6 +794,21 @@ export class Hud {
     this.toastEl.dataset.timer = String(window.setTimeout(() => (this.toastEl.hidden = true), 4500));
   }
 
+  private resourceKey = 'farmland';
+  diploShown = new Set<DiploCat>(DIPLO_CATS.map(([k]) => k));
+
+  /** Extra controls for some map modes: which resource, which relationships. */
+  private renderModeOptions(mode: MapMode) {
+    const el = this.root.querySelector<HTMLElement>('#modeOptions')!;
+    el.hidden = mode !== 'resource' && mode !== 'diplomatic';
+    if (mode === 'resource') {
+      el.innerHTML = `<label class="mode-pick">Show <select id="resPick">${(Object.keys(RESOURCE_NAMES) as ResourceId[]).map((k) => `<option value="${k}"${k === this.resourceKey ? ' selected' : ''}>${RESOURCE_NAMES[k]}</option>`).join('')}
+        <option value="specialty"${this.resourceKey === 'specialty' ? ' selected' : ''}>Province specialties</option></select></label>`;
+    } else if (mode === 'diplomatic') {
+      el.innerHTML = `<span class="label">SHOW</span><div class="diplo-filter">${DIPLO_CATS.map(([k, l, c]) => `<label class="check plain"><input type="checkbox" data-cat="${k}" ${this.diploShown.has(k) ? 'checked' : ''}><i style="background:${c}"></i>${esc(l)}</label>`).join('')}</div>`;
+    }
+  }
+
   private renderLegend(mode: MapMode) {
     const items: [string, string][] =
       mode === 'terrain'
@@ -730,7 +819,11 @@ export class Hud {
             ? [['#3b4cc0', 'Below −10 °C'], ['#c0d4f5', '5 °C'], ['#f2cbb7', '15 °C'], ['#ee8468', '24 °C'], ['#b40426', 'Above 30 °C']]
             : mode === 'wealth'
               ? WEALTH_STOPS.map(([v, c]) => [c, `$${v.toLocaleString('en-US')} per person`] as [string, string])
-              : [];
+              : mode === 'resource'
+                ? (this.resourceKey === 'specialty'
+                  ? SPECIALTY_LIST.map((s) => [SPECIALTY_COLOURS[s], `${SPECIALTIES[s].icon} ${SPECIALTIES[s].name}`] as [string, string])
+                  : RESOURCE_STOPS.map(([v, c]) => [c, v <= 1 ? 'A little' : v >= 100 ? 'Very rich' : `${v} of 100`] as [string, string]))
+                : [];
     this.legend.hidden = items.length === 0;
     this.legend.innerHTML = items.map(([c, l]) => `<span><i style="background:${c}"></i>${esc(l)}</span>`).join('');
   }

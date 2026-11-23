@@ -33,7 +33,11 @@ import { EspionagePanel } from './espionage-panel';
 import { RecordsPanel } from './records-panel';
 import { MainMenu } from './menu';
 import { HoverCard } from './hover-card';
+import { Lenses } from './lenses';
+import { diploColours } from './diplo-map';
 import { installMinimize } from './minimize';
+import { installResizable } from './resizable';
+import { installConfirmKeeper } from './confirm-keeper';
 import { WarRoom } from './war-room';
 import { EventDialog } from './event-dialog';
 import { Manual } from './manual';
@@ -46,7 +50,7 @@ import { LoginDialog } from './login';
 import { GameMap } from './map';
 import { clearToken, Connection, loadToken, logout, saveToken, serverAvailable } from './net';
 import { Political } from './political';
-import { Hud } from './ui';
+import { Hud, TOPBAR_DEFAULT, TOPBAR_ITEMS, topbarChoice } from './ui';
 import { World } from './world';
 
 async function start() {
@@ -59,6 +63,7 @@ async function start() {
   let connRef: Connection | null = null;
   let gameRef: Game | null = null;
   let polRef: Political | null = null;
+  let hudRef: Hud | null = null;
   let menuManual = () => {};
   let musicRef: MusicPlayer | null = null;
   const mainMenu = new MainMenu(hudRoot, {
@@ -68,6 +73,7 @@ async function start() {
     lobby: () => (gameRef ? [...gameRef.nations.values()].filter((n) => !n.annexedBy).map((n) => ({ id: n.id, name: polRef?.nations.get(n.id)?.name ?? `Nation ${n.id}`, player: n.player, online: n.online, gdp: gameRef!.economy.get(n.id)?.gdp ?? 0 })) : []),
     claim: (id) => connRef?.claimNation(id),
     mineId: () => gameRef?.mine?.id,
+    topbar: { items: TOPBAR_ITEMS, defaults: TOPBAR_DEFAULT, get: () => topbarChoice(), set: (ids) => hudRef?.setTopbar(ids) },
     music: {
       get level() { return musicRef?.level ?? 0.45; }, get on() { return musicRef?.on ?? false; },
       setLevel: (v) => musicRef?.setLevel(v), toggle: () => musicRef?.toggle(), play: () => musicRef?.play(), pause: () => musicRef?.pause(),
@@ -125,8 +131,10 @@ async function start() {
   let citiesRef: Cities | null = null;
   let modelsRef: Models3D | null = null;
   const hud = new Hud(hudRoot, world, pol, game, {
-    onMode: (m, opacity) => { gameMap.setMode(m, opacity); citiesRef?.setLights(m === 'lights'); modelsRef?.setNight(m === 'lights'); },
+    onMode: (m, opacity) => { if (m === 'diplomatic') gameMap.setDiplomatic(diploColours(game, pol, hud.diploShown)); gameMap.setMode(m, opacity); citiesRef?.setLights(m === 'lights'); modelsRef?.setNight(m === 'lights'); },
     onOpacity: (v) => gameMap.setOverlayOpacity(v),
+    onResource: (key) => gameMap.setResource(key),
+    onDiploFilter: (shown) => gameMap.setDiplomatic(diploColours(game, pol, shown)),
     onGrid: (on) => gameMap.setGrid(on),
     onBorders: (on) => gameMap.setBorders(on),
     onLabels: (on) => gameMap.setLabels(on),
@@ -271,6 +279,7 @@ async function start() {
     selection: () => forces?.selected.size ?? 0,
     preview: (p) => forces?.preview(p) ?? null,
   });
+  hudRef = hud;
   let forces: Forces | null = null;
   let diplomacy: DiplomacyPanel | null = null;
   let research: ResearchPanel | null = null;
@@ -281,7 +290,18 @@ async function start() {
   const espionage = new EspionagePanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const records = new RecordsPanel(hudRoot, game, pol);
   const hoverCard = new HoverCard(hudRoot, game, pol);
+  new Lenses(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
+  // the diplomatic map follows wars, treaties and opinion as they change
+  let diploStamp = '';
+  game.on((c) => {
+    if (gameMap.mode !== 'diplomatic' || !(c.has('war') || c.has('mine') || c.has('nations'))) return;
+    const cols = diploColours(game, pol, hud.diploShown);
+    const stamp = JSON.stringify([...cols]);
+    if (stamp !== diploStamp) { diploStamp = stamp; gameMap.setDiplomatic(cols); }
+  });
   installMinimize(hudRoot);
+  installConfirmKeeper(document.body);
+  queueMicrotask(() => installResizable(hudRoot)); // after the windows exist
   const warRoom = new WarRoom(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const eventDialog = new EventDialog(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   eventDialog.onShow = () => sound.play('alert');
@@ -617,15 +637,20 @@ async function start() {
   pauseBadge.hidden = true;
   hudRoot.appendChild(pauseBadge);
   menuPause = (on) => localWorld?.postMessage({ t: 'pause', on: on || userPaused });
+  const togglePause = () => {
+    userPaused = !userPaused;
+    pauseBadge.hidden = !userPaused;
+    localWorld?.postMessage({ t: 'pause', on: userPaused });
+    const b = hudRoot.querySelector<HTMLElement>('[data-act="pause"]');
+    if (b) { b.setAttribute('aria-pressed', String(userPaused)); b.textContent = userPaused ? '▶' : '❚❚'; }
+  };
+  hudRoot.addEventListener('click', (e) => { if (localWorld && (e.target as HTMLElement).closest('[data-act="pause"]')) togglePause(); });
   menuNewGame = (iron) => (conn as LocalConnection).newGame(iron);
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== ' ' || mainMenu.isOpen || (ev.target as HTMLElement).closest('input, select, textarea, button')) return;
     ev.preventDefault();
-    if (localWorld) {
-      userPaused = !userPaused;
-      pauseBadge.hidden = !userPaused;
-      localWorld.postMessage({ t: 'pause', on: userPaused });
-    } else if (game.mine) conn.send({ t: 'order', order: { kind: 'pause_vote', on: !game.mine.pause?.mine } });
+    if (localWorld) togglePause();
+    else if (game.mine) conn.send({ t: 'order', order: { kind: 'pause_vote', on: !game.mine.pause?.mine } });
   });
   // shared worlds: show the pause vote
   game.on((c) => {

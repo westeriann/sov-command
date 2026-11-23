@@ -174,7 +174,10 @@ export class AiBrain {
       const score = w.warScore(me, foe);
       const treaty = score >= 15 && days > 20 ? this.buildTreaty(n, foe, score) : null;
       if (treaty) orders.push({ kind: 'propose', target: foe, deal: { kind: 'peace', terms: 'treaty', treaty } });
-      else if ((loss >= gain && days > 30) || days > 150 || control < 0.7 || score < -40) orders.push({ kind: 'peace', target: foe });
+      else if ((loss >= gain && days > 30) || days > 150 || control < 0.7 || score < -40) {
+        orders.push({ kind: 'peace', target: foe });
+        if (score < -25 && !w.diplomacy.pending(me, foe, 'truce')) orders.push({ kind: 'propose', target: foe, deal: { kind: 'truce', days: 90 } });
+      }
     }
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
     orders.push(...this.strategicOrders(n, enemies.length > 0));
@@ -330,6 +333,7 @@ export class AiBrain {
     const friendly = (them.policy.focus === 'diplomacy' ? 0.2 : 0) + 0.15 - gap * 0.12 + op * 0.004; // like-minded, well-liked nations are trusted
     const dominant = w.powerOf(from) > 0.15 && w.powerOf(from) > w.powerOf(me) * 3 ? 0.35 : 0; // wary of a power that could swallow us
     if (deal.kind === 'gift') return true;
+    if (deal.kind === 'truce') return w.warScore(me, from) <= 10 || this.warDays(me, from) > 120; // losing, or tired of it
     if (deal.kind === 'nap') return op >= -15 || w.powerOf(from) > w.powerOf(me) * 1.5;
     if (deal.kind === 'access') return op >= 25 && !w.military.enemiesOf(from).some((x) => w.diplomacy.has('trade', me, x));
     if (deal.kind === 'research') return op >= 5 && (them.tech.done.length >= n.tech.done.length * 0.5);
@@ -448,15 +452,39 @@ export class AiBrain {
   }
 
   /** Pass a law this government likes, if it has the capital (and the votes). */
-  pickLaw(n: NationState) {
+  /** What the advisers would do in the areas they may handle (single player). */
+  adviserOrders(n: NationState, areas: Set<string>): Order[] {
+    const all = this.think(n);
+    const keep: Order[] = [];
+    for (const o of all) {
+      if (o.kind === 'budget' && areas.has('budget')) keep.push(o);
+      else if (o.kind === 'policy' && areas.has('budget') && o.policy.tax !== undefined) keep.push({ kind: 'policy', policy: { tax: o.policy.tax } });
+      else if (o.kind === 'build' && areas.has('build')) keep.push(o);
+      else if (o.kind === 'recruit' && areas.has('recruit')) keep.push(o);
+      else if (o.kind === 'propose' && areas.has('trade') && ['trade', 'nap', 'research', 'contract'].includes(o.deal.kind)) keep.push(o);
+      else if ((o.kind === 'counter_intel' || o.kind === 'network') && areas.has('espionage')) keep.push(o);
+    }
+    if (areas.has('research')) {
+      if (!n.tech.current) { const t = this.pickResearch(n); if (t) keep.push({ kind: 'research', tech: t }); }
+      else if ((n.tech.queue ?? []).length < 2) {
+        const taken = new Set([n.tech.current, ...(n.tech.queue ?? []), ...n.tech.done]);
+        const next = TECHS.find((t) => !taken.has(t.id) && (!prerequisite(t) || taken.has(prerequisite(t)!.id)));
+        if (next) keep.push({ kind: 'research_queue', tech: next.id });
+      }
+    }
+    return keep;
+  }
+
+  pickLaw(n: NationState, actor: 'ai' | 'human' = 'ai') {
     const pol = n.pol;
     if (!pol) return;
     const want = LAW_TASTE[n.personality].filter((l) => !pol.laws.includes(l) && !(LAWS[l].excludes ?? []).some((x) => pol.laws.includes(x)));
     if (n.econ.shortage > 0.08 && !pol.laws.includes('rationing')) want.unshift('rationing');
     if (n.econ.treasury < -n.econ.gdp * 0.4 && !pol.laws.includes('austerity')) want.unshift('austerity');
-    if (pol.laws.includes('austerity') && n.econ.treasury > 0) { this.world.submit(n.id, { kind: 'law', law: 'austerity', enact: false }, 'ai'); return; }
+    if (pol.laws.includes('austerity') && n.econ.treasury > 0) return this.world.submit(n.id, { kind: 'law', law: 'austerity', enact: false }, actor).ok ? 'repealed Austerity' : undefined;
     const law = want.find((l) => LAWS[l].cost <= pol.capital);
-    if (law && pol.laws.length < 6) this.world.submit(n.id, { kind: 'law', law, enact: true }, 'ai');
+    if (law && pol.laws.length < 6 && this.world.submit(n.id, { kind: 'law', law, enact: true }, actor).ok) return `passed ${LAWS[law].name}`;
+    return undefined;
   }
 
   private plans = new Map<number, { target: number; staging: number; since: number }>();

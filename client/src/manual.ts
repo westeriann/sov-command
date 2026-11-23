@@ -53,7 +53,8 @@ const CHAPTERS: Chapter[] = [
         <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> move the camera (hold <kbd>Shift</kbd> to go faster); drag with the left mouse button to turn the globe; the wheel zooms.</li>
         <li>Right-drag (or <kbd>Ctrl</kbd>-drag) tilts and turns the view. The camera also leans over the map as you zoom in: switch that off with ${L('view:tilt', 'Tilt with zoom')}.</li>
         <li>${L('view:relief', 'Relief (3D)')} raises or flattens the mountains; ${L('view:models3d', '3D models')} shows troops, ships, aircraft, cities and buildings when zoomed in.</li>
-        <li>Click a province or sea zone to inspect it; right-click for a menu of what you can do there.</li>
+        <li>Click a province or sea zone to inspect it; right-click for a menu of what you can do there. Hover over a foreign nation to see what it thinks of you.</li>
+        <li>Map modes (the MAP arrow, bottom left) include <b>Resources</b> (pick a resource, or province specialties) and <b>Diplomatic</b> (every nation coloured by how it stands with you, with a filter for allies, trade partners, pacts, truces, wars, embargoes, claims and opinion).</li>
       </ul>
       <h3>Map modes</h3>
       <ul>
@@ -68,6 +69,14 @@ const CHAPTERS: Chapter[] = [
   {
     id: 'nation', title: 'Your nation', html: () => `
       <p>The panel on the right shows your nation when you lead one, and whatever you have selected below it.</p>
+      <h3>The top bar</h3>
+      <p>By default: treasury (with the yearly surplus or deficit), GDP and growth, stability, political capital, manpower and equipment, war (with your worst war score), and research. Click a figure to open the window where you change it; <kbd>Ctrl</kbd>-click shrinks it to a tab. Choose and order the figures in Options. Fuel, munitions and electricity appear as warning icons when they run low.</p>
+      <h3>Lenses</h3>
+      <p>The <b>Military</b> and <b>Eco</b> buttons in the bottom bar open compact quick views: wars and scores, forces, production with quick recruit buttons; or treasury, taxes, budget, power and construction. Each gives advice on what is needed and what to build next, with links straight to the place to act.</p>
+      <h3>Windows</h3>
+      <p>Drag any window's edges or corners to resize it; it remembers its size. Double-click its title to reset it. Charts sit in a grid at half size: click one to enlarge it.</p>
+      <h3>Advisers (single player)</h3>
+      <p>In ${L('politics:advisers', 'Politics')}, tick what your advisers may handle: the budget and taxes, construction, research, recruitment, trade and treaties, laws, decisions, espionage. They act once a game week and list what they did; they never move troops or start or end wars. In shared worlds, advisers instead take over while you are away.</p>
       <h3>National focus</h3>
       <ul>
         <li><b>Economy</b>: <g>+0.6% growth a year</g>.</li>
@@ -142,7 +151,7 @@ const CHAPTERS: Chapter[] = [
       <table class="man-table"><tbody>${(Object.keys(WAR_GOALS) as WarGoal[]).map((g) => `<tr><td>${WAR_GOALS[g].name}</td><td>${esc(WAR_GOALS[g].text)}</td></tr>`).join('')}</tbody></table>
       <p>Its allies and guarantors join against you; breaking a non-aggression pact is remembered by every nation. Your troops may enter its land; empty provinces you march into are occupied.</p>
       <h3>War score and the peace conference</h3>
-      <p>War score (−100 to +100) counts the share of their people under your occupation, battles won and divisions destroyed. At the <b>peace conference</b> you choose terms and pay for them with it: provinces (by their share of the loser's people), reparations of up to ${MAX_REPARATIONS * 100}% of their GDP a year for ${REPARATION_YEARS} years (${PEACE_COST.reparationsPerPct} per 1%), a demilitarised border for ${DEMIL_YEARS} years (${PEACE_COST.demilitarize}), a new government (${PEACE_COST.regime}) or vassalage (${PEACE_COST.puppet}). AI governments accept terms their war score can pay for, more readily as a war drags on; white peace ends any war. A nation that loses all its land is annexed. Ceded land is restless for a while.</p>`,
+      <p>War score (−100 to +100) counts the share of their people under your occupation, battles won and divisions destroyed. At the <b>peace conference</b> you choose terms and pay for them with it: provinces (by their share of the loser's people), reparations of up to ${MAX_REPARATIONS * 100}% of their GDP a year for ${REPARATION_YEARS} years (${PEACE_COST.reparationsPerPct} per 1%), a demilitarised border for ${DEMIL_YEARS} years (${PEACE_COST.demilitarize}), a new government (${PEACE_COST.regime}) or vassalage (${PEACE_COST.puppet}). AI governments accept terms their war score can pay for, more readily as a war drags on; white peace ends any war. A <b>truce</b> (30, 90 or 180 days, from Diplomacy) stops the fighting where the lines stand: nobody attacks or advances, peace can still be signed, and when it runs out the war resumes. A nation that loses all its land is annexed. Ceded land is restless for a while.</p>`,
   },
   {
     id: 'diplomacy', title: 'Diplomacy', html: () => `
@@ -208,7 +217,7 @@ const CHAPTERS: Chapter[] = [
       </tbody></table>
       <h3>Government</h3>
       <table class="man-table"><tbody>${GOVERNMENTS.map((g) => `<tr><td>${esc(GOVERNMENT_INFO[g].name)}</td><td>${esc(GOVERNMENT_INFO[g].text)}</td></tr>`).join('')}</tbody></table>
-      <p>A reform takes ${REFORM_DAYS} game days of turmoil (<r>−10 stability</r>) and is possible once a game year. Democracies hold elections; losing one blocks new wars for six months. The same window covers society: ideology, factions and propaganda.</p>`,
+      <p>A reform takes ${REFORM_DAYS} game days of turmoil (<r>−10 stability</r>) and is possible once a game year. Democracies hold elections; losing one blocks new wars for six months. Government reform, the people's beliefs, factions and propaganda are in ${L('module:politics', 'Politics')}.</p>`,
   },
   {
     id: 'world', title: 'The living world', html: () => `
@@ -239,7 +248,7 @@ const CHAPTERS: Chapter[] = [
         <tr><td><kbd>P</kbd> <kbd>O</kbd> <kbd>J</kbd></td><td>Diplomacy, Politics, Espionage</td></tr>
         <tr><td><kbd>R</kbd> <kbd>K</kbd> <kbd>V</kbd></td><td>R&amp;D, Rankings, Records</td></tr>
         <tr><td><kbd>Ctrl</kbd>-click</td><td>Shrink anything in the top bar to a small tab (click the tab to restore it)</td></tr>
-        <tr><td><kbd>Space</kbd></td><td>Pause (single player) or vote to pause (shared worlds)</td></tr>
+        <tr><td><kbd>Space</kbd></td><td>Pause (single player; also the ❚❚ button by the speeds) or vote to pause (shared worlds)</td></tr>
         <tr><td><kbd>M</kbd></td><td>Back to the map (close windows)</td></tr>
         <tr><td><kbd>Q</kbd> <kbd>H</kbd> <kbd>T</kbd> <kbd>L</kbd> <kbd>U</kbd> <kbd>Tab</kbd></td><td>Orders for selected units</td></tr>
         <tr><td><kbd>I</kbd></td><td>This manual</td></tr>

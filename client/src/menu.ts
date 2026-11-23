@@ -1,3 +1,5 @@
+import { ASSET_BASE } from './config';
+
 // The splash screen and the main menu. The splash shows while the planet and the
 // world load; the menu then opens over the slowly turning globe, and Escape brings
 // it back during play (single-player pauses while it is open). Options here drive
@@ -15,6 +17,8 @@ export interface MenuActions {
   /** Shared worlds: who leads what, to pick a nation from the menu. */
   lobby?: () => { id: number; name: string; player?: string; online?: boolean; gdp: number }[];
   claim?: (id: number) => void;
+  /** The top bar's figures: every choice, what is shown now, and how to change it. */
+  topbar?: { items: [string, string][]; defaults: string[]; get(): string[]; set(ids: string[]): void };
   mineId?: () => number | undefined;
 }
 
@@ -200,6 +204,20 @@ export class MainMenu {
     else if (m === 'alerts') { this.control<HTMLElement>('alertsBtn')?.click(); this.render(); }
     else if (m === 'music') { if (this.a.music.on) this.a.music.pause(); else this.a.music.play(); this.render(); }
     else if (m === 'speed') { this.hud.querySelector<HTMLElement>(`[data-act="speed"][data-x="${t.dataset.x}"]`)?.click(); window.setTimeout(() => this.render(), 50); }
+    else if (m === 'tb-toggle' || m === 'tb-up' || m === 'tb-down' || m === 'tb-reset') {
+      const tb = this.a.topbar;
+      if (!tb) return;
+      let ids = tb.get();
+      const id = t.dataset.id!;
+      if (m === 'tb-reset') ids = [...tb.defaults];
+      else if (m === 'tb-toggle') ids = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+      else {
+        const i = ids.indexOf(id), j = m === 'tb-up' ? i - 1 : i + 1;
+        if (i >= 0 && j >= 0 && j < ids.length) [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      tb.set(ids);
+      this.render();
+    }
     else if (m === 'fullscreen') {
       if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.();
       window.setTimeout(() => this.render(), 200);
@@ -227,7 +245,7 @@ export class MainMenu {
   private render() {
     if (this.el.classList.contains('splash')) {
       this.el.innerHTML = `<div class="splash-inner">
-        ${EMBLEM}
+        ${LOGO_HTML}
         <h1>SOVEREIGN<span>COMMAND</span></h1>
         <p class="motto">${MOTTO}</p>
         <div class="load"><i style="width:${Math.round(this.progress * 100)}%"></i></div>
@@ -239,7 +257,7 @@ export class MainMenu {
     const body = this.page === 'options' ? this.optionsHtml() : this.page === 'multiplayer' ? this.multiplayerHtml()
       : this.page === 'credits' ? this.creditsHtml() : this.page === 'newgame' ? this.newGameHtml() : this.page === 'saves' ? this.savesHtml() : this.mainHtml();
     this.el.innerHTML = `<div class="menu-shell">
-      <div class="menu-brand">${EMBLEM}<h1>SOVEREIGN<span>COMMAND</span></h1><p class="motto">${MOTTO}</p></div>
+      <div class="menu-brand">${LOGO_HTML}<h1>SOVEREIGN<span>COMMAND</span></h1><p class="motto">${MOTTO}</p></div>
       <div class="menu-body">${body}</div>
       <p class="menu-foot mono">Esc returns to the game${this.a.offline ? ' · the world is paused while this menu is open' : ''}</p></div>`;
     (this.el.querySelector('[data-m="play"], #mpUrl') as HTMLElement | null)?.focus();
@@ -336,12 +354,27 @@ export class MainMenu {
           <button type="button" class="claim${alerts ? ' primary' : ''}" data-m="alerts">Desktop alerts: ${alerts ? 'on' : 'off'}</button>
           <p class="hint">Hover over anything for a tooltip; ? lists every key.</p>
         </section>
+        ${this.topbarHtml()}
         <section><span class="label">GAMEPLAY</span>
           ${speeds.length ? `<div class="menu-row">${speeds.map((b) => `<button type="button" class="claim${b.getAttribute('aria-pressed') === 'true' ? ' primary' : ''}" data-m="speed" data-x="${b.dataset.x}">${b.dataset.x}×</button>`).join('')}</div><p class="hint">1× is a game day every 10 seconds.</p>` : '<p class="hint">Shared worlds run at the server\'s speed.</p>'}
-          ${check('Advisers govern while I am away', 'autopilot', 'The AI runs your nation while you are offline')}
+          ${this.a.offline ? '<p class="hint">Advisers: choose what they handle for you in Politics (O).</p>' : check('Advisers govern while I am away', 'autopilot', 'The AI runs your nation while you are offline')}
         </section>
       </div>
       <div class="menu-row"><button type="button" class="claim" data-m="back">Back</button></div>`;
+  }
+
+  /** Options: which figures the top bar shows, and in what order. */
+  private topbarHtml() {
+    const tb = this.a.topbar;
+    if (!tb) return '';
+    const on = tb.get();
+    const rows = [...on, ...tb.items.map(([k]) => k).filter((k) => !on.includes(k))];
+    const name = (k: string) => tb.items.find(([x]) => x === k)?.[1] ?? k;
+    return `<section class="tb-opts"><span class="label">TOP BAR</span>
+      ${rows.map((k) => `<div class="tb-row"><label class="check plain"><input type="checkbox" data-m="tb-toggle" data-id="${k}" ${on.includes(k) ? 'checked' : ''}>${esc(name(k))}</label>
+        ${on.includes(k) ? `<button type="button" class="link" data-m="tb-up" data-id="${k}" aria-label="Move up">▲</button><button type="button" class="link" data-m="tb-down" data-id="${k}" aria-label="Move down">▼</button>` : ''}</div>`).join('')}
+      <button type="button" class="link" data-m="tb-reset">Back to the default</button>
+      <p class="hint">Ctrl-click any figure in the bar to shrink it; click a figure to open the window where you change it.</p></section>`;
   }
 
   private creditsHtml() {
@@ -359,7 +392,9 @@ export class MainMenu {
 }
 
 /** The game's emblem: a globe in a brass ring with a star. */
-const EMBLEM = `<svg class="emblem" viewBox="0 0 120 120" aria-hidden="true">
+/** The game's logo (client/public/brand/logo.png), or the drawn emblem below if it cannot load. */
+const LOGO = `<img class="logo" src="${ASSET_BASE}brand/logo.png" alt="Sovereign Command" onerror="this.replaceWith(document.createRange().createContextualFragment(this.dataset.fallback))" data-fallback="">`;
+const EMBLEM_SVG = `<svg class="emblem" viewBox="0 0 120 120" aria-hidden="true">
   <defs><linearGradient id="brass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0d48a"/><stop offset="1" stop-color="#9c7a34"/></linearGradient></defs>
   <circle cx="60" cy="60" r="56" fill="none" stroke="url(#brass)" stroke-width="3"/>
   <circle cx="60" cy="60" r="47" fill="#0d1a24" stroke="url(#brass)" stroke-width="1.5"/>
@@ -369,3 +404,5 @@ const EMBLEM = `<svg class="emblem" viewBox="0 0 120 120" aria-hidden="true">
   </g>
   <path d="M60 30l7.6 15.4 17 2.5-12.3 12 2.9 16.9L60 68.8l-15.2 8 2.9-16.9-12.3-12 17-2.5z" fill="url(#brass)" stroke="#2a1f0c" stroke-width="1"/>
 </svg>`;
+
+const LOGO_HTML = LOGO.replace('data-fallback=""', `data-fallback="${EMBLEM_SVG.replace(/"/g, '&quot;')}"`);

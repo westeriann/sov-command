@@ -19,6 +19,18 @@ import type { AchievementKey, SeasonMission } from './goals';
 import type { Ideology, PropagandaMode, SocietyPrivate } from './society';
 
 export type Focus = 'economy' | 'military' | 'research' | 'diplomacy';
+/** What single-player advisers may handle for you. */
+export type AdviserArea = 'budget' | 'build' | 'research' | 'recruit' | 'trade' | 'laws' | 'decisions' | 'espionage';
+export const ADVISER_AREAS: [AdviserArea, string, string][] = [
+  ['budget', 'Budget and taxes', 'Keep the books near balance and the budget suited to the times'],
+  ['build', 'Construction', 'Power stations before blackouts, then factories, mines and defences'],
+  ['research', 'Research', 'Keep something researched and the queue filled'],
+  ['recruit', 'Recruitment', 'Keep the forces at the size the defence budget pays for'],
+  ['trade', 'Trade and treaties', 'Trade deals, non-aggression pacts, research cooperation and supply contracts'],
+  ['laws', 'Laws', 'Pass laws that suit the government, when capital allows'],
+  ['decisions', 'Decisions', 'Answer events after three days if you have not'],
+  ['espionage', 'Espionage', 'Counter-intelligence and agent networks in rivals'],
+];
 export type Personality = 'expansionist' | 'trader' | 'turtle' | 'opportunist' | 'idealist';
 
 export const FOCI: Focus[] = ['economy', 'military', 'research', 'diplomacy'];
@@ -103,6 +115,7 @@ export interface NationPrivate extends NationPublic {
   rate?: number; // interest rate on our debt, a year
   autonomy?: number[]; // provinces we have granted autonomy
   pause?: { votes: number; needed: number; mine: boolean; paused: boolean }; // the pause vote of a shared world
+  advisers?: { areas: AdviserArea[]; log: string[]; available: boolean }; // single player
 }
 
 /** Front lines and wars are public knowledge. */
@@ -166,7 +179,7 @@ export interface SeasonInfo {
   startedAt: number; // real ms
   endsAt: number; // real ms
   leaders: { nation: number; score: number; power: number; badges?: number }[]; // top 20; power = share of world strength now; badges: the leader's achievements
-  history: { d: number; s: Record<number, number> }[]; // weekly scores of the current top nations
+  history: { d: number; s: Record<number, number>; p?: Record<number, number> }[]; // the leaders' scores (s) and share of world power in % (p), every other day
   hallOfFame: { season: number; endedAt: number; nation: number; name: string; player?: string; score: number }[];
 }
 
@@ -226,7 +239,8 @@ export type Order =
   | { kind: 'autonomy'; province: number }
   | { kind: 'network'; target: number; build: boolean }
   | { kind: 'counter_intel'; level: number }
-  | { kind: 'pause_vote'; on: boolean }; // shared worlds pause when every player online agrees
+  | { kind: 'pause_vote'; on: boolean }
+  | { kind: 'advisers'; areas: AdviserArea[] }; // single player: what the advisers may handle // shared worlds pause when every player online agrees
 
 export type ClientMsg =
   | { t: 'hello'; token: string }

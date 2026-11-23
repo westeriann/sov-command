@@ -39,6 +39,11 @@ export class Game {
   atWar(a: number | undefined, b: number | undefined) {
     return !!a && !!b && this.war.wars.some((w) => (w.a === a && w.b === b) || (w.a === b && w.b === a));
   }
+  /** The game date a truce between two nations at war runs until, if one holds. */
+  truce(a: number | undefined, b: number | undefined) {
+    const w = this.war.wars.find((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a));
+    return w?.truceUntil && w.truceUntil > this.gameNow().getTime() ? new Date(w.truceUntil) : undefined;
+  }
   private listeners = new Set<Listener>();
 
   on(fn: Listener) {

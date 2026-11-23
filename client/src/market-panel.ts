@@ -63,6 +63,12 @@ export class MarketPanel {
   private tab: Tab = 'local';
   private pick: Pick = 'food';
   private html = '';
+  private big = new Set<string>(); // charts shown full size
+
+  /** A chart in the grid: half size, click to show it full size (and click again to shrink it). */
+  private cell(key: string, label: string, chart: string) {
+    return `<div class="chart-cell${this.big.has(key) ? ' big' : ''}" data-mk="chart" data-key="${key}" title="${this.big.has(key) ? 'Click to shrink' : 'Click to enlarge'}"><span class="label">${label}</span>${chart}</div>`;
+  }
 
   constructor(root: HTMLElement, private game: Game, private pol?: Political) {
     this.el = document.createElement('section');
@@ -78,6 +84,7 @@ export class MarketPanel {
       if (a === 'close') { this.close(); document.dispatchEvent(new CustomEvent('market-closed')); }
       else if (a === 'tab') { this.tab = t.dataset.tab as Tab; this.render(); }
       else if (a === 'pick') { this.pick = t.dataset.good as Pick; this.render(); }
+      else if (a === 'chart') { const k = t.dataset.key!; if (this.big.has(k)) this.big.delete(k); else this.big.add(k); this.render(); }
     });
     game.on((c: Set<Change>) => { if (!this.el.hidden && (c.has('mine') || c.has('economy') || c.has('status'))) this.render(); });
   }
@@ -206,8 +213,7 @@ export class MarketPanel {
         <thead><tr><th scope="col">Good</th><th scope="col">Output</th><th scope="col">Use</th><th scope="col">Balance</th><th scope="col">Trade</th><th scope="col">Stock</th><th scope="col">World price</th></tr></thead>
         <tbody>${rows}${powerRow}</tbody>
       </table></div>
-      <span class="label">${esc(name.toUpperCase())} OVER TIME</span>
-      ${chart}
+      <div class="chart-grid">${this.cell('local', `${esc(name.toUpperCase())} OVER TIME`, chart)}</div>
       <p class="hint">Surpluses are sold and shortfalls bought on the world market every day, at world prices; embargoes and blockades cut that trade. Electricity is local: it cannot be traded, so build power stations (from a province panel) as demand grows.</p>
       ${this.specialtiesHtml()}`;
   }
@@ -242,9 +248,7 @@ export class MarketPanel {
       (v) => `${Math.round(v)}`, 'Price index of every good, 2026 = 100');
     return `
       <div class="market-grid">${cards}</div>
-      <span class="label">${esc(info.name.toUpperCase())} · PRICE</span>${price}
-      <span class="label">${esc(info.name.toUpperCase())} · WORLD SUPPLY AND DEMAND</span>${supply}
-      <span class="label">ALL GOODS · PRICE INDEX (2026 = 100)</span>${index}
+      <div class="chart-grid">${this.cell('price', `${esc(info.name.toUpperCase())} · PRICE`, price)}${this.cell('supply', `${esc(info.name.toUpperCase())} · WORLD SUPPLY AND DEMAND`, supply)}${this.cell('index', 'ALL GOODS · PRICE INDEX (2026 = 100)', index)}</div>
       <p class="hint">One world market for every nation, players and AI alike. Prices rise when the world uses more than it makes and fall when it makes more; wars, blockades, embargoes and world events move them.</p>`;
   }
 }

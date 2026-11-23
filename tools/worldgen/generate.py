@@ -1,6 +1,6 @@
 """Generate a planet and texture it with real satellite photos.
 
-    python tools/worldgen/generate.py --seed 300 --width 16384
+    python tools/worldgen/generate.py --seed 300 --width 32768
 
 Pipeline
   1. Elevation: about 24 tectonic plates (continental or oceanic, drifting)
@@ -496,7 +496,7 @@ def make_texture(terrain, seed, ow, dw):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=300)
-    ap.add_argument("--width", type=int, default=16384, help="colour map width (power of two)")
+    ap.add_argument("--width", type=int, default=32768, help="colour map width (power of two): 32768 is about 1.2 km a pixel")
     ap.add_argument("--data-width", type=int, default=4096, help="elevation/climate grid width")
     args = ap.parse_args()
     OUT.mkdir(exist_ok=True)

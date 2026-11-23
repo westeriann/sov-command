@@ -40,7 +40,7 @@ import {
   type Effects, type Government, type ResearchPrivate, type TechId,
 } from '../../shared/research.ts';
 import {
-  CONTRACT_YEARS, ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, MAX_OPEN_RESOLUTIONS, MAX_SPY_OPS, PACTS, PACT_INFO, RESOLUTION_TEXT, SPY_COST, SPY_DAYS, SPY_MISSIONS,
+  TRUCE_DAYS, CONTRACT_YEARS, ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, MAX_OPEN_RESOLUTIONS, MAX_SPY_OPS, PACTS, PACT_INFO, RESOLUTION_TEXT, SPY_COST, SPY_DAYS, SPY_MISSIONS,
   TRIBUTE_SHARE, VOTE_DAYS, dealText, type Deal, type Opinion, type Pact, type ResolutionKind, type SpyMission,
 } from '../../shared/diplomacy.ts';
 import {
@@ -49,6 +49,7 @@ import {
 } from '../../shared/politics.ts';
 import { ideologyGap } from '../../shared/society.ts';
 import { EVENTS, EVENT_DAYS, type EventKey, type PendingEvent } from '../../shared/events.ts';
+import { ADVISER_AREAS, type AdviserArea } from '../../shared/protocol.ts';
 import { AUTONOMY_COST, CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST, PARTIES_PER_NATION, PARTY_POOL, type Party } from '../../shared/parties.ts';
 import { DEMIL_YEARS, MAX_REPARATIONS, REPARATION_YEARS, treatyCost, treatyText, type PeaceTreaty } from '../../shared/peace.ts';
 import { COUNTER_INTEL_COST, MAX_NETWORKS, NETWORK_COST, NETWORK_GROWTH } from '../../shared/diplomacy.ts';
@@ -107,6 +108,8 @@ export interface NationState {
   spy?: { nets: Record<number, number>; building: number[]; counter: number };
   repay?: { to: number; share: number; until: number }[]; // reparations we owe
   autonomy?: number[]; // provinces granted autonomy
+  advisers?: AdviserArea[]; // single player: what the advisers handle
+  adviserLog?: string[];
 }
 
 export interface WorldOptions {
@@ -116,6 +119,7 @@ export interface WorldOptions {
   autopilotAfterMs: number; // real ms offline before the AI steps in
   releaseAfterMs: number; // real ms offline before the nation returns to the AI
   seasonMs?: number; // real length of a season (default 28 days)
+  singlePlayer?: boolean; // the world runs in the player's own window: advisers may help them govern
 }
 
 export interface WorldListener {
@@ -259,7 +263,7 @@ export class World {
   private plants = new Map<number, { share: number; thermal: number; coal: number; gas: number }>();
   nuked: number[] = [];
   private warDirty = false;
-  season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number> }[]; dominance: number };
+  season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number>; p?: Record<number, number> }[]; dominance: number };
   private power = new Map<number, number>();
   listener: WorldListener | null = null;
   /** Set by the server: achievements are kept on the account, not the nation. */
@@ -710,6 +714,7 @@ export class World {
       rate: Math.round(this.interestRate(n) * 1000) / 1000,
       autonomy: n.autonomy,
       pause: this.pauseState(n.id),
+      advisers: { areas: n.advisers ?? [], log: (n.adviserLog ?? []).slice(0, 20), available: !!this.opts.singlePlayer },
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
     };
   }
@@ -806,10 +811,18 @@ export class World {
     }
     // domination: a nation holding 40% of world power for 60 game days ends the season early
     this.season.dominance = top >= 0.4 ? this.season.dominance + 1 : 0;
-    if (this.market.day % 7 === 0) {
+    // every other day: the leaders' scores and their share of world power (which rises and falls)
+    if (this.market.day % 2 === 0) {
       const best = Object.entries(this.season.scores).sort((a, b) => b[1] - a[1]).slice(0, 8);
-      this.season.history.push({ d: this.market.day, s: Object.fromEntries(best.map(([id, v]) => [id, Math.round(v)])) });
-      if (this.season.history.length > 260) this.season.history.splice(0, this.season.history.length - 260);
+      this.season.history.push({
+        d: this.market.day, s: Object.fromEntries(best.map(([id, v]) => [id, Math.round(v)])),
+        p: Object.fromEntries(best.map(([id]) => [id, Math.round((this.power.get(Number(id)) ?? 0) * 10000) / 100])),
+      });
+      // keep the last year in full, older history thinned to fortnightly
+      const cut = this.market.day - 365;
+      this.season.history = this.season.history.filter((h) => h.d >= cut || h.d % 14 === 0).slice(-500);
+    }
+    if (this.market.day % 7 === 0) {
       this.db.prepare('insert or replace into snapshots (day, data) values (?, ?)')
         .run(this.market.day, JSON.stringify({
           o: Object.fromEntries(this.diplomacy.owners), x: Object.fromEntries(this.military.occupied),
@@ -977,6 +990,7 @@ export class World {
         if (!t || t.id === n.id) return fail('bad_request', 'Choose another nation.');
         if (t.annexedBy) return fail('not_allowed', 'That nation no longer exists.');
         if (this.military.atWar(n.id, t.id)) return fail('not_allowed', 'Already at war.');
+        if (this.military.warBetween(n.id, t.id)) return fail('not_allowed', 'A truce holds: wait for it to end, or make peace.');
         const d = this.diplomacy, overlord = d.overlords.get(n.id);
         if (overlord !== undefined && overlord !== t.id) return fail('not_allowed', 'A vassal cannot start wars. Declare independence first (war on your overlord).');
         if (d.overlords.get(t.id) === n.id) return fail('not_allowed', 'That is your vassal. Release it first.');
@@ -1474,6 +1488,12 @@ export class World {
         this.touch(n, false);
         return ok;
       }
+      case 'advisers': {
+        if (!this.opts.singlePlayer) return fail('not_allowed', 'Advisers help only in single player; in shared worlds they take over while you are away.');
+        n.advisers = (Array.isArray(order.areas) ? order.areas : []).filter((a) => ADVISER_AREAS.some(([k]) => k === a));
+        this.touch(n, false);
+        return ok;
+      }
       case 'appeal': {
         const pol = n.pol!;
         if (pol.capital < 50) return fail('no_funds', 'A national appeal needs 50 political capital.');
@@ -1678,6 +1698,13 @@ export class World {
   private militaryDay() {
     const events: MilEvent[] = [];
     this.military.now = this.gameNow();
+    for (const w of this.military.wars) {
+      if (w.truceUntil !== undefined && w.truceUntil <= this.military.now) {
+        w.truceUntil = undefined;
+        this.event('war', w.a, `The truce between the ${this.defs.get(w.a)?.name} and the ${this.defs.get(w.b)?.name} runs out: the war resumes.`);
+        this.warDirty = true;
+      }
+    }
     this.military.fight(
       (nation, amount) => {
         const e = this.nations.get(nation)?.econ;
@@ -2870,8 +2897,39 @@ export class World {
   }
 
   // ---- events, parties, espionage, reparations, separatism ---------------------------
+  /** Single-player advisers act once a game week in the areas the player gave them, and say what they did. */
+  private advisersDay(n: NationState, day: number) {
+    if (!this.opts.singlePlayer || !n.advisers?.length || n.controller !== 'human' || n.autopilot) return;
+    const areas = new Set<string>(n.advisers);
+    const did: string[] = [];
+    if (areas.has('decisions') && n.event && day - n.event.day >= 3) {
+      const key = n.event.key, i = this.aiChoice(n, key);
+      this.resolveEvent(n, i);
+      did.push(`answered "${EVENTS[key].title}": ${EVENTS[key].options[i].text.toLowerCase()}`);
+    }
+    if (day % 7 !== n.id % 7) { if (did.length) this.logAdvisers(n, day, did); return; }
+    for (const o of this.brain.adviserOrders(n, areas)) {
+      if (!this.submit(n.id, o, 'human').ok) continue;
+      did.push(o.kind === 'budget' ? 'rebalanced the budget' : o.kind === 'policy' ? `set taxes to ${o.policy.tax}%`
+        : o.kind === 'build' ? `began a ${BUILDINGS[o.building].name.toLowerCase()} in ${this.military.provinces.get(o.province)?.name ?? 'a province'}`
+        : o.kind === 'recruit' ? `ordered a ${UNIT_SPECS[o.unit].name.toLowerCase()}`
+        : o.kind === 'research' ? `started research on ${TECH_BY_ID.get(o.tech)?.name}` : o.kind === 'research_queue' ? `queued ${TECH_BY_ID.get(o.tech)?.name}`
+        : o.kind === 'propose' ? `proposed ${dealText(o.deal)} to the ${this.defs.get(o.target)?.name}`
+        : o.kind === 'counter_intel' ? `set counter-intelligence to level ${o.level}` : o.kind === 'network' ? `${o.build ? 'began recruiting agents in' : 'stopped recruiting in'} the ${this.defs.get(o.target)?.name}` : o.kind);
+    }
+    if (areas.has('laws') && day % 28 === n.id % 28) { const l = this.brain.pickLaw(n, 'human'); if (l) did.push(l); }
+    if (did.length) this.logAdvisers(n, day, did);
+  }
+
+  private logAdvisers(n: NationState, day: number, did: string[]) {
+    const date = new Date(this.worldStart + day * DAY).toISOString().slice(0, 10);
+    n.adviserLog = [...did.map((d) => `${date}: ${d}`), ...(n.adviserLog ?? [])].slice(0, 40);
+    this.touch(n, false);
+  }
+
   private statecraftDay(n: NationState, day: number) {
     const human = n.controller === 'human' && !n.autopilot;
+    this.advisersDay(n, day);
     // reparations
     if (n.repay?.length) {
       n.repay = n.repay.filter((r) => r.until > day && !this.nations.get(r.to)?.annexedBy);
@@ -3121,8 +3179,14 @@ export class World {
     const na = this.nations.get(a), nb = this.nations.get(b);
     if (!na || !nb || na.annexedBy || nb.annexedBy) return 'That nation no longer exists.';
     const d = this.diplomacy, name = this.defs.get(b)!.short;
+    if (deal.kind === 'truce') {
+      const w = this.military.warBetween(a, b);
+      if (!w) return `You are not at war with the ${name}.`;
+      if (this.military.inTruce(w)) return 'A truce already holds.';
+      return TRUCE_DAYS.includes(deal.days) ? null : 'Choose 30, 90 or 180 days.';
+    }
     if (deal.kind === 'peace') {
-      if (!this.military.atWar(a, b)) return `You are not at war with the ${name}.`;
+      if (!this.military.warBetween(a, b)) return `You are not at war with the ${name}.`;
       if (deal.terms === 'treaty' && deal.treaty) {
         const t = deal.treaty;
         if (t.provinces.some((p) => this.military.provinces.get(p)?.owner !== b)) return 'Only their own provinces can be ceded.';
@@ -3139,7 +3203,7 @@ export class World {
       if (this.military.atWar(a, b)) return `You are at war with the ${name}.`;
       return null;
     }
-    if (this.military.atWar(a, b)) return `You are at war with the ${name}. Make peace first.`;
+    if (this.military.warBetween(a, b)) return `You are at war with the ${name}. Make peace first.`;
     if (deal.kind === 'gift') return deal.amount > 0 && na.econ.treasury >= deal.amount ? null : 'You cannot afford that gift.';
     if (deal.kind === 'demand') {
       if (deal.province !== undefined) {
@@ -3197,6 +3261,11 @@ export class World {
       const bloc = this.diplomacy.blocOf(from.id)!;
       bloc.members.push(to.id);
       this.event('diplomacy', from.id, `The ${B} joins ${bloc.name}.`);
+    } else if (deal.kind === 'truce') {
+      const w = this.military.warBetween(from.id, to.id)!;
+      w.truceUntil = this.gameNow() + deal.days * DAY;
+      for (const u of this.military.units.values()) if ((u.nation === from.id || u.nation === to.id) && u.next !== undefined) { u.path = []; u.next = undefined; } // advances stop
+      this.event('peace', from.id, `The ${A} and the ${B} agree a ${deal.days}-day truce. The lines hold where they stand.`);
     } else if (deal.kind === 'gift') {
       from.econ.treasury -= deal.amount;
       to.econ.treasury += deal.amount;
@@ -3372,6 +3441,7 @@ function cleanDeal(d: unknown): Deal | null {
   const x = d as Deal | undefined;
   if (!x || typeof x !== 'object') return null;
   if (x.kind === 'alliance' || x.kind === 'trade' || x.kind === 'bloc' || x.kind === 'nap' || x.kind === 'access' || x.kind === 'research' || x.kind === 'guarantee') return { kind: x.kind };
+  if (x.kind === 'truce') { const days = Number(x.days); return TRUCE_DAYS.includes(days) ? { kind: 'truce', days } : null; }
   if (x.kind === 'peace' && x.terms === 'treaty') {
     const t = x.treaty as PeaceTreaty | undefined;
     if (!t || typeof t !== 'object') return null;

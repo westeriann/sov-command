@@ -594,7 +594,7 @@ export class Models3D implements CustomLayerInterface {
     nightUniforms.uWin.value = Math.max(250, mpp * 3);
     if (on) {
       this.drawCities(t, mpp);
-      this.drawBuildings(t, mpp);
+      this.drawBuildings(t, mpp, unit * 1.6 * 0.75); // buildings: three quarters of a unit model
       this.drawForces(unit * 1.6, t, px * 1.6);
     }
     this.drawWeather(sky, z);
@@ -664,13 +664,9 @@ export class Models3D implements CustomLayerInterface {
     }
   }
 
-  /** Building models are this many metres across: about the size of a few city blocks. */
-  private static BUILDING_M = 3200;
-
-  private drawBuildings(t: number, mpp: number) {
-    const unitM = Models3D.BUILDING_M;
-    // like city blocks: swell in place when zoomed out, never move, true size up close
-    const g = Math.min(2.5, Math.max(1, (5 * mpp) / unitM));
+  /** Buildings are drawn at a steady size on screen, a quarter smaller than unit models, so they read at every zoom. */
+  private drawBuildings(t: number, mpp: number, size: number) {
+    const unitM = size, g = 1;
     for (const [pid, list] of Object.entries(this.game.war.buildings)) {
       const done = list.filter((x) => x.progress >= 1).map((x) => x.type);
       const broken = new Set(list.filter((x) => x.damaged).map((x) => x.type));

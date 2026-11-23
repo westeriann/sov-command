@@ -106,7 +106,7 @@ async function start(base: string) {
   const speed = clock ? JSON.parse(clock).speed : BASE_SPEED * DEFAULT_X;
   world = new World(db, seed, nations, {
     speed, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 150,
-    autopilotAfterMs: 1e15, releaseAfterMs: 1e15, seasonMs: 28 * 86_400_000,
+    autopilotAfterMs: 1e15, releaseAfterMs: 1e15, seasonMs: 28 * 86_400_000, singlePlayer: true,
   }, provinces);
   world.achievements = {
     list: (u) => (db.prepare('select key from achievements where user_id = ?').all(u) as { key: string }[]).map((r) => r.key),

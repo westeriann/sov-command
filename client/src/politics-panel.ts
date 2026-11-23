@@ -2,9 +2,9 @@
 // or rule by decree), laws in force and on offer, what parliament or the elites
 // demand, and claims on other nations.
 import { DECREE_DISCOUNT, HIGH_TAX, HIGH_TAX_SUPPORT, LAWS, LAW_IDS, LEGISLATURE_TEXT, MAX_CAPITAL, WAR_SUPPORT, lawVote, type LawId } from '../../shared/politics';
-import { FACTIONS, FACTION_INFO } from '../../shared/society';
-import { GOVERNMENT_INFO } from '../../shared/research';
-import type { Order } from '../../shared/protocol';
+import { FACTIONS, FACTION_INFO, PROPAGANDA_COST, type PropagandaMode } from '../../shared/society';
+import { GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, type Government } from '../../shared/research';
+import { ADVISER_AREAS, type AdviserArea, type Order } from '../../shared/protocol';
 import type { Change, Game } from './game';
 import type { Political } from './political';
 import { keepScrollOn } from './keep-scroll';
@@ -35,6 +35,18 @@ export class PoliticsPanel {
       if (a === 'close') { this.close(); document.dispatchEvent(new CustomEvent('politics-closed')); }
       else if (a === 'law') this.order({ kind: 'law', law: t.dataset.law as LawId, enact: t.dataset.enact === '1' });
       else if (a === 'appeal') this.order({ kind: 'appeal' });
+      else if (a === 'adviser') {
+        const areas = [...this.el.querySelectorAll<HTMLInputElement>('[data-pl="adviser"]')].filter((x) => x.checked).map((x) => x.dataset.area as AdviserArea);
+        this.order({ kind: 'advisers', areas });
+      }
+      else if (a === 'prop') {
+        const mode = t.dataset.mode as PropagandaMode;
+        const target = mode === 'abroad' ? Number((this.el.querySelector('#propTarget') as HTMLSelectElement).value) : undefined;
+        this.order({ kind: 'propaganda', mode, target });
+      } else if (a === 'gov') {
+        if (t.dataset.confirm === '1') this.order({ kind: 'government', government: t.dataset.gov as Government });
+        else { t.dataset.confirm = '1'; t.textContent = 'Confirm reform'; }
+      }
       else if (a === 'campaign') this.order({ kind: 'campaign' });
       else if (a === 'coalition') this.order({ kind: 'coalition', party: t.dataset.party!, join: t.dataset.join === '1' });
       else if (a === 'refuse') {
@@ -109,7 +121,67 @@ export class PoliticsPanel {
         <span class="label" id="pol-claims">CLAIMS</span>
         <p class="hint">You hold claims on: ${claims}. A claim comes from a demand another nation refused (made in <a href="#" class="go" data-go="module:diplomacy">Diplomacy</a>). A war on a nation you claim is justified: parliament needs less convincing and the world condemns you far less.</p>
       </section>
-      <section><span class="label" id="pol-laws">LAWS</span>${laws}</section></div></div>`);
+      <section><span class="label" id="pol-laws">LAWS</span>${laws}</section></div>
+      ${this.societyHtml()}
+      ${this.governmentHtml()}
+      ${this.advisersHtml()}</div>`);
+  }
+
+  /** The people, propaganda and the factions. */
+  private societyHtml() {
+    const s = this.game.mine?.society;
+    if (!s) return '';
+    const axis = (v: number, left: string, right: string) => `<div class="axis"><span>${left}</span><div class="axis-bar"><i style="left:${((v + 1) / 2) * 100}%"></i></div><span>${right}</span></div>`;
+    const nations = [...this.pol.nations.values()].filter((n) => n.id !== this.game.mine!.id).sort((a, b) => a.name.localeCompare(b.name));
+    return `<div class="econ-cols">
+      <section>
+        <span class="label">THE PEOPLE</span>
+        ${axis(s.ideology.liberty, 'Authoritarian', 'Liberal')}
+        ${axis(s.ideology.openness, 'Nationalist', 'Internationalist')}
+        <p class="hint">Your government ${Math.round(s.fit) >= 0 ? `suits the people (${Math.round(s.fit) > 0 ? '+' : ''}${Math.round(s.fit)} stability)` : `<span class="down">clashes with what the people believe (${Math.round(s.fit)} stability)</span>`}. Beliefs drift toward the government, faster with propaganda; wealth breeds liberty, war breeds nationalism, trade breeds openness. Open societies gain more from trade deals; like-minded nations trust each other.</p>
+        <span class="label">PROPAGANDA · ${(PROPAGANDA_COST * 100).toFixed(1)}% OF GDP A YEAR</span>
+        <div class="actions-row">
+          <button type="button" class="claim${s.propaganda.mode === 'off' ? ' primary' : ''}" data-pl="prop" data-mode="off">None</button>
+          <button type="button" class="claim${s.propaganda.mode === 'home' ? ' primary' : ''}" data-pl="prop" data-mode="home" title="+4 stability; people drift toward your government three times as fast">At home</button>
+          <select id="propTarget" class="text-input" aria-label="Target nation">${nations.map((n) => `<option value="${n.id}"${n.id === s.propaganda.target ? ' selected' : ''}>${esc(n.name)}</option>`).join('')}</select>
+          <button type="button" class="claim${s.propaganda.mode === 'abroad' ? ' primary' : ''}" data-pl="prop" data-mode="abroad" title="Erodes their stability and pulls their people toward your values">Abroad</button>
+        </div>
+      </section>
+      <section>
+        <span class="label">FACTIONS</span>
+        ${FACTIONS.map((f) => {
+          const v = Math.round(s.factions[f]);
+          const mood = v > 75 ? `<span class="up">pleased: ${FACTION_INFO[f].happy}</span>` : v < 25 ? `<span class="down">angry: ${FACTION_INFO[f].angry}</span>` : 'content';
+          return `<div class="faction"><b>${FACTION_INFO[f].name}</b><div class="bar"><i style="width:${v}%"></i></div><span class="mono">${v}</span><span class="hint">Wants ${FACTION_INFO[f].wants}. ${mood}.</span></div>`;
+        }).join('')}
+        <p class="hint">Stability under 15% with an angry public or army can end in civil war.</p>
+      </section>
+    </div>`;
+  }
+
+  /** Single player: what the advisers handle, and what they have done. */
+  private advisersHtml() {
+    const a = this.game.mine?.advisers;
+    if (!a?.available) return '';
+    return `<div class="econ-cols"><section><span class="label" id="pol-advisers">ADVISERS · they act once a game week in the areas you tick</span>
+      <div class="adviser-grid">${ADVISER_AREAS.map(([k, name, text]) => `<label class="check plain" data-tip="${attr(tip(name, text))}"><input type="checkbox" data-pl="adviser" data-area="${k}" ${a.areas.includes(k) ? 'checked' : ''}>${esc(name)}</label>`).join('')}</div>
+      <p class="hint">They never move troops, declare war or make peace: those stay yours. Everything they do is listed here, so you can undo it.</p></section>
+      <section><span class="label">WHAT THEY DID</span>${a.log.length ? `<ul class="reports">${a.log.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : '<p class="hint">Nothing yet.</p>'}</section></div>`;
+  }
+
+  /** The form of government and reform. */
+  private governmentHtml() {
+    const r = this.game.mine?.research;
+    if (!r) return '';
+    const day = this.game.market?.day ?? 0;
+    const reforming = r.reformUntil !== undefined;
+    const cooldown = r.reformedAt !== undefined ? Math.max(0, REFORM_COOLDOWN_DAYS - (day - r.reformedAt)) : 0;
+    return `<span class="label" id="pol-government">FORM OF GOVERNMENT · ${reforming ? `reform under way, ${r.reformUntil! - day} days left` : cooldown ? `next reform possible in ${cooldown} days` : 'reform possible'}</span>
+        <div class="gov-grid">
+          ${GOVERNMENTS.map((g) => `<div class="tech${g === r.government ? ' active' : ''}" data-tip="${attr(tip(GOVERNMENT_INFO[g].name, ...effectLines(GOVERNMENT_INFO[g].text), g === r.government ? null : ['Reform: 30 days of turmoil, −10 stability', 'bad']))}"><b>${esc(GOVERNMENT_INFO[g].name)}</b><span>${esc(GOVERNMENT_INFO[g].text)}</span>
+            ${g === r.government ? '<em>Current</em>' : `<button type="button" class="claim" data-pl="gov" data-gov="${g}" ${reforming || cooldown ? 'disabled' : ''}>Reform</button>`}</div>`).join('')}
+        </div>
+        <p class="hint">A reform takes 30 game days (5 minutes) of turmoil, −10 stability meanwhile, and the next is possible a game year later. Stability below 25 risks a coup or revolution. Random national events (booms, strikes, disasters, scandals, breakthroughs) appear in Dispatches.</p>`;
   }
 
   /** Parliament's parties: seats, polls, the governing coalition, and the next election. */

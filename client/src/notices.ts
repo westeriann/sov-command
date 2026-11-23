@@ -182,7 +182,7 @@ export class Notices {
     const blackout = this.game.economy.get(mine.id)?.blackout ?? 0;
     if (blackout > 0.01) out.push({ id: 'power', icon: 'power', level: 'bad', open: 'economy', tip: tip(`Blackouts: ${Math.round(blackout * 100)}% of demand unmet`, ['Growth and stability fall', 'bad'], 'Build power stations (Economy)') });
     if (e && e.treasury < 0) out.push({ id: 'debt', icon: 'debt', level: 'warn', open: 'economy', tip: tip(`In debt: $${Math.abs(e.treasury).toFixed(1)}bn`, ['Interest drains the budget', 'bad'], 'Raise taxes or cut spending (Economy)') });
-    if (e && e.stability < 30) out.push({ id: 'unrest', icon: 'unrest', level: 'bad', open: 'research', tip: tip(`Stability ${Math.round(e.stability)}`, ['Below 25: coups and revolutions become possible', 'bad'], 'Welfare spending, propaganda at home or a better-suited government help') });
+    if (e && e.stability < 30) out.push({ id: 'unrest', icon: 'unrest', level: 'bad', open: 'politics', tip: tip(`Stability ${Math.round(e.stability)}`, ['Below 25: coups and revolutions become possible', 'bad'], 'Welfare spending, propaganda at home or a better-suited government help') });
     if (e && e.shortage > 0.05) out.push({ id: 'shortage', icon: 'shortage', level: 'warn', open: 'economy', tip: tip('Shortage of goods', [`${Math.round(e.shortage * 100)}% of needs unmet`, 'bad'], 'Trade deals and imports help (Economy)') });
     const cut = this.game.units.filter((u) => u.nation === mine.id && u.supplied === false).length;
     if (cut) out.push({ id: 'supply', icon: 'supply', level: 'bad', open: 'army', tip: tip(`${cut} unit${cut > 1 ? 's' : ''} out of supply`, ['Weaker in battle and losing strength each day', 'bad'], 'Reconnect them to your territory or a port') });
@@ -192,6 +192,9 @@ export class Notices {
     if (mine.event) out.push({ id: 'event', icon: 'decision', level: 'bad', open: 'event:', tip: tip('A decision is waiting', `${mine.event.key.replace(/_/g, ' ')}: choose how to answer`, 'Unanswered, the first option is taken after 30 days', 'Click to decide') });
     const m = mine.mil;
     if (m?.queue.length && (m.equipment ?? 0) < (m.equipmentNeed ?? 0) * 3) out.push({ id: 'kit', icon: 'kit', level: 'bad', open: 'army', tip: tip(`Equipment running out: ${m.equipment ?? 0} in store`, [`The production line needs ${m.equipmentNeed} a day; arsenals and factories make ${m.equipmentRate}`, 'bad'], 'Raise the military budget, build factories, secure metals') });
+    // vital supplies that may not be on the top bar
+    if (e && e.fuelDays < 20) out.push({ id: 'fuel', icon: 'shortage', level: 'bad', open: 'market', tip: tip(`Fuel for ${e.fuelDays} days`, ['Without oil your forces fight up to 40% weaker', 'bad'], 'Buy oil, sign a supply contract, or cut back the army') });
+    if (e && e.munitions < 30 && wars.length) out.push({ id: 'munitions', icon: 'idle', level: 'bad', open: 'army', tip: tip(`Munitions at ${e.munitions}%`, ['Empty: units fight much weaker', 'bad'], 'Raise the military budget; factories need metals') });
     const props = mine.diplo?.incoming.length ?? 0;
     if (props) out.push({ id: 'mail', icon: 'mail', level: 'warn', open: 'diplomacy', tip: tip(`${props} proposal${props > 1 ? 's' : ''} awaiting your answer`, 'They lapse after 30 game days', 'Click: Diplomacy') });
     if (mine.mil && !mine.mil.queue.length && wars.length) out.push({ id: 'idle', icon: 'idle', level: 'warn', open: 'army', tip: tip('No units in production', ['At war with nothing being built', 'bad'], 'Click: Ground forces to recruit') });

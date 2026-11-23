@@ -50,6 +50,8 @@ export class RankingsPanel {
     const k = act.dataset.k;
     if (k === 'close') { this.close(); document.dispatchEvent(new CustomEvent('rankings-closed')); }
     else if (k === 'goto') this.actions.goToNation(Number(act.dataset.nation));
+    else if (k === 'chart') { this.bigChart = !this.bigChart; this.render(); }
+    else if (k === 'metric') { this.metric = act.dataset.m as 'p' | 's'; this.render(); }
     else if (k === 'replay') void this.startReplay();
     else if (k === 'compare') void this.compare();
     else if (k === 'play') this.play();
@@ -83,8 +85,9 @@ export class RankingsPanel {
             </tbody></table></div>
           </section>
           <section>
-            <span class="label">SCORES THIS SEASON</span>
-            ${this.chart()}
+            <div class="row-between"><span class="label">${this.metric === 'p' ? 'SHARE OF WORLD POWER' : 'SEASON SCORES'}</span>
+              <span class="mk-tabs"><button type="button" data-k="metric" data-m="p" aria-selected="${this.metric === 'p'}">Power</button><button type="button" data-k="metric" data-m="s" aria-selected="${this.metric === 's'}">Score</button></span></div>
+            <div class="chart-grid"><div class="chart-cell${this.bigChart ? ' big' : ''}" data-k="chart" title="${this.bigChart ? 'Click to shrink' : 'Click to enlarge'}">${this.chart()}</div></div>
             <span class="label">HALL OF FAME</span>
             ${s.hallOfFame.length ? `<ol class="fame">${s.hallOfFame.map((h) => `<li><b>Season ${h.season}</b> · ${esc(h.name)}${h.player ? ` (${esc(h.player)})` : ''} · ${h.score.toLocaleString('en-US')} pts</li>`).join('')}</ol>` : '<p class="hint">No season has ended yet.</p>'}
             <span class="label">COMPARE NATIONS</span>
@@ -144,21 +147,39 @@ export class RankingsPanel {
     </div>`;
   }
 
-  /** A small line chart of the current top nations' scores. */
+  private metric: 'p' | 's' = 'p';
+  private bigChart = false;
+
+  /**
+   * The leading nations over time: their share of world power (which rises and
+   * falls with economies, armies and wars) or their running season score.
+   * Points are placed by game day, on a scaled axis with gridlines.
+   */
   private chart() {
-    const h = this.game.season?.history ?? [];
-    if (h.length < 2) return '<p class="hint">The chart fills in week by week.</p>';
-    const ids = Object.keys(h[h.length - 1].s).map(Number);
-    const max = Math.max(1, ...h.flatMap((p) => Object.values(p.s)));
-    const W = 420, H = 150;
-    const x = (i: number) => (i / (h.length - 1)) * (W - 10) + 5;
-    const y = (v: number) => H - 5 - (v / max) * (H - 15);
+    const all = this.game.season?.history ?? [];
+    const key = this.metric;
+    const h = all.filter((p) => key === 's' || p.p);
+    if (h.length < 2) return '<p class="hint">The chart fills in as the days pass.</p>';
+    const last = h[h.length - 1];
+    const ids = Object.keys(last.s).map(Number);
+    const val = (p: typeof h[number], id: number) => (key === 'p' ? p.p?.[id] : p.s[id]);
+    const vals = h.flatMap((p) => ids.map((id) => val(p, id)).filter((v): v is number => v !== undefined));
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (key === 's') lo = 0;
+    const pad = (hi - lo) * 0.08 || 1; hi += pad; lo = Math.max(0, lo - pad);
+    const W = 420, H = 170, L = 40, B = 16;
+    const d0 = h[0].d, d1 = last.d;
+    const x = (d: number) => L + ((d - d0) / Math.max(1, d1 - d0)) * (W - L - 6);
+    const y = (v: number) => 6 + (1 - (v - lo) / (hi - lo)) * (H - B - 10);
+    const fmt = (v: number) => (key === 'p' ? `${v.toFixed(1)}%` : v >= 1e4 ? `${Math.round(v / 1e3)}k` : String(Math.round(v)));
+    const grid = [0, 0.5, 1].map((f) => { const v = lo + f * (hi - lo); return `<path d="M${L} ${y(v).toFixed(1)}H${W - 6}" stroke="rgba(255,255,255,0.08)"/><text x="${L - 4}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" class="ax">${fmt(v)}</text>`; }).join('')
+      + `<text x="${L}" y="${H - 3}" class="ax">day ${d0}</text><text x="${W - 6}" y="${H - 3}" text-anchor="end" class="ax">day ${d1}</text>`;
     const lines = ids.map((id, k) => {
-      const pts = h.map((p, i) => (p.s[id] !== undefined ? `${x(i).toFixed(1)},${y(p.s[id]).toFixed(1)}` : '')).filter(Boolean).join(' ');
+      const pts = h.map((p) => { const v = val(p, id); return v !== undefined ? `${x(p.d).toFixed(1)},${y(v).toFixed(1)}` : ''; }).filter(Boolean).join(' ');
       return `<polyline points="${pts}" fill="none" stroke="${LINE_COLORS[k % LINE_COLORS.length]}" stroke-width="2"><title>${esc(this.pol.nations.get(id)?.name ?? '')}</title></polyline>`;
     }).join('');
     const legend = ids.map((id, k) => `<span><i style="background:${LINE_COLORS[k % LINE_COLORS.length]}"></i>${esc(this.pol.nations.get(id)?.short ?? '')}</span>`).join('');
-    return `<svg class="score-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Scores of the leading nations over this season">${lines}</svg><div class="chart-legend">${legend}</div>`;
+    return `<svg class="score-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="The leading nations over this season">${grid}${lines}</svg><div class="chart-legend">${legend}</div>`;
   }
 
   private async startReplay() {

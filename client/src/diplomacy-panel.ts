@@ -1,6 +1,6 @@
 // The Diplomacy window: proposals waiting for an answer, treaties in force, and peace terms.
 import {
-  CONTRACT_YEARS, ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, PACTS, PACT_INFO, RESOLUTION_TEXT, TRADE_DEAL_GROWTH, VOTE_DAYS, dealText, opinionWord,
+  TRUCE_DAYS, CONTRACT_YEARS, ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, PACTS, PACT_INFO, RESOLUTION_TEXT, TRADE_DEAL_GROWTH, VOTE_DAYS, dealText, opinionWord,
   type Deal, type DealKind, type Pact, type ResolutionKind,
 } from '../../shared/diplomacy';
 import { COMMODITIES, COMMODITY_INFO, type Commodity } from '../../shared/economy';
@@ -94,6 +94,7 @@ export class DiplomacyPanel {
       const v = (sel: string) => (this.panel.querySelector(sel) as HTMLInputElement | HTMLSelectElement).value;
       this.actions.propose(id, { kind: 'contract', good: v('#ctGood') as Commodity, amount: Number(v('#ctAmount')), years: Number(v('#ctYears')), sell: v('#ctDir') === 'sell' });
     }
+    else if (d === 'truce') this.actions.propose(id, { kind: 'truce', days: Number(act.dataset.days) });
     else if (d === 'gift') this.actions.propose(id, { kind: 'gift', amount: Number((this.panel.querySelector('#giftAmount') as HTMLInputElement).value) });
     else if (d === 'tribute') this.actions.propose(id, { kind: 'demand', tribute: Number((this.panel.querySelector('#tribAmount') as HTMLInputElement).value) });
     else if (d === 'demandprov') this.actions.propose(id, { kind: 'demand', province: Number((this.panel.querySelector('#demProv') as HTMLSelectElement).value) });
@@ -243,7 +244,9 @@ export class DiplomacyPanel {
             ${wars.length ? wars.map((foe) => {
               const ours = held(me, foe), theirs = held(foe, me);
               return `<div class="war-row"><div><b>${this.name(foe)}</b><span class="mono">we hold ${ours} of theirs, they hold ${theirs} of ours</span></div>
+                ${this.game.truce(me, foe) ? `<span class="pill ok">truce until ${this.game.truce(me, foe)!.toISOString().slice(0, 10)}</span>` : ''}
                 <div class="actions-row"><a href="#" class="claim primary go-btn" data-go="peacecon:${foe}">Peace conference… (score ${(mine.warScores?.[foe] ?? 0) > 0 ? '+' : ''}${mine.warScores?.[foe] ?? 0})</a>
+                ${this.game.truce(me, foe) ? '' : TRUCE_DAYS.map((d) => `<button type="button" class="claim" data-d="truce" data-days="${d}" data-nation="${foe}" ${sent(foe, 'truce') ? 'disabled' : ''} data-tip="${attr(tip(`${d}-day truce`, 'Fighting stops and the lines hold where they stand', 'Peace can still be agreed during it; when it runs out, the war resumes'))}">Truce ${d}d</button>`).join('')}
                 <button type="button" class="claim" data-d="white" data-nation="${foe}" ${sent(foe, 'peace') ? 'disabled' : ''}>White peace</button></div></div>`;
             }).join('') : '<p class="hint">No wars.</p>'}
           </section>

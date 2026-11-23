@@ -262,6 +262,7 @@ export interface War {
   goal?: WarGoal; // what the attacker declared it was fighting for
   wins?: [number, number]; // battles won by a and by b
   lost?: [number, number]; // units destroyed of a and of b
+  truceUntil?: number; // game ms: a truce holds the lines until then (no fighting, no advancing)
 }
 
 /** What an attacker declares a war is for. Peace terms that match it cost half. */

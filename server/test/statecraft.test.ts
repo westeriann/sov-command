@@ -173,3 +173,37 @@ test('a shared world pauses when every leader online votes for it', () => {
   assert.equal(w.pauseState(1).paused, false, 'any leader can end it');
   assert.ok(w.gameNow(Date.now() + DAY) > t0);
 });
+
+test('a truce stops the fighting where the lines stand, then the war resumes', () => {
+  const w = setup();
+  w.submit(1, { kind: 'war', target: 2 }, 'human');
+  w.military.occupied.set(4, 1);
+  w.submit(1, { kind: 'propose', target: 2, deal: { kind: 'truce', days: 30 } }, 'human');
+  assert.equal(w.submit(2, { kind: 'answer', from: 1, deal: 'truce', accept: true }, 'human').ok, true);
+  w.military.now = w.gameNow();
+  assert.equal(w.military.atWar(1, 2), false, 'no fighting during the truce');
+  assert.ok(w.military.warBetween(1, 2), 'but the war is not over');
+  assert.equal(w.military.occupied.get(4), 1, 'the lines hold');
+  assert.equal(w.military.canEnter(1, 5), false, 'no advancing');
+  assert.equal(w.submit(1, { kind: 'war', target: 2 }, 'human').ok, false, 'no second declaration');
+  // peace can still be made during a truce
+  assert.equal(w.dealProblem(1, 2, { kind: 'peace', terms: 'white' }), null);
+  w.military.now = w.gameNow() + 31 * DAY;
+  assert.equal(w.military.atWar(1, 2), true, 'when it runs out, the war resumes');
+});
+
+test('single-player advisers act in the areas they are given, and log it', () => {
+  const sp = new World(openDb(':memory:'), 1, defs, { ...opts, singlePlayer: true }, provinces());
+  sp.claim({ id: 1, name: 'p1', guest: false }, 1);
+  const n = sp.nations.get(1)!;
+  n.tech.current = undefined;
+  assert.equal(sp.submit(1, { kind: 'advisers', areas: ['research', 'decisions'] }, 'human').ok, true);
+  n.event = { key: 'boom', day: sp.market.day - 5 };
+  (sp as unknown as { advisersDay(n: unknown, d: number): void }).advisersDay(n, n.id % 7);
+  assert.equal(n.event, undefined, 'the decision was answered');
+  assert.ok(n.tech.current, 'research was started');
+  assert.ok((n.adviserLog ?? []).length >= 2, 'and both were logged');
+  // shared worlds keep the away-from-keyboard autopilot instead
+  const mp = setup();
+  assert.equal(mp.submit(1, { kind: 'advisers', areas: ['research'] }, 'human').ok, false);
+});

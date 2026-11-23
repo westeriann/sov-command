@@ -176,13 +176,16 @@ export class Military {
     return this.occupied.get(p) ?? this.provinces.get(p)?.owner;
   }
 
+  /** At war and fighting: a truce holds the war in suspense. */
   atWar(a: number | undefined, b: number | undefined) {
     if (!a || !b || a === b) return false;
-    return this.wars.some((w) => (w.a === a && w.b === b) || (w.a === b && w.b === a));
+    return this.wars.some((w) => ((w.a === a && w.b === b) || (w.a === b && w.b === a)) && !this.inTruce(w));
   }
 
+  inTruce(w: War) { return (w.truceUntil ?? 0) > this.now; }
+
   enemiesOf(n: number) {
-    return this.wars.flatMap((w) => (w.a === n ? [w.b] : w.b === n ? [w.a] : []));
+    return this.wars.filter((w) => !this.inTruce(w)).flatMap((w) => (w.a === n ? [w.b] : w.b === n ? [w.a] : []));
   }
 
   /**
@@ -375,7 +378,7 @@ export class Military {
   }
 
   declareWar(a: number, b: number, day: number) {
-    if (a === b || this.atWar(a, b)) return false;
+    if (a === b || this.warBetween(a, b)) return false;
     this.wars.push({ a, b, since: day, wins: [0, 0], lost: [0, 0] });
     return true;
   }

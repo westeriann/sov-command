@@ -44,10 +44,15 @@ function exaggeration(zoom: number, relief: number) {
 function tiltFor(zoom: number) {
   return Math.min(52, Math.max(0, (zoom - 2.2) * 17));
 }
-import type { Political } from './political';
+import type { Political, Province } from './political';
 import { BIOME_INFO, mercatorCanvas, type World } from './world';
+import { SPECIALTIES, SPECIALTY_LIST, specialtyOf } from '../../shared/specialties';
 
-export type MapMode = 'political' | 'wealth' | 'satellite' | 'terrain' | 'elevation' | 'climate' | 'lights';
+/** Specialties on the resource map: a distinct colour each. */
+export const SPECIALTY_COLOURS = Object.fromEntries(SPECIALTY_LIST.map((s, i) => [s, `hsl(${Math.round((i * 360) / SPECIALTY_LIST.length)}, 62%, 52%)`])) as Record<string, string>;
+export const RESOURCE_STOPS: [number, string][] = [[1, '#2a2416'], [25, '#7a5a1e'], [50, '#c98a1e'], [75, '#f0c030'], [100, '#fff2a0']];
+
+export type MapMode = 'political' | 'wealth' | 'resource' | 'diplomatic' | 'satellite' | 'terrain' | 'elevation' | 'climate' | 'lights';
 
 /** Income per person ($/yr) colour scale, read on a log scale. */
 export const WEALTH_STOPS: [number, string][] = [
@@ -298,7 +303,7 @@ export class GameMap {
     this.map.addLayer({
       id: 'hillshade', type: 'hillshade', source: 'relief-shade',
       paint: {
-        'hillshade-exaggeration': 0.8,
+        'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 5, 0.6, 7, 0.25], // the coarse relief shading gives way to the photo's own detail up close
         'hillshade-shadow-color': '#0b0d0c',
         'hillshade-highlight-color': '#fff6dc',
         'hillshade-accent-color': '#2a2a22',
@@ -430,6 +435,31 @@ export class GameMap {
   }
 
   private wealth = new Map<number, number>();
+  private resourceKey = 'farmland';
+  private diplo = new Map<number, [number, number, number]>();
+
+  /** Which resource the resource map shows (a province resource, or 'specialty'). */
+  setResource(key: string) { this.resourceKey = key; this.refreshMode('resource'); }
+  /** The diplomatic map's colours, one per nation. */
+  setDiplomatic(colours: Map<number, [number, number, number]>) { this.diplo = colours; this.refreshMode('diplomatic'); }
+  private refreshMode(mode: MapMode) {
+    this.overlays.delete(mode);
+    if (this.mode === mode && this.map.getLayer('overlay')) this.setMode(mode, this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+  }
+
+  /** Paint each land province by a value of its own. */
+  private provinceCanvas(colourOf: (p: Province) => [number, number, number] | undefined) {
+    const pol = this.pol;
+    const byProvince = new Uint8Array((Math.max(...pol.provinces.keys()) + 1) * 4);
+    for (const p of pol.provinces.values()) {
+      const c = p.kind === 'land' ? colourOf(p) : undefined;
+      if (c) byProvince.set([...c.map(Math.round), 255], p.id * 4);
+    }
+    return mercatorCanvas(pol.width, pol.height, (i) => {
+      const id = pol.grid[i];
+      return [byProvince[id * 4], byProvince[id * 4 + 1], byProvince[id * 4 + 2], byProvince[id * 4 + 3]];
+    }, 4096);
+  }
 
   /** New income-per-person figures arrived: refresh the Wealth overlay if it is showing. */
   private occupied = new Map<number, number>();
@@ -523,6 +553,19 @@ export class GameMap {
       const g = canvas.getContext('2d')!;
       g.fillStyle = 'rgb(3, 7, 16)';
       g.fillRect(0, 0, 4, 2);
+    } else if (mode === 'diplomatic') {
+      canvas = this.nationCanvas((id) => this.diplo.get(id));
+    } else if (mode === 'resource') {
+      const key = this.resourceKey;
+      if (key === 'specialty') {
+        const cols = Object.fromEntries(Object.entries(SPECIALTY_COLOURS).map(([k, c]) => [k, hslRgb(c)]));
+        canvas = this.provinceCanvas((p) => { const s = specialtyOf(p as never); return s ? cols[s] : undefined; });
+      } else {
+        canvas = this.provinceCanvas((p) => {
+          const v = (p.res as Record<string, number> | undefined)?.[key] ?? 0;
+          return v > 0 ? ramp(RESOURCE_STOPS, v) : undefined;
+        });
+      }
     } else if (mode === 'wealth') {
       const logStops = WEALTH_STOPS.map(([v, c]) => [Math.log10(v), c] as [number, string]);
       canvas = this.nationCanvas((id) => {
@@ -560,6 +603,7 @@ export class GameMap {
     el.className = 'nation-label';
     el.textContent = n.short.toUpperCase();
     const marker = new Marker({ element: el, opacityWhenCovered: '0' }).setLngLat(anchor.label).addTo(this.map);
+    this.attached.add(marker);
     this.nationLabels.push({ id, marker, el, rank: this.nationLabels.length });
     this.overlays.delete('political');
   }
@@ -573,6 +617,7 @@ export class GameMap {
       el.className = 'nation-label';
       el.textContent = n.short.toUpperCase();
       const marker = new Marker({ element: el, opacityWhenCovered: '0' }).setLngLat(anchor.label).addTo(this.map);
+      this.attached.add(marker);
       this.nationLabels.push({ id: n.id, marker, el, rank });
     });
     this.declutter();
@@ -587,6 +632,11 @@ export class GameMap {
    * far side of the globe. Nations go first, larger before smaller, then
    * province names.
    */
+  private labelSize = '';
+  /** Label sizes, measured once per font size: reading sizes during a move forces the browser to lay the page out again. */
+  private labelBox = new WeakMap<HTMLElement, [number, number]>();
+  private attached = new WeakSet<Marker>();
+
   private declutter() {
     const z = this.map.getZoom();
     const placed: [number, number, number, number][] = [];
@@ -597,33 +647,41 @@ export class GameMap {
     };
     const cv = toVec(c.lng, c.lat);
     const globe = this.map.getProjection()?.type !== 'mercator';
+    const facing = (lon: number, lat: number) => { if (!globe) return true; const v = toVec(lon, lat); return v[0] * cv[0] + v[1] * cv[1] + v[2] * cv[2] >= 0.2; };
+    const canvas = this.map.getCanvas();
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    const size = `${Math.round(Math.min(18, 9 + z * 2.4))}px`;
+    const resized = size !== this.labelSize;
+    this.labelSize = size;
+    const box = (el: HTMLElement) => {
+      let b = this.labelBox.get(el);
+      if (!b || resized) { b = [el.offsetWidth, el.offsetHeight]; this.labelBox.set(el, b); }
+      return b;
+    };
     const fits = (el: HTMLElement, lon: number, lat: number, pad: number) => {
-      if (globe) {
-        const v = toVec(lon, lat);
-        if (v[0] * cv[0] + v[1] * cv[1] + v[2] * cv[2] < 0.2) return false;
-      }
       const pt = this.map.project([lon, lat]);
-      const w = el.offsetWidth / 2 + pad, h = el.offsetHeight / 2 + pad;
-      const box: [number, number, number, number] = [pt.x - w, pt.y - h, pt.x + w, pt.y + h];
-      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) return false;
-      placed.push(box);
+      const [bw, bh] = box(el);
+      const w = bw / 2 + pad, h = bh / 2 + pad;
+      if (pt.x + w < -50 || pt.y + h < -50 || pt.x - w > W + 50 || pt.y - h > H + 50) return false;
+      const r: [number, number, number, number] = [pt.x - w, pt.y - h, pt.x + w, pt.y + h];
+      if (placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) return false;
+      placed.push(r);
       return true;
     };
-    const size = `${Math.round(Math.min(18, 9 + z * 2.4))}px`;
+    // nation names: shown zoomed out; only those on the near side stay on the map (each attached marker costs every frame)
+    const showNations = this.showProvinceNames && z < 4.6;
+    if (resized) for (const l of this.nationLabels) l.el.style.fontSize = size;
     for (const l of this.nationLabels) {
-      l.el.style.fontSize = size;
-      l.el.style.visibility = 'hidden';
-      l.el.style.display = this.showProvinceNames && z < 4.6 ? '' : 'none';
-    }
-    for (const l of this.nationLabels) {
-      if (l.el.style.display === 'none') continue;
       const { lng, lat } = l.marker.getLngLat();
-      if (fits(l.el, lng, lat, 6)) l.el.style.visibility = '';
+      const want = showNations && facing(lng, lat);
+      if (want && !this.attached.has(l.marker)) { l.marker.addTo(this.map); this.attached.add(l.marker); }
+      else if (!want && this.attached.has(l.marker)) { l.marker.remove(); this.attached.delete(l.marker); }
+      if (want) l.el.style.visibility = fits(l.el, lng, lat, 6) ? '' : 'hidden';
     }
     for (const m of this.provinceLabels.values()) {
       const el = m.getElement();
       const { lng, lat } = m.getLngLat();
-      el.style.visibility = fits(el, lng, lat, 3) ? '' : 'hidden';
+      el.style.visibility = facing(lng, lat) && fits(el, lng, lat, 3) ? '' : 'hidden';
     }
   }
 
@@ -657,3 +715,12 @@ export class GameMap {
     this.declutter();
   }
 }
+
+/** 'hsl(h, s%, l%)' to RGB. */
+function hslRgb(c: string): [number, number, number] {
+  const [h, s, l] = c.match(/[\d.]+/g)!.map(Number);
+  const S = s / 100, L = l / 100, k = (n: number) => (n + h / 30) % 12, a = S * Math.min(L, 1 - L);
+  const f = (n: number) => L - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return [f(0) * 255, f(8) * 255, f(4) * 255];
+}
+void SPECIALTIES;
