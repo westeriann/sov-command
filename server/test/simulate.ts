@@ -45,6 +45,17 @@ function report(label: string) {
   console.log(`   blocs: ${d.blocs.map((b) => `${b.name} (${b.members.length})`).join(', ') || 'none'}; council: ${d.council.length} resolutions (${d.council.filter((r) => r.result === 'passed').length} passed); vassals: ${d.overlords.size}; embargoes: ${d.embargoes.length}; spy reports: ${[...w.nations.values()].reduce((s, n) => s + (n.reports?.length ?? 0), 0)}`);
   const govs: Record<string, number> = {}; let techs = 0; for (const n of w.nations.values()) { if (n.annexedBy) continue; govs[n.gov.government] = (govs[n.gov.government] ?? 0) + 1; techs += n.tech.done.length; }
   console.log(`   politics: ${JSON.stringify(govs)}; ${(techs / w.nations.size).toFixed(1)} techs per nation; ${[...w.military.buildings.values()].flat().filter((b) => b.progress >= 1).length} buildings; ${[...w.nations.values()].filter((n) => (n.mil.warheads ?? 0) > 0).length} nuclear powers; ${[...w.military.units.values()].filter((u) => u.general).length} generals`);
+  {
+    const live = [...w.nations.values()].filter((n) => !n.annexedBy);
+    const laws: Record<string, number> = {};
+    for (const n of live) for (const l of n.pol?.laws ?? []) laws[l] = (laws[l] ?? 0) + 1;
+    const pacts: Record<string, number> = {};
+    for (const t of w.diplomacy.treaties) pacts[t.kind] = (pacts[t.kind] ?? 0) + 1;
+    const ops = live.slice(0, 40).flatMap((a) => live.slice(0, 40).filter((b) => b !== a).map((b) => w.opinion(a.id, b.id).total)).sort((x, y) => x - y);
+    console.log(`   laws: ${JSON.stringify(laws)}; capital median ${live.map((n) => n.pol?.capital ?? 0).sort((x, y) => x - y)[live.length >> 1].toFixed(0)}`);
+    console.log(`   pacts: ${JSON.stringify(pacts)}; ${w.diplomacy.contracts.length} contracts; ${live.reduce((t, n) => t + (n.pol?.claims.length ?? 0), 0)} claims; opinion p10/p50/p90 ${ops[Math.floor(ops.length * 0.1)]}/${ops[ops.length >> 1]}/${ops[Math.floor(ops.length * 0.9)]}`);
+    console.log(`   debt: median treasury/GDP ${(live.map((n) => n.econ.treasury / n.econ.gdp).sort((x, y) => x - y)[live.length >> 1] * 100).toFixed(1)}%`);
+  }
 }
 
 report('day 0');

@@ -51,13 +51,16 @@ function createWindow() {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
+  // the game itself, or a multiplayer world server chosen from the main menu, loads in this window
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('app://')) { e.preventDefault(); if (/^https?:/.test(url)) void shell.openExternal(url); }
+    if (!url.startsWith('app://') && !/^https?:/.test(url)) e.preventDefault();
   });
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F11' || (input.alt && input.key === 'Enter')) { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
     if (input.key === 'F12' && !app.isPackaged) win.webContents.toggleDevTools();
+    // back to single player from a multiplayer server
+    if (input.control && input.shift && input.key.toLowerCase() === 'h') { win.loadURL('app://game/index.html'); e.preventDefault(); }
   });
   win.loadURL('app://game/index.html');
 }

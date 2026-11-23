@@ -28,6 +28,8 @@ import './styles.css';
 import './theme-command.css';
 import { EconomyPanel } from './economy-panel';
 import { MarketPanel } from './market-panel';
+import { PoliticsPanel } from './politics-panel';
+import { MainMenu } from './menu';
 import { Manual } from './manual';
 import { MusicPlayer } from './music';
 import { Forces } from './forces';
@@ -43,11 +45,29 @@ import { World } from './world';
 
 async function start() {
   const hudRoot = document.getElementById('hud')!;
+  // the splash screen while everything loads, then the main menu
+  const desktop = navigator.userAgent.includes('Electron');
+  let menuPause = (_on: boolean) => {};
+  let menuContinue = () => {};
+  let menuNewGame = () => {};
+  let menuManual = () => {};
+  let musicRef: MusicPlayer | null = null;
+  const mainMenu = new MainMenu(hudRoot, {
+    offline: OFFLINE, desktop,
+    continue: () => menuContinue(), newGame: () => menuNewGame(), manual: () => menuManual(), pause: (on) => menuPause(on),
+    music: {
+      get level() { return musicRef?.level ?? 0.45; }, get on() { return musicRef?.on ?? false; },
+      setLevel: (v) => musicRef?.setLevel(v), toggle: () => musicRef?.toggle(), play: () => musicRef?.play(), pause: () => musicRef?.pause(),
+    },
+  });
+  mainMenu.setProgress('Charting the planet', 0.1);
   let world: World;
   let pol: Political;
   try {
     [world, pol] = await Promise.all([World.load(`${ASSET_BASE}world`), Political.load(`${ASSET_BASE}world`)]);
+    mainMenu.setProgress('Waking the nations', 0.45);
   } catch (err) {
+    document.querySelector('.main-menu')?.remove();
     hudRoot.innerHTML = `<div class="panel fatal"><b>The planet has not been generated yet.</b>
       <p>Run <code>npm run world</code> in the project folder, then reload this page.</p>
       <p class="mono">${String((err as Error).message)}</p></div>`;
@@ -61,11 +81,13 @@ async function start() {
   if (OFFLINE) {
     document.body.classList.add('offline');
     try { localWorld = await startWorld(ASSET_BASE); } catch (err) {
-      hudRoot.innerHTML = `<div class="panel fatal"><b>The world could not start in this browser.</b><p class="mono">${String((err as Error).message ?? err)}</p></div>`;
+      document.querySelector('.main-menu')?.remove();
+    hudRoot.innerHTML = `<div class="panel fatal"><b>The world could not start in this browser.</b><p class="mono">${String((err as Error).message ?? err)}</p></div>`;
       return;
     }
   }
   const conn = localWorld ? new LocalConnection(game, localWorld) : new Connection(game);
+  mainMenu.setProgress('Drawing the map', 0.7);
   const gameMap = new GameMap(document.getElementById('map')!, world, pol);
 
   const select = (lat: number, lon: number, fly = false) => {
@@ -193,7 +215,13 @@ async function start() {
       research.toggle();
       hud.setOpenPanel(research.isOpen ? 'research' : null);
     },
+    togglePolitics: () => {
+      rankings?.close(); economy.close(); market.close(); forces?.close(); research?.close(); diplomacy?.close();
+      politics.toggle();
+      hud.setOpenPanel(politics.isOpen ? 'politics' : null);
+    },
     toggleDiplomacy: () => {
+      politics.close();
       if (!diplomacy) return;
       rankings?.close();
       economy.close();
@@ -221,10 +249,21 @@ async function start() {
   let research: ResearchPanel | null = null;
   let rankings: RankingsPanel | null = null;
   let lobby: Lobby | null = null;
-  const market = new MarketPanel(hudRoot, game);
+  const market = new MarketPanel(hudRoot, game, pol);
+  const politics = new PoliticsPanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const music = new MusicPlayer(hudRoot, ASSET_BASE, () => hudRoot.querySelector('[data-act="music"]'));
-  const manual = new Manual(hudRoot, {
-    go: (target) => {
+  musicRef = music;
+  const manual = new Manual(hudRoot, { go: (target) => go(target) });
+  // every data-go link outside the manual (province panel, market, diplomacy...) goes through the same router
+  hudRoot.addEventListener('click', (e) => {
+    const l = (e.target as HTMLElement).closest<HTMLElement>('[data-go]');
+    if (l) { e.preventDefault(); go(l.dataset.go!); }
+  });
+  const glow = (el: HTMLElement | null | undefined) => {
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('glow'); setTimeout(() => el.classList.remove('glow'), 2400);
+  };
+  function go(target: string) {
       const [kind, a, b] = target.split(':');
       const module = (id: string) => { if (!hudRoot.querySelector(`.left [data-module="${id}"].active`)) hudRoot.querySelector<HTMLElement>(`.left [data-module="${id}"]`)?.click(); };
       if (kind === 'module') module(a);
@@ -244,9 +283,21 @@ async function start() {
         else if (a === 'music') music.toggle();
         else if (a === 'notices') { const h = hudRoot.querySelector<HTMLElement>('.notices-head'); if (h?.getAttribute('aria-expanded') === 'false') h.click(); }
         else if (a === 'capital') { const n = game.mine && pol.nations.get(game.mine.id); const p = n && pol.provinces.get(n.capital); if (p) select(p.label[1], p.label[0], true); }
-      }
-    },
-  });
+      } else if (kind === 'side') {
+        hud.setLeftCollapsed(false);
+        glow(hudRoot.querySelector<HTMLElement>(`#${a}`)?.closest<HTMLElement>('.slider, .seg, label') ?? null);
+      } else if (kind === 'econ') {
+        if (!economy.isOpen) module('economy');
+        setTimeout(() => glow(hudRoot.querySelector<HTMLElement>(`#${a}`)?.closest<HTMLElement>('label, .slider, .budget-row, div') ?? null), 60);
+      } else if (kind === 'nation') {
+        const n = pol.nations.get(Number(a)); const p = n && pol.provinces.get(n.capital); if (p) select(p.label[1], p.label[0], true);
+      } else if (kind === 'diplo') {
+        if (!diplomacy?.isOpen) module('diplomacy');
+        diplomacy?.focus(Number(a));
+      } else if (kind === 'build') buildAt(Number(a));
+      else if (kind === 'manual') manual.open(a);
+      else if (kind === 'politics') { if (!politics?.isOpen) module('politics'); if (a) politics?.focus(a); }
+  }
   const economy = new EconomyPanel(hudRoot, game, pol, {
     budget: (budget) => conn.send({ t: 'order', order: { kind: 'budget', budget } }),
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
@@ -265,6 +316,11 @@ async function start() {
   document.addEventListener('diplomacy-closed', () => hud.setOpenPanel(null));
   document.addEventListener('research-closed', () => hud.setOpenPanel(null));
   document.addEventListener('rankings-closed', () => hud.setOpenPanel(null));
+  document.addEventListener('politics-closed', () => hud.setOpenPanel(null));
+  { // opening any other window closes Politics
+    const setOpen = hud.setOpenPanel.bind(hud);
+    hud.setOpenPanel = (panel) => { if (panel !== 'politics') politics.close(); setOpen(panel); };
+  }
   lobby = new Lobby(hudRoot);
   rankings = new RankingsPanel(hudRoot, game, pol, {
     goToNation: (id) => {
@@ -294,7 +350,7 @@ async function start() {
     if (cb) { document.body.classList.add('cb'); gameMap.setColorBlind(true); (hudRoot.querySelector('#colorBlind') as HTMLInputElement | null)?.setAttribute('checked', ''); }
   }
   // keyboard shortcuts (ignored while typing)
-  const keys: Record<string, string> = { e: 'economy', x: 'market', f: 'army', n: 'navy', b: 'air', p: 'diplomacy', r: 'research', k: 'rankings', m: 'map' };
+  const keys: Record<string, string> = { e: 'economy', x: 'market', f: 'army', n: 'navy', b: 'air', p: 'diplomacy', o: 'politics', r: 'research', k: 'rankings', m: 'map' };
   document.addEventListener('keydown', (ev) => {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || (ev.target as HTMLElement).closest('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea')) return;
     const mod = keys[ev.key.toLowerCase()];
@@ -303,14 +359,16 @@ async function start() {
     else if (ev.key.toLowerCase() === 'g') tutorial?.start();
     else if (ev.key.toLowerCase() === 'i') manual.toggle();
     else if (ev.key === '?') shortcuts.hidden = !shortcuts.hidden;
-    else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); market.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); hud.setOpenPanel(null); }
+    else if (ev.key === 'Escape' && ![economy.isOpen, market.isOpen, forces?.isOpen, diplomacy?.isOpen, research?.isOpen, rankings?.isOpen, politics.isOpen, !shortcuts.hidden].some(Boolean) && !(forces?.selected.size)
+      && !document.querySelector('.unit-card:not([hidden]), .music-panel:not([hidden]), .manual-backdrop:not([hidden])')) mainMenu.open(); // nothing to close: the main menu
+    else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); market.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); politics.close(); hud.setOpenPanel(null); }
   });
   const shortcuts = document.createElement('section');
   shortcuts.className = 'panel shortcuts';
   shortcuts.hidden = true;
   shortcuts.setAttribute('aria-label', 'Keyboard shortcuts');
   shortcuts.innerHTML = `<span class="label">KEYBOARD</span><dl>
-    <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>X</dt><dd>Market</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>R</dt><dd>Research &amp; government</dd>
+    <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>X</dt><dd>Market</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>O</dt><dd>Politics</dd><dt>R</dt><dd>Research &amp; government</dd>
     <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd><dt>I</dt><dd>Manual</dd>
     <dt>Q</dt><dd>Selected units: give an order, then click a province</dd><dt>H T L U</dt><dd>Selected units: halt, go to, appoint a general, stand down aircraft</dd><dt>Tab</dt><dd>Next army, fleet or air wing (Shift: back)</dd><dt>Esc</dt><dd>Cancel an order, close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
   hudRoot.appendChild(shortcuts);
@@ -505,9 +563,25 @@ async function start() {
     select(e.lngLat.lat, e.lngLat.wrap().lng);
   });
 
+  // the main menu: the globe turns slowly behind it; single player pauses while it is open
+  menuManual = () => manual.open();
+  menuContinue = () => {};
+  menuPause = (on) => localWorld?.postMessage({ t: 'pause', on });
+  menuNewGame = () => (conn as LocalConnection).newGame();
+  hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('[data-act="mainmenu"]')) mainMenu.open(); });
+  {
+    let last = performance.now();
+    const spin = (t: number) => {
+      const dt = Math.min(100, t - last); last = t;
+      if (mainMenu.isOpen && !map.isMoving()) { const c = map.getCenter(); map.setCenter([c.lng + dt * 0.0016, c.lat]); }
+      requestAnimationFrame(spin);
+    };
+    requestAnimationFrame(spin);
+  }
   // join the world if a server is running; otherwise stay in offline preview
   if (localWorld) {
     conn.connect('local');
+    localWorld.postMessage({ t: 'pause', on: true }); // the world waits for the player to leave the menu
     const w = localWorld;
     hudRoot.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act="speed"]');
@@ -527,6 +601,10 @@ async function start() {
     if (token) signedIn(token);
     else login.open();
   }
+  document.body.classList.add('menu-open');
+  // ready once the map has its style (tiles keep streaming in behind the menu)
+  if (map.isStyleLoaded()) mainMenu.setReady();
+  else { map.once('load', () => mainMenu.setReady()); window.setTimeout(() => mainMenu.setReady(), 8000); }
 }
 
 start();

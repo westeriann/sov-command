@@ -287,6 +287,11 @@ export class MusicPlayer {
     this.render();
   }
 
+  /** For the Options menu: volume 0..1, and whether music plays. */
+  get level() { return this.volume; }
+  setLevel(v: number) { this.volume = Math.max(0, Math.min(1, v)); this.applyVolume(); this.save(); }
+  get on() { return this.playing; }
+
   toggle() {
     this.el.hidden = !this.el.hidden;
     if (!this.el.hidden) {

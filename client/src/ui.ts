@@ -7,13 +7,19 @@ import { flagOf } from './customize';
 import { BUILDINGS, BUILDING_TYPES, type BuildingType, REPAIR_COST_SHARE, REPAIR_TIME_SHARE } from '../../shared/buildings';
 import { MISSILE_COST } from '../../shared/military';
 import { SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
-import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal, type Pact } from '../../shared/diplomacy';
+import { MAX_ALLIANCES, MAX_TRADE_DEALS, opinionWord, type Deal, type Pact } from '../../shared/diplomacy';
 import { FOCI, LIMITS, type Focus, type NationPublic } from '../../shared/protocol';
 import type { Change, Game } from './game';
 import { WEALTH_STOPS, type MapMode } from './map';
 import { RESOURCE_NAMES, type Nation, type Political, type Province, type ResourceId } from './political';
 import { BIOME_INFO, formatLatLon, type BiomeId, type Sample, type World } from './world';
 import { attr, effectLines, tip } from './tooltip';
+import { SPECIALTIES, specialtyOf } from '../../shared/specialties';
+
+/** A figure that leads to where it can be changed (handled by the data-go router in main.ts). */
+const go = (target: string, html: string, hint?: string) => `<a href="#" class="go" data-go="${target}"${hint ? ` data-tip="${attr(tip(hint))}"` : ''}>${html}</a>`;
+/** Which market good each province resource feeds. */
+const RES_GOOD: Record<ResourceId, string> = { farmland: 'food', timber: 'timber', oil: 'oil', gas: 'gas', coal: 'coal', ore: 'metals', rare_earths: 'rare_earths' };
 
 export interface HudEvents {
   onMode(mode: MapMode, opacity: number): void;
@@ -46,6 +52,7 @@ export interface HudActions {
   toggleDiplomacy(): void;
   toggleResearch(): void;
   toggleRankings(): void;
+  togglePolitics(): void;
   worlds(): void;
   account(): void;
   customize(): void;
@@ -79,6 +86,7 @@ const MODULES: [string, string, string | null][] = [
   ['Naval ops', 'navy', null],
   ['Air command', 'air', null],
   ['Diplomacy', 'diplomacy', null],
+  ['Politics', 'politics', null],
   ['R&D', 'research', null],
   ['Rankings', 'rankings', null],
 ];
@@ -91,7 +99,8 @@ const MODULE_TIPS: Record<string, string> = {
   army: tip('Ground forces', 'Recruit divisions and see your armies', 'Key: F'),
   navy: tip('Naval ops', 'Build fleets and see where they are', 'Key: N'),
   air: tip('Air command', 'Raise air wings, satellites and strategic weapons', 'Key: B'),
-  diplomacy: tip('Diplomacy', 'Treaties, alliances, proposals, spies and the world council', 'Key: P'),
+  diplomacy: tip('Diplomacy', 'Relations with every nation; treaties, contracts, gifts, envoys, demands, spies and the world council', 'Key: P'),
+  politics: tip('Politics', 'Political capital, laws, parliament (or rule by decree) and what it demands of you', 'Key: O'),
   research: tip('R&D and government', 'Technologies, the research queue, society and reforms', 'Key: R'),
   rankings: tip('Rankings', 'Scores, leaderboards, comparisons and map replays', 'Key: K'),
 };
@@ -243,6 +252,7 @@ export class Hud {
           <button type="button" class="link offline-only" data-act="newgame">New game</button>
           <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
+          <button type="button" class="icon-btn" data-act="mainmenu" aria-label="Main menu" data-tip="${attr(tip('Main menu (Esc)', 'Options, multiplayer, a new campaign, the manual', 'Single player pauses while it is open'))}">☰</button>
           <button type="button" class="icon-btn" data-act="manual" aria-label="Manual" data-tip="${attr(tip('Manual (I)', 'How everything in the game works, with links to each window'))}">i</button>
           <button type="button" class="icon-btn" data-act="music" aria-label="Music player" data-tip="${attr(tip('Music', 'Play, pause and choose the soundtrack'))}">♪</button>
           <button type="button" class="link" data-act="sound" id="soundBtn" aria-pressed="true">Sound on</button>
@@ -428,6 +438,7 @@ export class Hud {
     if (mod === 'diplomacy' || (mod === 'map' && this.openPanel === 'diplomacy')) { this.actions.toggleDiplomacy(); return; }
     if (mod === 'research' || (mod === 'map' && this.openPanel === 'research')) { this.actions.toggleResearch(); return; }
     if (mod === 'rankings' || (mod === 'map' && this.openPanel === 'rankings')) { this.actions.toggleRankings(); return; }
+    if (mod === 'politics' || (mod === 'map' && this.openPanel === 'politics')) { this.actions.togglePolitics(); return; }
     if (mod === 'market' || (mod === 'map' && this.openPanel === 'market')) { this.actions.toggleMarket(); return; }
     if (mod === 'economy' || mod === 'map') {
       if (mod === 'economy' || (mod === 'map' && this.openPanel === 'economy')) this.actions.toggleEconomy();
@@ -537,10 +548,10 @@ export class Hud {
     b.setAttribute('aria-pressed', String(on));
   }
 
-  private openPanel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null = null;
+  private openPanel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'politics' | 'research' | 'rankings' | null = null;
 
   /** Highlight the module whose window is open (or the map when none is). */
-  setOpenPanel(panel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'research' | 'rankings' | null) {
+  setOpenPanel(panel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'politics' | 'research' | 'rankings' | null) {
     this.openPanel = panel;
     this.root.querySelectorAll<HTMLElement>('[data-module]').forEach((b) => {
       const active = b.dataset.module === (panel ?? 'map');
@@ -643,7 +654,7 @@ export class Hud {
         <div class="nation-name">${flagSvg(flagOf(def), 27, def.name)}${esc(def.name)}</div>
         <button type="button" class="link" data-act="customize">Name, colour and flag…</button>
         <span class="label">NATIONAL FOCUS</span>
-        <div class="seg focus" role="group" aria-label="National focus">
+        <div class="seg focus" id="focusSeg" role="group" aria-label="National focus">
           ${FOCI.map((f) => `<button type="button" data-act="focus" data-focus="${f}" aria-pressed="false" data-tip="${attr(FOCUS_TIPS[f])}">${FOCUS_NAMES[f]}</button>`).join('')}
         </div>
         <div class="slider">
@@ -750,17 +761,35 @@ export class Hud {
     if (!entries.length) return '<p class="hint">No notable resources.</p>';
     return `<div class="bars">${entries
       .sort((a, b) => b[1] - a[1])
-      .map(([k, v]) => `<span>${RESOURCE_NAMES[k]}</span><div class="bar" role="img" aria-label="${RESOURCE_NAMES[k]} ${v} of 100"><i style="width:${v}%"></i></div><span class="mono">${v}</span>`)
+      .map(([k, v]) => `<span>${go(`market:local:${RES_GOOD[k]}`, RESOURCE_NAMES[k], `Open ${RESOURCE_NAMES[k].toLowerCase()} in the Market: output, use, trade and price`)}</span><div class="bar" role="img" aria-label="${RESOURCE_NAMES[k]} ${v} of 100"><i style="width:${v}%"></i></div><span class="mono">${v}</span>`)
       .join('')}</div>`;
+  }
+
+  /** What this province is known for, what that does, and how to get it. */
+  private specialtyHtml(p: Province, mine: boolean) {
+    const sp = specialtyOf(p as never);
+    if (!sp) return '';
+    const s = SPECIALTIES[sp];
+    const held = this.game.mine?.specialties?.own[sp] ?? 0;
+    const shared = this.game.mine?.specialties?.shared.includes(sp);
+    const how = mine ? `You hold ${held} province${held === 1 ? '' : 's'} with it: each more adds less`
+      : shared ? 'Already reaches you through a trade partner (half strength)'
+      : s.luxury ? 'Win this province, or sign a trade agreement with its owner to share it at half strength'
+      : 'Win this province to gain it';
+    const t = tip(`${s.icon} ${s.name}`, 'Known for it from its climate and place', [s.effect, 'good'], how, 'Click for your specialties in the Market');
+    return `<div class="specialty" data-tip="${attr(t)}"><span class="label">SPECIALTY</span>
+      ${go('market:local:spec', `<span class="sp-ico">${s.icon}</span> <b>${s.name}</b>`)} <span class="muted">${esc(s.effect)}</span></div>`;
   }
 
   private econRows(id: number) {
     const e = this.game.economy.get(id);
     if (!e) return '';
     const rank = [...this.game.economy.values()].filter((x) => x.gdp > e.gdp).length + 1;
-    return `<span>GDP</span><span>${money(e.gdp)} · #${rank}</span>
-      <span>Growth</span><span class="${e.growth >= 0 ? 'up' : 'down'}">${e.growth >= 0 ? '+' : '−'}${Math.abs(e.growth * 100).toFixed(1)}% a year</span>
-      <span>Per person</span><span>$${e.gdppc.toLocaleString('en-US')}</span>`;
+    const mine = this.game.mine?.id === id;
+    const growth = `${e.growth >= 0 ? '+' : '−'}${Math.abs(e.growth * 100).toFixed(1)}% a year`;
+    return `<span>GDP</span><span>${mine ? go('module:economy', money(e.gdp), 'Open Economy: budget, taxes and growth') : money(e.gdp)} · ${go('module:rankings', `#${rank}`, 'Open the rankings')}</span>
+      <span>Growth</span><span class="${e.growth >= 0 ? 'up' : 'down'}">${mine ? go('side:focusSeg', growth, 'An Economy focus, trade deals, infrastructure and research raise growth') : growth}</span>
+      <span>Per person</span><span>${go('module:rankings', `$${e.gdppc.toLocaleString('en-US')}`, 'Compare nations in the rankings')}</span>`;
   }
 
   private controllerHtml(n: Nation) {
@@ -769,14 +798,20 @@ export class Hud {
     if (g.status !== 'online' || !live) {
       return `<button type="button" class="claim" data-act="signin">Sign in to lead this nation</button>`;
     }
-    const focus = `<span>Government</span><span>${live.government ? GOVERNMENT_INFO[live.government].name : '—'}</span><span>Focus</span><span>${FOCUS_NAMES[live.focus]}</span><span>Technologies</span><span>${live.techs ?? 0}</span>`;
+    const own = g.mine?.id === n.id;
+    const gov = live.government ? GOVERNMENT_INFO[live.government].name : '—';
+    const focus = `<span>Government</span><span>${own ? go('politics:', gov, 'Open Politics: laws, parliament and reform') : go(`diplo:${n.id}`, gov, 'Open Diplomacy with this nation')}</span>
+      <span>Focus</span><span>${own ? go('side:focusSeg', FOCUS_NAMES[live.focus], 'Change your national focus') : FOCUS_NAMES[live.focus]}</span>
+      <span>Technologies</span><span>${own ? go('module:research', String(live.techs ?? 0), 'Open Research') : go('module:rankings', String(live.techs ?? 0), 'Compare nations in the rankings')}</span>`;
     if (g.mine?.id === n.id) {
       return `<div class="controller you"><b>You lead this nation.</b></div>
         <div class="kv mono">${focus}</div>
         <button type="button" class="claim danger" data-act="release">Step down</button>`;
     }
     const army = `<span>Army (estimate)</span><span>~${live.army ?? 0} divisions</span>`;
-    const diplomacy = this.warButtons(n);
+    const op = g.mine?.relations?.[n.id];
+    const diplomacy = `${op ? `<div class="kv mono"><span>Their opinion of us</span><span class="${op.total >= 10 ? 'up' : op.total <= -10 ? 'down' : ''}">${go(`diplo:${n.id}`, `${opinionWord(op.total)} ${op.total > 0 ? '+' : ''}${op.total}`, 'Open their Diplomacy page: why, and every deal on offer')}</span></div>` : ''}
+      ${g.mine ? `<div class="actions-row"><a href="#" class="claim go-btn primary" data-go="diplo:${n.id}">Diplomacy: pacts, contracts, gifts, demands…</a></div>` : ''}${this.warButtons(n)}`;
     if (live.controller === 'human') {
       const state = live.autopilot ? 'away · advisers in charge' : live.online ? 'online' : 'offline';
       return `<div class="controller human"><b>Led by ${esc(live.player ?? 'a player')}</b><span class="mono">${state}</span></div>
@@ -816,7 +851,7 @@ export class Hud {
     const r = this.actions.preview(p.id);
     if (!r) return `<p class="hint">Your selected units cannot reach this province. Units only enter your own land, allies’ land, and land of nations you are at war with.</p>`;
     if (r.days < 0.05) return ''; // already there
-    const secs = Math.round(r.days * (86_400 / this.game.speed));
+    const secs = Math.round(r.days * (86_400 / Math.max(1, this.game.speed)));
     return `<button type="button" class="claim primary" data-act="movehere" data-province="${p.id}">Move ${n} selected unit${n > 1 ? "s" : ""} here · ${r.days.toFixed(1)} days (~${secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`})</button>`;
   }
 
@@ -927,6 +962,7 @@ export class Hud {
   private landHtml(p: Province, n: Nation | undefined, s: Sample) {
     const t = BIOME_INFO[p.terrain];
     const capital = n?.capital === p.id;
+    const mineHere = !!n && this.game.mine?.id === n.id;
     return `
       <div class="row-between"><span class="label">PROVINCE${capital ? ' · CAPITAL' : ''}</span><span class="mono coords">${formatLatLon(s.lat, s.lon)}</span></div>
       <div class="place">
@@ -935,15 +971,17 @@ export class Hud {
         <div class="muted">${esc(t.name)}${p.coastal ? ' · coastal' : ''}</div></div>
       </div>
       <div class="kv mono">
-        <span>Population</span><span>${people(p.pop ?? 0)}</span>
+        <span>Population</span><span>${mineHere ? go('module:economy', people(p.pop ?? 0), 'Grows with prosperity and stability: see Economy') : people(p.pop ?? 0)}</span>
         <span>Area</span><span>${km2(p.area)}</span>
-        <span>Mean elevation</span><span>${describeElevation(p.elev)}</span>
-        <span>Highest point</span><span>${describeElevation(p.peak ?? p.elev)}</span>
-        <span>Climate here</span><span>${s.temperature} °C · ${rainfallWord(s.rainfall)}</span>
-        <span>Rivers</span><span>${RIVER_NAMES[p.river ?? 0]}</span>
+        <span>Mean elevation</span><span>${go('mode:elevation', describeElevation(p.elev), 'Show the elevation map')}</span>
+        <span>Highest point</span><span>${go('mode:terrain', describeElevation(p.peak ?? p.elev), 'Show the terrain map')}</span>
+        <span>Climate here</span><span>${go('mode:climate', `${s.temperature} °C · ${rainfallWord(s.rainfall)}`, 'Show the temperature map')}</span>
+        <span>Rivers</span><span>${go('manual:map', RIVER_NAMES[p.river ?? 0], 'Rivers slow attackers and shape borders: see the manual')}</span>
         ${p.lake ? `<span>Lakes</span><span>${km2(p.lake)}</span>` : ''}
-        <span>Movement</span><span>${movementCost(p.terrain)}${(p.river ?? 0) >= 3 ? ' · river crossing' : ''}</span>
+        <span>Movement</span><span>${go('manual:forces', `${movementCost(p.terrain)}${(p.river ?? 0) >= 3 ? ' · river crossing' : ''}`, 'How terrain slows armies: see the manual')}</span>
+        ${n ? `<span>Owner</span><span>${go(mineHere ? 'module:economy' : `diplo:${n.id}`, esc(n.name), mineHere ? 'Your nation: open Economy' : 'Open Diplomacy with them')}</span>` : ''}
       </div>
+      ${this.specialtyHtml(p, mineHere)}
       ${this.seasonHtml(p)}
       ${this.occupationHtml(p)}
       ${this.moveHereHtml(p)}
@@ -954,13 +992,13 @@ export class Hud {
       ${n ? `
       <div class="nation-card">
         <div class="row-between"><span class="label">NATION</span>${capital ? '' : `<button type="button" class="link" data-province="${n.capital}">Go to capital</button>`}</div>
-        <div class="nation-name">${flagSvg(flagOf(n), 27, n.name)}${esc(n.name)}</div>
+        <div class="nation-name">${flagSvg(flagOf(n), 27, n.name)}${mineHere ? go('module:economy', esc(n.name), 'Your nation: open Economy') : go(`diplo:${n.id}`, esc(n.name), 'Open Diplomacy with this nation')}</div>
         <div class="kv mono">
           ${this.econRows(n.id)}
-          <span>Population</span><span>${people(this.game.economy.get(n.id)?.pop ?? n.pop)}</span>
-          <span>Provinces</span><span>${n.provinces}</span>
+          <span>Population</span><span>${go('module:rankings', people(this.game.economy.get(n.id)?.pop ?? n.pop), 'Compare nations in the rankings')}</span>
+          <span>Provinces</span><span>${mineHere ? go('module:army', String(n.provinces), 'Win more by war or by peace terms: open the Army') : n.provinces}</span>
           <span>Area</span><span>${km2(n.area)}</span>
-          <span>Neighbours</span><span>${n.neighbours.length}</span>
+          <span>Neighbours</span><span>${go('module:diplomacy', String(n.neighbours.length), 'Open Diplomacy')}</span>
         </div>
         ${this.controllerHtml(n)}
       </div>` : ''}
@@ -984,7 +1022,7 @@ export class Hud {
         <span>Movement</span><span>Naval only</span>
       </div>
       ${this.moveHereHtml(p)}
-      <span class="label">OFFSHORE RESOURCES</span>
+      <span class="label">OFFSHORE RESOURCES · worked by the nations whose coasts touch it</span>
       ${this.resourcesHtml(p)}
     `;
   }

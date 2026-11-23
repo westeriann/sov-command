@@ -1,0 +1,306 @@
+// The splash screen and the main menu. The splash shows while the planet and the
+// world load; the menu then opens over the slowly turning globe, and Escape brings
+// it back during play (single-player pauses while it is open). Options here drive
+// the same controls as the map drawer and top bar, so the two never disagree.
+
+export interface MenuActions {
+  offline: boolean; // single-player build (the world runs in this window)
+  desktop: boolean; // inside the desktop app
+  continue(): void; // close the menu and play
+  newGame(): void; // delete the single-player world and start again
+  manual(): void;
+  pause(on: boolean): void;
+  music: { level: number; on: boolean; setLevel(v: number): void; toggle(): void; play(): void; pause(): void };
+}
+
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+type Page = 'main' | 'options' | 'multiplayer' | 'credits' | 'newgame';
+
+export const MOTTO = 'Glory be to the victor and the spoils they shall have.';
+
+/** Tips shown under the loading bar, one after another. */
+const TIPS = [
+  'Click any figure in a province panel (population, owner, resources, specialty) to jump to where you can change it.',
+  'Every province has a specialty from its climate and place. Luxuries such as wine, coffee and gems reach your trade partners at half strength.',
+  'In a democracy, parliament votes on your laws and must back a war of choice. Meet its demands to keep its support.',
+  'Autocracies and juntas rule by decree: cheaper in political capital, but laws the public dislikes cost stability.',
+  'A demand another nation refuses gives you a claim: a war on them is justified, and the world condemns you far less.',
+  'Breaking a non-aggression pact is a betrayal every nation remembers.',
+  'Gifts and envoys warm relations; AI governments answer proposals mostly by their opinion of you.',
+  'Supply contracts deliver goods every day at a fixed price, even through embargoes and blockades.',
+  'A guarantor joins any war declared on the nation it guarantees. Guarantee your small neighbours to keep the big ones honest.',
+  'Short of timber, construction and repairs slow down; short of oil, your armies fight weaker.',
+  'Press Q with units selected to give an order, then click where it should go. Tab jumps to your next army.',
+  'Hold W A S D to move the camera; Shift moves it faster.',
+  'Hurricanes form only over warm seas in season. Buildings they damage do nothing until repaired.',
+  'Uranium makes nuclear power stations cheaper and is needed for warheads. Hold some, or trade with someone who does.',
+  'Research never stops: points earned with nothing to study are banked and spent later.',
+  'Winter in cold lands slows armies by half, and foreign troops lose strength every day.',
+  'Rivers slow attackers and shape the borders between provinces.',
+  'Open borders take in refugees from wars and famines: more people, and some unrest.',
+  'Press I for the manual and ? for every key. Esc brings back this menu.',
+  'Free trade makes trade agreements worth half again as much; tariffs raise money but annoy your partners.',
+  'Emergency powers let you rule without parliament, but liberties erode and the public sours.',
+  'A world council resolution can sanction, condemn or force a ceasefire on any nation.',
+];
+
+/** Options shown in the menu: [label, id of the control in the game interface it drives]. */
+const GRAPHICS: [string, string, string][] = [
+  ['3D models', 'models3d', 'Animated troops, ships, aircraft, cities and buildings when zoomed in'],
+  ['Tilt the camera with zoom', 'tilt', 'The camera leans over the land as you zoom in'],
+  ['Borders', 'borders', 'National and province borders'],
+  ['Rivers', 'rivers', 'Rivers and lakes'],
+  ['Place names', 'labels', 'Names of nations and provinces'],
+  ['Grid lines', 'grid', 'Latitude and longitude'],
+];
+
+export class MainMenu {
+  private el: HTMLElement;
+  private page: Page = 'main';
+  private ready = false;
+  private progressText = 'Charting the planet';
+  private progress = 0;
+  private tip = Math.floor(Math.random() * TIPS.length);
+  private tipTimer = 0;
+  isOpen = true;
+
+  constructor(private hud: HTMLElement, private a: MenuActions) {
+    this.el = document.createElement('div');
+    this.el.className = 'main-menu splash';
+    this.el.setAttribute('role', 'dialog');
+    this.el.setAttribute('aria-label', 'Sovereign Command');
+    document.body.appendChild(this.el);
+    this.el.addEventListener('click', (e) => this.onClick(e));
+    this.el.addEventListener('input', (e) => this.onInput(e));
+    this.el.addEventListener('change', (e) => this.onInput(e));
+    window.addEventListener('keydown', (e) => {
+      if (!this.isOpen) return;
+      if (this.el.classList.contains('splash') && this.ready) { e.preventDefault(); this.showMenu(); return; }
+      if (e.key === 'Escape' && this.ready) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (this.page !== 'main') { this.page = 'main'; this.render(); } else this.close();
+      }
+    }, true);
+    this.render();
+    // a new tip every few seconds while the splash is up
+    this.tipTimer = window.setInterval(() => {
+      if (!this.el.classList.contains('splash')) return;
+      const el = this.el.querySelector<HTMLElement>('.splash-tip');
+      if (!el) return;
+      el.classList.add('fading');
+      window.setTimeout(() => {
+        this.tip = (this.tip + 1) % TIPS.length;
+        const t = el.querySelector('span');
+        if (t) t.textContent = TIPS[this.tip];
+        el.classList.remove('fading');
+      }, 400);
+    }, 7000);
+  }
+
+  /** Loading progress on the splash screen (0..1). */
+  setProgress(text: string, f: number) { this.progressText = text; this.progress = f; if (!this.ready) this.render(); }
+
+  /** Everything is loaded: invite the player in, then show the menu by itself after a moment. */
+  setReady() {
+    if (this.ready) return;
+    this.ready = true;
+    this.progress = 1;
+    this.progressText = 'Ready';
+    this.render();
+  }
+
+  private showMenu() {
+    window.clearInterval(this.tipTimer);
+    this.el.classList.remove('splash');
+    this.page = 'main';
+    this.render();
+  }
+
+  open(page: Page = 'main') {
+    if (!this.ready) return;
+    this.isOpen = true;
+    this.page = page;
+    this.el.hidden = false;
+    this.el.classList.remove('splash', 'leaving');
+    document.body.classList.add('menu-open');
+    this.a.pause(true);
+    this.render();
+  }
+
+  close() {
+    if (!this.ready) return;
+    this.isOpen = false;
+    this.el.classList.add('leaving');
+    document.body.classList.remove('menu-open');
+    window.setTimeout(() => { if (!this.isOpen) this.el.hidden = true; }, 380);
+    this.a.pause(false);
+    this.a.continue();
+  }
+
+  private control<T extends HTMLElement>(id: string) { return this.hud.querySelector<T>(`#${id}`); }
+
+  private onClick(e: Event) {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-m]');
+    if (this.el.classList.contains('splash')) { if (this.ready) this.showMenu(); return; }
+    if (!t) return;
+    const m = t.dataset.m;
+    if (m === 'play') this.close();
+    else if (m === 'page') { this.page = t.dataset.page as Page; this.render(); }
+    else if (m === 'back') { this.page = 'main'; this.render(); }
+    else if (m === 'manual') { this.close(); this.a.manual(); }
+    else if (m === 'newgame-yes') this.a.newGame();
+    else if (m === 'quit') window.close();
+    else if (m === 'join') {
+      const input = this.el.querySelector<HTMLInputElement>('#mpUrl');
+      let url = (input?.value ?? '').trim();
+      if (!url) return;
+      if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+      try { localStorage.setItem('sov.server', url); } catch { /* storage blocked */ }
+      location.href = url;
+    }
+    else if (m === 'sound') { this.control<HTMLElement>('soundBtn')?.click(); this.render(); }
+    else if (m === 'alerts') { this.control<HTMLElement>('alertsBtn')?.click(); this.render(); }
+    else if (m === 'music') { if (this.a.music.on) this.a.music.pause(); else this.a.music.play(); this.render(); }
+    else if (m === 'speed') { this.hud.querySelector<HTMLElement>(`[data-act="speed"][data-x="${t.dataset.x}"]`)?.click(); window.setTimeout(() => this.render(), 50); }
+    else if (m === 'fullscreen') {
+      if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.();
+      window.setTimeout(() => this.render(), 200);
+    }
+  }
+
+  /** Options drive the game's own controls. */
+  private onInput(e: Event) {
+    const t = e.target as HTMLInputElement;
+    const target = t.dataset.ctl;
+    if (target) {
+      const c = this.control<HTMLInputElement>(target);
+      if (!c) return;
+      if (t.type === 'checkbox') { if (c.checked !== t.checked) { c.checked = t.checked; c.dispatchEvent(new Event('change', { bubbles: true })); } }
+      else { c.value = t.value; c.dispatchEvent(new Event('input', { bubbles: true })); c.dispatchEvent(new Event('change', { bubbles: true })); }
+      const out = t.parentElement?.querySelector('output');
+      if (out) out.textContent = `${t.value}%`;
+    } else if (t.id === 'mVol') {
+      this.a.music.setLevel(Number(t.value) / 100);
+      const out = t.parentElement?.querySelector('output');
+      if (out) out.textContent = `${t.value}%`;
+    }
+  }
+
+  private render() {
+    if (this.el.classList.contains('splash')) {
+      this.el.innerHTML = `<div class="splash-inner">
+        ${EMBLEM}
+        <h1>SOVEREIGN<span>COMMAND</span></h1>
+        <p class="motto">${MOTTO}</p>
+        <div class="load"><i style="width:${Math.round(this.progress * 100)}%"></i></div>
+        <p class="load-text mono">${this.ready ? 'Press any key or click to begin' : `${esc(this.progressText)}…`}</p>
+        <p class="splash-tip"><b>TIP</b><span>${esc(TIPS[this.tip])}</span></p>
+      </div>`;
+      return;
+    }
+    const body = this.page === 'options' ? this.optionsHtml() : this.page === 'multiplayer' ? this.multiplayerHtml()
+      : this.page === 'credits' ? this.creditsHtml() : this.page === 'newgame' ? this.newGameHtml() : this.mainHtml();
+    this.el.innerHTML = `<div class="menu-shell">
+      <div class="menu-brand">${EMBLEM}<h1>SOVEREIGN<span>COMMAND</span></h1><p class="motto">${MOTTO}</p></div>
+      <div class="menu-body">${body}</div>
+      <p class="menu-foot mono">Esc returns to the game${this.a.offline ? ' · the world is paused while this menu is open' : ''}</p></div>`;
+    (this.el.querySelector('[data-m="play"], #mpUrl') as HTMLElement | null)?.focus();
+  }
+
+  private mainHtml() {
+    const a = this.a;
+    const btn = (m: string, label: string, sub: string, extra = '') => `<button type="button" class="menu-btn" data-m="${m}" ${extra}><b>${label}</b><span>${sub}</span></button>`;
+    return `<nav class="menu-list">
+      ${a.offline ? btn('play', 'Single player', 'Continue your campaign') : btn('play', 'Play', 'Return to the world')}
+      ${a.offline ? btn('page', 'New campaign', 'Start a fresh world, from 1 January 2026', 'data-page="newgame"') : ''}
+      ${btn('page', 'Multiplayer', a.offline ? 'Join a world server with other players' : 'You are playing on a shared world', 'data-page="multiplayer"')}
+      ${btn('page', 'Options', 'Graphics, sound, interface and game speed', 'data-page="options"')}
+      ${btn('manual', 'Manual', 'How everything works, with links into the game')}
+      ${btn('page', 'Credits', 'Who and what made this', 'data-page="credits"')}
+      ${a.desktop ? btn('quit', 'Quit', 'Your world is saved') : ''}
+    </nav>`;
+  }
+
+  private newGameHtml() {
+    return `<h2>New campaign</h2>
+      <p>This deletes your current single-player world and starts a new one on 1 January 2026, with every nation back to where it began. Your choices of graphics and sound are kept.</p>
+      <div class="menu-row"><button type="button" class="claim danger" data-m="newgame-yes">Delete my world and start again</button><button type="button" class="claim" data-m="back">Keep playing my world</button></div>`;
+  }
+
+  private multiplayerHtml() {
+    let last = '';
+    try { last = localStorage.getItem('sov.server') ?? ''; } catch { /* storage blocked */ }
+    if (!this.a.offline) {
+      return `<h2>Multiplayer</h2><p>You are on a shared world right now: every nation not led by a player is run by the AI, and the world keeps turning while you are away. Use <b>Worlds</b> in the top bar to see the other worlds on this server.</p>
+        <div class="menu-row"><button type="button" class="claim primary" data-m="play">Return to the world</button><button type="button" class="claim" data-m="back">Back</button></div>`;
+    }
+    return `<h2>Multiplayer</h2>
+      <p>Shared worlds run on a server: many players lead nations side by side, the AI runs the rest, and the world keeps turning while you are away. Enter the address of a world server (whoever runs it can tell you; the game's server starts with <span class="mono">npm start</span>).</p>
+      <div class="menu-row"><input id="mpUrl" class="text-input" type="url" placeholder="https://play.example.com" value="${esc(last)}" aria-label="Server address">
+      <button type="button" class="claim primary" data-m="join">Join</button></div>
+      <p class="hint">${this.a.desktop ? 'To come back to single player, press Ctrl+Shift+H, or restart the game. ' : ''}Your single-player world stays saved here.</p>
+      <div class="menu-row"><button type="button" class="claim" data-m="back">Back</button></div>`;
+  }
+
+  private optionsHtml() {
+    const check = (label: string, id: string, hint: string) => {
+      const c = this.control<HTMLInputElement>(id);
+      return c ? `<label class="check" title="${esc(hint)}"><input type="checkbox" data-ctl="${id}" ${c.checked ? 'checked' : ''}>${label}</label>` : '';
+    };
+    const relief = this.control<HTMLInputElement>('relief');
+    const sound = this.control<HTMLElement>('soundBtn')?.getAttribute('aria-pressed') !== 'false';
+    const alerts = this.control<HTMLElement>('alertsBtn')?.getAttribute('aria-pressed') === 'true';
+    const vol = Math.round(this.a.music.level * 100);
+    const speeds = [...this.hud.querySelectorAll<HTMLElement>('[data-act="speed"]')];
+    return `<h2>Options</h2>
+      <div class="opt-grid">
+        <section><span class="label">GRAPHICS</span>
+          ${GRAPHICS.map(([l, id, h]) => check(l, id, h)).join('')}
+          ${relief ? `<div class="slider"><label><span>RELIEF</span><output>${relief.value}%</output></label><input type="range" min="0" max="200" step="10" value="${relief.value}" data-ctl="relief"></div>` : ''}
+          <button type="button" class="claim" data-m="fullscreen">${document.fullscreenElement ? 'Leave full screen' : 'Full screen'}${this.a.desktop ? ' (F11)' : ''}</button>
+        </section>
+        <section><span class="label">SOUND</span>
+          <button type="button" class="claim${sound ? ' primary' : ''}" data-m="sound">Sound effects: ${sound ? 'on' : 'off'}</button>
+          <button type="button" class="claim${this.a.music.on ? ' primary' : ''}" data-m="music">Music: ${this.a.music.on ? 'playing' : 'off'}</button>
+          <div class="slider"><label><span>MUSIC VOLUME</span><output>${vol}%</output></label><input id="mVol" type="range" min="0" max="100" value="${vol}"></div>
+          <p class="hint">Add your own tracks from the ♪ player in the top bar.</p>
+        </section>
+        <section><span class="label">INTERFACE</span>
+          ${check('Colour-blind friendly colours', 'colorBlind', 'Blue and orange instead of green and red')}
+          <button type="button" class="claim${alerts ? ' primary' : ''}" data-m="alerts">Desktop alerts: ${alerts ? 'on' : 'off'}</button>
+          <p class="hint">Hover over anything for a tooltip; ? lists every key.</p>
+        </section>
+        <section><span class="label">GAMEPLAY</span>
+          ${speeds.length ? `<div class="menu-row">${speeds.map((b) => `<button type="button" class="claim${b.getAttribute('aria-pressed') === 'true' ? ' primary' : ''}" data-m="speed" data-x="${b.dataset.x}">${b.dataset.x}×</button>`).join('')}</div><p class="hint">1× is a game day every 10 seconds.</p>` : '<p class="hint">Shared worlds run at the server\'s speed.</p>'}
+          ${check('Advisers govern while I am away', 'autopilot', 'The AI runs your nation while you are offline')}
+        </section>
+      </div>
+      <div class="menu-row"><button type="button" class="claim" data-m="back">Back</button></div>`;
+  }
+
+  private creditsHtml() {
+    return `<h2>Credits</h2>
+      <p><b>Sovereign Command</b>: a real-time grand strategy game set in 2026, on a procedurally generated planet with its own climate, rivers and peoples.</p>
+      <ul class="credits">
+        <li>Map rendering: MapLibre GL JS (BSD licence)</li>
+        <li>3D models and weather: three.js (MIT licence)</li>
+        <li>Typefaces: Oswald, Barlow and IBM Plex Mono (SIL Open Font Licence)</li>
+        <li>Desktop app: Electron (MIT licence)</li>
+        <li>Soundtrack: composed live in your browser by the game's own synthesiser</li>
+      </ul>
+      <div class="menu-row"><button type="button" class="claim" data-m="back">Back</button></div>`;
+  }
+}
+
+/** The game's emblem: a globe in a brass ring with a star. */
+const EMBLEM = `<svg class="emblem" viewBox="0 0 120 120" aria-hidden="true">
+  <defs><linearGradient id="brass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0d48a"/><stop offset="1" stop-color="#9c7a34"/></linearGradient></defs>
+  <circle cx="60" cy="60" r="56" fill="none" stroke="url(#brass)" stroke-width="3"/>
+  <circle cx="60" cy="60" r="47" fill="#0d1a24" stroke="url(#brass)" stroke-width="1.5"/>
+  <g fill="none" stroke="#d9b45a" stroke-width="1.2" opacity="0.75">
+    <ellipse cx="60" cy="60" rx="20" ry="47"/><ellipse cx="60" cy="60" rx="38" ry="47"/>
+    <path d="M13 60h94M18 38h84M18 82h84"/>
+  </g>
+  <path d="M60 30l7.6 15.4 17 2.5-12.3 12 2.9 16.9L60 68.8l-15.2 8 2.9-16.9-12.3-12 17-2.5z" fill="url(#brass)" stroke="#2a1f0c" stroke-width="1"/>
+</svg>`;

@@ -3,7 +3,9 @@
 // governments are built from the game's own data, so they never go out of date.
 import { BUILDINGS, BUILDING_TYPES } from '../../shared/buildings';
 import { COMMODITIES, COMMODITY_INFO } from '../../shared/economy';
-import { MAX_ALLIANCES, MAX_BLOC, MAX_SPY_OPS, MAX_TRADE_DEALS, PROPOSAL_DAYS, SPY_COST, SPY_MISSIONS, VOTE_DAYS } from '../../shared/diplomacy';
+import { ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, MAX_SPY_OPS, PACTS, PACT_INFO, PROPOSAL_DAYS, SPY_COST, SPY_MISSIONS, VOTE_DAYS } from '../../shared/diplomacy';
+import { DECREE_DISCOUNT, HIGH_TAX, HIGH_TAX_SUPPORT, LAWS, LAW_IDS, MAX_CAPITAL, WAR_SUPPORT } from '../../shared/politics';
+import { SPECIALTIES, SPECIALTY_LIST } from '../../shared/specialties';
 import { UNIT_ROLE, UNIT_SPECS, UNIT_TYPES } from '../../shared/military';
 import { GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_DAYS, TECHS, TIER_COST } from '../../shared/research';
 
@@ -14,6 +16,9 @@ import { GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_DAYS, TECHS, T
  *   mode:<map mode>        switch the map mode
  *   view:<id>              highlight a View setting (relief, tilt, models3d, borders...)
  *   do:<action>            capital, keys, guide, music, notices
+ *   econ:<input id>        open Economy and highlight a control (econTax, b-welfare...)
+ *   nation:<id>            fly to a nation and show its card;  diplo:<id>  open Diplomacy on it
+ *   build:<province>       the build list of a province;  manual:<chapter>  a manual chapter
  */
 export interface ManualActions { go(target: string): void }
 
@@ -130,15 +135,43 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'diplomacy', title: 'Diplomacy', html: () => `
-      <p>Open ${L('module:diplomacy', 'Diplomacy')} (<kbd>P</kbd>). Proposals lapse after ${PROPOSAL_DAYS} game days.</p>
+      <p>Open ${L('module:diplomacy', 'Diplomacy')} (<kbd>P</kbd>). The <b>Nations</b> tab lists every nation by what it thinks of you; click one (or its name in a province panel) for its page: their opinion and why, every treaty, supply contracts, gifts, envoys, demands, denouncing, embargoes and war. Proposals to players lapse after ${PROPOSAL_DAYS} game days; AI governments answer at once.</p>
+      <h3>Opinion</h3>
+      <p>Each nation thinks of every other from −100 to +100: alike beliefs and governments, treaties, trade, a common enemy, a diplomatic focus and envoys raise it; wars, embargoes, claims on their land, border tensions, war on their friends and propaganda lower it. Deeds are remembered and slowly fade: gifts <g>warm</g>, demands, denunciations and broken treaties <r>sour</r>, and breaking a non-aggression pact is a betrayal <r>the whole world remembers</r>. AI governments answer proposals mostly by opinion.</p>
+      <h3>Treaties</h3>
+      <table class="man-table"><tbody>${PACTS.map((k) => `<tr><td>${PACT_INFO[k].name}</td><td>${esc(PACT_INFO[k].text)}</td><td>up to ${PACT_INFO[k].max}</td></tr>`).join('')}</tbody></table>
+      <h3>Deals and pressure</h3>
       <ul>
-        <li><b>Trade agreements</b> (up to ${MAX_TRADE_DEALS}): <g>+0.15% growth a year each</g>. War ends them.</li>
-        <li><b>Alliances</b> (up to ${MAX_ALLIANCES}): allies cross each other's land and join wars against an aggressor.</li>
+        <li><b>Supply contracts</b> (up to ${MAX_CONTRACTS}): a fixed yearly amount of a good, bought or sold at the world price of the day you sign, delivered daily from the seller's stock. Embargoes and blockades do not stop them.</li>
+        <li><b>Gifts</b> of money need no answer and raise opinion. <b>Envoys</b> ($${ENVOY_COST}bn, ${MAX_ENVOYS} at a time) work on a nation for ${ENVOY_DAYS} days.</li>
+        <li><b>Demands</b>: a border province or tribute (up to 5% of their GDP). They give way only to overwhelming power; a refusal gives you a <b>claim</b> (see ${L('module:politics', 'Politics')}).</li>
+        <li><b>Denounce</b> a nation: its opinion and its allies' fall, its enemies like you more, and you gain political capital at home.</li>
         <li><b>Blocs</b> (up to ${MAX_BLOC} members): named coalitions that defend every member.</li>
         <li><b>World council</b>: table sanctions, condemnations or ceasefires; every nation votes for ${VOTE_DAYS} days.</li>
         <li><b>Embargoes</b> stop trade with a nation.</li>
         <li><b>Spies</b> ($${SPY_COST}bn each, ${MAX_SPY_OPS} at a time): ${Object.values(SPY_MISSIONS).map((m) => esc(m.name.toLowerCase())).join(', ')}.</li>
       </ul>`,
+  },
+  {
+    id: 'politics', title: 'Politics and laws', html: () => `
+      <p>Open ${L('module:politics', 'Politics')} (<kbd>O</kbd>). Governing costs <b>political capital</b>: earned every day from stability and a government that suits the people (a Diplomacy focus helps), up to ${MAX_CAPITAL}.</p>
+      <h3>Who must agree</h3>
+      <ul>
+        <li><b>Democracy</b>: parliament votes on every law (it passes at 50%), must back a war of choice (${WAR_SUPPORT}% support; 25% against a nation you hold a claim on), and must agree to taxes above ${HIGH_TAX}% (${HIGH_TAX_SUPPORT}% support). Its support follows the public, business, the military and stability.</li>
+        <li><b>Technocracy</b>: a council of experts votes, listening most to business, growth and stability.</li>
+        <li><b>Autocracy</b>: laws by decree, ${Math.round((1 - DECREE_DISCOUNT) * 100)}% cheaper, but laws the public dislikes <r>cost stability</r>.</li>
+        <li><b>Military junta</b>: decrees too, but nothing passes against the officers unless the military is very content.</li>
+      </ul>
+      <p><b>Demands</b>: parliament (or, under rule by decree, the unhappiest of the military, business and the public) asks something every few months: more welfare, research or defence spending, lower taxes, peace, a trade deal, or a law. Meet it within 90 days for <g>+15 capital and goodwill</g>; ignore or refuse it and <r>support and stability fall</r>.</p>
+      <p><b>Emergency powers</b> suspend parliament's votes, at a cost to liberty and the public's mood. <b>Claims</b> come from demands other nations refuse, made in ${L('module:diplomacy', 'Diplomacy')}.</p>
+      <h3>Laws</h3>
+      <table class="man-table"><tbody>${LAW_IDS.map((l) => `<tr><td>${LAWS[l].name}</td><td>${esc(LAWS[l].text)}</td><td>${LAWS[l].cost}</td></tr>`).join('')}</tbody></table>`,
+  },
+  {
+    id: 'specialties', title: 'Province specialties', html: () => `
+      <p>Every land province is known for one specialty, decided by its climate and place: its terrain, how near the poles or the equator it lies, its height, its coast and its rivers. The province panel shows it; ${L('market:local:spec', 'the Market')} lists yours, the luxuries your trade partners share, and who holds the rest.</p>
+      <p>Each province with a specialty adds its bonus, each one less than the last (up to twice the first). <b>Luxuries</b> reach your trade partners at half strength, and theirs reach you: a reason to trade with nations unlike your own.</p>
+      <table class="man-table"><tbody>${SPECIALTY_LIST.map((k) => `<tr><td>${SPECIALTIES[k].icon} ${SPECIALTIES[k].name}</td><td>${esc(SPECIALTIES[k].effect)}</td></tr>`).join('')}</tbody></table>`,
   },
   {
     id: 'research', title: 'Research and government', html: () => `
@@ -176,17 +209,18 @@ const CHAPTERS: Chapter[] = [
         <tr><td><kbd>W A S D</kbd></td><td>Move the camera (Shift: faster)</td></tr>
         <tr><td><kbd>E</kbd> <kbd>X</kbd></td><td>Economy, Market</td></tr>
         <tr><td><kbd>F</kbd> <kbd>N</kbd> <kbd>B</kbd></td><td>Ground forces, Naval ops, Air command</td></tr>
-        <tr><td><kbd>P</kbd> <kbd>R</kbd> <kbd>K</kbd></td><td>Diplomacy, R&amp;D, Rankings</td></tr>
+        <tr><td><kbd>P</kbd> <kbd>O</kbd> <kbd>R</kbd> <kbd>K</kbd></td><td>Diplomacy, Politics, R&amp;D, Rankings</td></tr>
         <tr><td><kbd>M</kbd></td><td>Back to the map (close windows)</td></tr>
         <tr><td><kbd>Q</kbd> <kbd>H</kbd> <kbd>T</kbd> <kbd>L</kbd> <kbd>U</kbd> <kbd>Tab</kbd></td><td>Orders for selected units</td></tr>
         <tr><td><kbd>I</kbd></td><td>This manual</td></tr>
         <tr><td><kbd>C</kbd> <kbd>G</kbd> <kbd>?</kbd></td><td>Chat, guided tour, all keys</td></tr>
-        <tr><td><kbd>Esc</kbd></td><td>Cancel, close windows, clear selection</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Cancel, close windows, clear selection; with nothing open, the main menu</td></tr>
         <tr><td><kbd>F11</kbd></td><td>Full screen (desktop app)</td></tr>
       </tbody></table>`,
   },
   {
-    id: 'music', title: 'Music and settings', html: () => `
+    id: 'music', title: 'Menu, music and settings', html: () => `
+      <p>The <b>main menu</b> (☰ in the top bar, or <kbd>Esc</kbd> with nothing open) holds single player, a new campaign, multiplayer (join a world server by its address), options for graphics, sound, interface and game speed, this manual and the credits. Single player pauses while it is open.</p>
       <p>The ${L('do:music', 'music player')} (♪ in the top bar) plays the game's own soundtrack, any tracks placed in the game's <code>music</code> folder, and music files you add yourself. Sound effects are switched with <b>Sound on/off</b>.</p>
       <p>View settings on the left: borders, rivers, names, grid lines, colour-blind friendly colours, tilt, relief and 3D models. If the map runs slowly, turning off 3D models helps most.</p>`,
   },
@@ -207,7 +241,7 @@ export class Manual {
       const ch = t.closest<HTMLElement>('[data-ch]');
       if (ch) { this.current = ch.dataset.ch!; this.render(); return; }
       const go = t.closest<HTMLElement>('[data-go]');
-      if (go) { e.preventDefault(); this.close(); this.actions.go(go.dataset.go!); }
+      if (go) { e.preventDefault(); e.stopPropagation(); this.close(); this.actions.go(go.dataset.go!); }
     });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.el.hidden) { e.stopImmediatePropagation(); this.close(); } }, true);
   }

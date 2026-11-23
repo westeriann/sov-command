@@ -6,7 +6,8 @@
 
 import type { Budget, EconomyPrivate, EconomyPublic, MarketSnapshot } from './economy';
 import type { MilitaryPrivate, Mission, UnitType, UnitView, War } from './military';
-import type { Bloc, Deal, DealKind, Pact, Proposal, Resolution, ResolutionKind, SpyMission, Treaty } from './diplomacy';
+import type { Bloc, Contract, Deal, DealKind, Opinion, Pact, Proposal, Resolution, ResolutionKind, SpyMission, Treaty } from './diplomacy';
+import type { LawId, PoliticsPrivate } from './politics';
 import type { Government, ResearchPrivate, TechId } from './research';
 import type { BuildingState, BuildingType } from './buildings';
 import type { Specialty } from './specialties';
@@ -83,6 +84,10 @@ export interface NationPrivate extends NationPublic {
   openBorders?: boolean;
   missions?: SeasonMission[]; // this season's goals
   society?: SocietyPrivate;
+  politics?: PoliticsPrivate;
+  relations?: Record<number, Opinion>; // what each nation thinks of us, and why
+  contracts?: Contract[];
+  envoys?: { target: number; until: number }[];
 }
 
 /** Front lines and wars are public knowledge. */
@@ -193,7 +198,12 @@ export type Order =
   | { kind: 'asat'; target: number }
   | { kind: 'customize'; name?: string; short?: string; color?: string; flag?: FlagSpec }
   | { kind: 'nuke'; province: number }
-  | { kind: 'government'; government: Government };
+  | { kind: 'government'; government: Government }
+  | { kind: 'law'; law: LawId; enact: boolean } // pass or repeal
+  | { kind: 'dismiss_demand' } // refuse what parliament (or the elites) ask
+  | { kind: 'denounce'; target: number }
+  | { kind: 'envoy'; target: number } // a diplomatic mission to improve relations
+  | { kind: 'end_contract'; id: number };
 
 export type ClientMsg =
   | { t: 'hello'; token: string }

@@ -11,6 +11,17 @@ import { FOCI, LIMITS, PERSONALITIES, type Focus, type Order, type Personality, 
 import { UNIT_SPECS, distanceKm, domainOf, type UnitType } from '../../shared/military.ts';
 import type { NationState, World } from './world.ts';
 import { MAX_ALLIANCES, MAX_BLOC, MAX_TRADE_DEALS, SPY_COST, type Deal, type Resolution, type SpyMission } from '../../shared/diplomacy.ts';
+import { COMMODITIES } from '../../shared/economy.ts';
+import { LAWS, type LawId } from '../../shared/politics.ts';
+
+/** The laws each character of government reaches for, most wanted first. */
+const LAW_TASTE: Record<Personality, LawId[]> = {
+  expansionist: ['conscription', 'strategic_reserves', 'censorship', 'tariffs', 'infrastructure_act'],
+  trader: ['free_trade', 'infrastructure_act', 'research_grants', 'press_freedom', 'green_energy'],
+  turtle: ['strategic_reserves', 'conscription', 'tariffs', 'infrastructure_act', 'rationing'],
+  opportunist: ['infrastructure_act', 'free_trade', 'research_grants', 'strategic_reserves'],
+  idealist: ['press_freedom', 'research_grants', 'green_energy', 'free_trade', 'infrastructure_act'],
+};
 import { TECHS, prerequisite, type Branch, type TechId } from '../../shared/research.ts';
 import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
 import { ideologyGap } from '../../shared/society.ts';
@@ -177,6 +188,8 @@ export class AiBrain {
       const targets = (w.defs.get(me)?.neighbours ?? [])
         .map((id) => w.nations.get(id))
         .filter((t): t is NationState => !!t && !t.annexedBy && !w.diplomacy.has('alliance', me, t.id))
+        .filter((t) => !w.diplomacy.has('nap', me, t.id) || (p === 'expansionist' && this.random() < 0.2))
+        .filter((t) => w.opinion(me, t.id).total < 10 || w.justified(me, t.id))
         .filter((t) => !w.publicView(t).nuclear || (n.mil.warheads ?? 0) > 0) // nuclear deterrence
         // count the target's allies too, if they border us or the target (others can hardly reach the front)
         .filter((t) => {
@@ -307,8 +320,25 @@ export class AiBrain {
     const them = w.nations.get(from);
     if (!them || w.dealProblem(from, me, deal)) return false;
     const gap = n.soc && them.soc ? ideologyGap(n.soc.ideology, them.soc.ideology) : 0;
-    const friendly = (them.policy.focus === 'diplomacy' ? 0.2 : 0) + 0.15 - gap * 0.12; // like-minded nations trust each other
+    const op = w.opinion(me, from).total;
+    const friendly = (them.policy.focus === 'diplomacy' ? 0.2 : 0) + 0.15 - gap * 0.12 + op * 0.004; // like-minded, well-liked nations are trusted
     const dominant = w.powerOf(from) > 0.15 && w.powerOf(from) > w.powerOf(me) * 3 ? 0.35 : 0; // wary of a power that could swallow us
+    if (deal.kind === 'gift') return true;
+    if (deal.kind === 'nap') return op >= -15 || w.powerOf(from) > w.powerOf(me) * 1.5;
+    if (deal.kind === 'access') return op >= 25 && !w.military.enemiesOf(from).some((x) => w.diplomacy.has('trade', me, x));
+    if (deal.kind === 'research') return op >= 5 && (them.tech.done.length >= n.tech.done.length * 0.5);
+    if (deal.kind === 'guarantee') return op >= -25 && !(p === 'expansionist' && w.powerOf(me) > w.powerOf(from));
+    if (deal.kind === 'contract') {
+      const e = n.econ, g = deal.good, yearly = deal.amount;
+      const surplus = e.trade[g]; // exported last year: what we can spare
+      if (deal.sell) return op >= -30 && (e.short[g] > 0.01 || e.stock[g] < yearly * 0.2); // they sell to us: welcome if we need it
+      return op >= -20 && (surplus > yearly * 0.8 || e.stock[g] > yearly); // we sell: only from what we can spare
+    }
+    if (deal.kind === 'demand') {
+      // yield only to overwhelming power, with no strong friend to call on
+      const mine = w.powerOf(me) + w.diplomacy.allies(me).reduce((t, x) => t + w.powerOf(x), 0) + w.diplomacy.guarantorsOf(me).reduce((t, x) => t + w.powerOf(x), 0);
+      return w.powerOf(from) > mine * 4 && op > -60;
+    }
     if (deal.kind === 'trade') return TRADE_WILL[p] + friendly - dominant >= 0.5;
     if (deal.kind === 'alliance' || deal.kind === 'bloc') {
       const m = w.military;
@@ -333,7 +363,7 @@ export class AiBrain {
 
   /** Peacetime diplomacy: trade with neighbours, and an ally or two. */
   private diplomacyOrders(n: NationState): Order[] {
-    const w = this.world, d = w.diplomacy, me = n.id;
+    const w = this.world, d = w.diplomacy, me = n.id, p = n.personality;
     const neighbours = w.defs.get(me)?.neighbours ?? [];
     const orders: Order[] = [];
     const tradeGoal = n.personality === 'trader' ? MAX_TRADE_DEALS : n.personality === 'expansionist' ? 1 : 3;
@@ -348,7 +378,56 @@ export class AiBrain {
         .filter((x) => !d.has('alliance', me, x) && !d.pending(me, x, 'alliance') && !w.nations.get(x)?.annexedBy);
       if (pool.length) orders.push({ kind: 'propose', target: pool[Math.floor(this.random() * pool.length)], deal: { kind: 'alliance' } });
     }
+    // non-aggression with neighbours we get along with, research with friends, guarantees for small friends
+    if (this.random() < 0.03 && p !== 'expansionist') {
+      const t = neighbours.find((x) => !d.has('nap', me, x) && !w.nations.get(x)?.annexedBy && w.opinion(me, x).total > -10 && !w.dealProblem(me, x, { kind: 'nap' }));
+      if (t !== undefined) orders.push({ kind: 'propose', target: t, deal: { kind: 'nap' } });
+    }
+    if (this.random() < 0.02) {
+      const t = d.partners('trade', me).find((x) => !d.has('research', me, x) && w.opinion(me, x).total > 10 && !w.dealProblem(me, x, { kind: 'research' }));
+      if (t !== undefined) orders.push({ kind: 'propose', target: t, deal: { kind: 'research' } });
+    }
+    if (this.random() < 0.01 && (p === 'idealist' || p === 'turtle') && w.powerOf(me) > 0.03) {
+      const t = neighbours.find((x) => w.powerOf(x) < w.powerOf(me) * 0.3 && w.opinion(me, x).total > 20 && !w.dealProblem(me, x, { kind: 'guarantee' }));
+      if (t !== undefined) orders.push({ kind: 'propose', target: t, deal: { kind: 'guarantee' } });
+    }
+    // short of something: a contract with the trade partner (or neighbour) that makes most of it
+    const short = COMMODITIES.find((c) => n.econ.short[c] > 0.05 || -n.econ.trade[c] > n.econ.capacity[c] * 0.4); // short, or living on imports
+    if (short && this.random() < 0.05 && d.contractsOf(me).length < 3) {
+      const pool = [...d.partners('trade', me), ...neighbours].filter((x) => !w.nations.get(x)?.annexedBy && !w.military.atWar(me, x));
+      const seller = pool.sort((a, b) => (w.nations.get(b)!.econ.capacity[short] - w.nations.get(a)!.econ.capacity[short]))[0];
+      const yearly = Math.round(n.econ.capacity[short] * 0.1 * 100) / 100 || 1;
+      if (seller !== undefined) orders.push({ kind: 'propose', target: seller, deal: { kind: 'contract', good: short, amount: yearly, years: 2, sell: false } });
+    }
+    // envoys to sour neighbours, gifts from rich idealists and traders, demands and denunciations from expansionists
+    if (n.policy.focus === 'diplomacy' && this.random() < 0.05) {
+      const t = neighbours.find((x) => w.opinion(x, me).total < 0 && !(n.envoys ?? []).some((v) => v.target === x && v.until > w.market.day));
+      if (t !== undefined) orders.push({ kind: 'envoy', target: t });
+    }
+    if ((p === 'idealist' || p === 'trader') && n.econ.treasury > n.econ.gdp * 0.1 && this.random() < 0.01) {
+      const t = neighbours.find((x) => w.opinion(x, me).total < 10);
+      if (t !== undefined) orders.push({ kind: 'propose', target: t, deal: { kind: 'gift', amount: Math.round(n.econ.gdp * 0.002 * 10) / 10 || 0.5 } });
+    }
+    if (p === 'expansionist' && this.random() < 0.02) {
+      const t = neighbours.find((x) => w.powerOf(x) * 2.5 < w.powerOf(me) && !d.allied(me, x) && !(n.pol?.claims ?? []).includes(x));
+      if (t !== undefined) {
+        const prov = [...w.military.provinces.values()].find((q) => q.owner === t && q.kind === 'land' && q.adj.some((a) => w.military.provinces.get(a)?.owner === me) && !w.dealProblem(me, t, { kind: 'demand', province: q.id }));
+        orders.push(prov ? { kind: 'propose', target: t, deal: { kind: 'demand', province: prov.id } } : { kind: 'denounce', target: t });
+      }
+    }
     return orders;
+  }
+
+  /** Pass a law this government likes, if it has the capital (and the votes). */
+  pickLaw(n: NationState) {
+    const pol = n.pol;
+    if (!pol) return;
+    const want = LAW_TASTE[n.personality].filter((l) => !pol.laws.includes(l) && !(LAWS[l].excludes ?? []).some((x) => pol.laws.includes(x)));
+    if (n.econ.shortage > 0.08 && !pol.laws.includes('rationing')) want.unshift('rationing');
+    if (n.econ.treasury < -n.econ.gdp * 0.4 && !pol.laws.includes('austerity')) want.unshift('austerity');
+    if (pol.laws.includes('austerity') && n.econ.treasury > 0) { this.world.submit(n.id, { kind: 'law', law: 'austerity', enact: false }, 'ai'); return; }
+    const law = want.find((l) => LAWS[l].cost <= pol.capital);
+    if (law && pol.laws.length < 6) this.world.submit(n.id, { kind: 'law', law, enact: true }, 'ai');
   }
 
   private plans = new Map<number, { target: number; staging: number; since: number }>();

@@ -1,6 +1,6 @@
 // Treaties and proposals between nations. Pure bookkeeping: the World applies
 // the effects (call to arms, ceded land, trade growth) when deals are made.
-import { PROPOSAL_DAYS, pair, type Bloc, type DealKind, type Pact, type Proposal, type Resolution, type Treaty } from '../../shared/diplomacy.ts';
+import { PROPOSAL_DAYS, pair, type Bloc, type Contract, type DealKind, type Pact, type Proposal, type Resolution, type Treaty } from '../../shared/diplomacy.ts';
 
 export interface DiplomacyState {
   treaties: Treaty[];
@@ -13,6 +13,7 @@ export interface DiplomacyState {
   council?: Resolution[];
   overlords?: Record<number, number>;
   nextId?: number;
+  contracts?: Contract[];
 }
 
 export class Diplomacy {
@@ -26,6 +27,7 @@ export class Diplomacy {
   council: Resolution[] = [];
   overlords = new Map<number, number>(); // vassal -> overlord
   nextId = 1;
+  contracts: Contract[] = [];
 
   constructor(state: DiplomacyState | null) {
     if (!state) return;
@@ -39,13 +41,14 @@ export class Diplomacy {
     this.council = state.council ?? [];
     this.overlords = new Map(Object.entries(state.overlords ?? {}).map(([v, o]) => [Number(v), o]));
     this.nextId = state.nextId ?? 1;
+    this.contracts = state.contracts ?? [];
   }
 
   serialize(): DiplomacyState {
     return {
       treaties: this.treaties, proposals: this.proposals, owners: Object.fromEntries(this.owners), embargoes: this.embargoes,
       unrest: Object.fromEntries(this.unrest), formerOwner: Object.fromEntries(this.formerOwner),
-      blocs: this.blocs, council: this.council, overlords: Object.fromEntries(this.overlords), nextId: this.nextId,
+      blocs: this.blocs, council: this.council, overlords: Object.fromEntries(this.overlords), nextId: this.nextId, contracts: this.contracts,
     };
   }
 
@@ -84,9 +87,34 @@ export class Diplomacy {
     this.proposals = this.proposals.filter((p) => !(p.from === from && p.to === to && (!kind || p.deal.kind === kind)));
   }
 
+  /** Whether `a` guarantees `b`'s independence (guarantees run one way). */
+  guarantees(a: number, b: number) {
+    return this.treaties.some((t) => t.kind === 'guarantee' && t.a === a && t.b === b);
+  }
+
+  guarantorsOf(n: number) {
+    return this.treaties.filter((t) => t.kind === 'guarantee' && t.b === n).map((t) => t.a);
+  }
+
+  /** How many treaties of a kind count against a nation's limit (for guarantees: those it gives). */
+  count(kind: Pact, n: number) {
+    return kind === 'guarantee' ? this.treaties.filter((t) => t.kind === kind && t.a === n).length : this.partners(kind, n).length;
+  }
+
+  contractsOf(n: number) {
+    return this.contracts.filter((c) => c.seller === n || c.buyer === n);
+  }
+
+  /** War ends every agreement between two nations. */
+  sever(a: number, b: number) {
+    this.treaties = this.treaties.filter((t) => !pair(t, a, b));
+    this.contracts = this.contracts.filter((c) => !pair({ a: c.seller, b: c.buyer }, a, b));
+  }
+
   /** Drop everything involving a nation (it was annexed). */
   forget(n: number) {
     this.treaties = this.treaties.filter((t) => t.a !== n && t.b !== n);
+    this.contracts = this.contracts.filter((c) => c.seller !== n && c.buyer !== n);
     this.embargoes = this.embargoes.filter((e) => e.from !== n && e.to !== n);
     this.leaveBloc(n);
     this.overlords.delete(n);

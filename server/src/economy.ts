@@ -137,6 +137,11 @@ export interface DayInput {
   harvest?: number; // seasonal food output factor
   powerDemand?: number; // seasonal electricity demand factor
   foodBonus?: number; // fisheries, breadbaskets, cattle: share more food
+  // laws
+  spendFactor?: number; // austerity: the government spends less
+  shortageFactor?: number; // rationing: shortages hurt less
+  stockFactor?: number; // strategic reserves: larger stockpiles
+  tradeGrowth?: number; // free trade: trade agreements give more growth
 }
 
 /**
@@ -166,10 +171,10 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
         e.stock[c] -= draw;
         net += draw;
         // also rebuild depleted reserves a little each day
-        const restock = Math.max(0, use * STOCK_TARGET_DAYS - e.stock[c]) * 0.02;
+        const restock = Math.max(0, use * STOCK_TARGET_DAYS * (n.stockFactor ?? 1) - e.stock[c]) * 0.02;
         if (net < 0 || restock > 0) bids.get(c)!.push({ n, q: -Math.min(0, net) + restock });
       } else {
-        const fill = Math.min(net, Math.max(0, (use * STOCK_TARGET_DAYS) - e.stock[c]));
+        const fill = Math.min(net, Math.max(0, (use * STOCK_TARGET_DAYS * (n.stockFactor ?? 1)) - e.stock[c]));
         e.stock[c] += fill;
         net -= fill;
         if (net > 0) offers.get(c)!.push({ n, q: net });
@@ -194,7 +199,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
       e.trade[c] = -got * 365;
       // whatever we could not cover first comes out of the restocking we wanted
       const use = (usePerYear(c, e.gdp, e.pop) + (b.n.extraUse?.[c] ?? 0)) / 365;
-      const restock = Math.max(0, use * STOCK_TARGET_DAYS - e.stock[c]) * 0.02;
+      const restock = Math.max(0, use * STOCK_TARGET_DAYS * (b.n.stockFactor ?? 1) - e.stock[c]) * 0.02;
       const unmet = Math.max(0, b.q - got - restock);
       e.stock[c] += Math.max(0, got - (b.q - restock));
       e.short[c] = use > 0 ? unmet / use : 0;
@@ -204,7 +209,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
       const sold = s.q * sellFill * (1 - 0.7 * (s.n.blockade ?? 0));
       e.treasury += sold * price;
       e.trade[c] = sold * 365;
-      const cap = (usePerYear(c, e.gdp, e.pop) * STOCK_CAP_DAYS) / 365;
+      const cap = (usePerYear(c, e.gdp, e.pop) * STOCK_CAP_DAYS * (s.n.stockFactor ?? 1)) / 365;
       e.stock[c] = Math.min(cap, e.stock[c] + (s.q - sold)); // unsold output is stored, or wasted once full
     }
     const ratio = (demand + 1e-9) / (supply + 1e-9);
@@ -218,11 +223,11 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     const e = n.econ;
     const control = n.control ?? 1;
     const revenue = (e.gdp * n.tax * control) / 100; // per year; occupied land pays no taxes
-    const spending = e.gdp * SPEND_RATE;
+    const spending = e.gdp * SPEND_RATE * (n.spendFactor ?? 1);
     e.treasury += (revenue - spending) / 365;
     const spend = spending * (1 - ADMIN_SHARE);
     const share = (k: keyof Budget) => (spend * e.budget[k]) / 100; // $bn per year
-    e.shortage = COMMODITIES.reduce((a, c) => a + SHORTAGE_WEIGHT[c] * Math.min(1, e.short[c]), 0);
+    e.shortage = COMMODITIES.reduce((a, c) => a + SHORTAGE_WEIGHT[c] * Math.min(1, e.short[c]), 0) * (n.shortageFactor ?? 1);
 
     const infraTarget = Math.min(1.6, Math.max(0.4, 0.55 + (share('infrastructure') / e.gdp) * 30));
     e.infra += (infraTarget - e.infra) * 0.006 * (1 - 0.6 * Math.min(1, e.short.timber ?? 0)); // building roads and housing needs timber
@@ -249,7 +254,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
       - Math.max(0, debtRatio - 0.6) * 0.02
       - (1 - control) * 0.15
       - (n.atWar ? 0.01 : 0)
-      + (n.tradeDeals ?? 0) * TRADE_DEAL_GROWTH
+      + (n.tradeDeals ?? 0) * TRADE_DEAL_GROWTH * (n.tradeGrowth ?? 1)
       + (n.bonusGrowth ?? 0)
       + (n.factoryGrowth ?? 0) * (1 - Math.min(1, e.short.metals)) * (1 - e.blackout)
       - e.blackout * 0.08; // blackouts stop industry

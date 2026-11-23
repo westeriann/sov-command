@@ -40,9 +40,14 @@ import {
   type Effects, type Government, type ResearchPrivate, type TechId,
 } from '../../shared/research.ts';
 import {
-  MAX_ALLIANCES, MAX_BLOC, MAX_OPEN_RESOLUTIONS, MAX_SPY_OPS, MAX_TRADE_DEALS, RESOLUTION_TEXT, SPY_COST, SPY_DAYS, SPY_MISSIONS,
-  TRIBUTE_SHARE, VOTE_DAYS, dealText, type Deal, type ResolutionKind, type SpyMission,
+  CONTRACT_YEARS, ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, MAX_OPEN_RESOLUTIONS, MAX_SPY_OPS, PACTS, PACT_INFO, RESOLUTION_TEXT, SPY_COST, SPY_DAYS, SPY_MISSIONS,
+  TRIBUTE_SHARE, VOTE_DAYS, dealText, type Deal, type Opinion, type Pact, type ResolutionKind, type SpyMission,
 } from '../../shared/diplomacy.ts';
+import {
+  DECREE_DISCOUNT, HIGH_TAX, HIGH_TAX_SUPPORT, LAWS, LAW_IDS, LEGISLATURE, MAX_CAPITAL, WAR_SUPPORT, lawVote,
+  type Demand, type DemandKind, type LawId, type Legislature, type PoliticsPrivate,
+} from '../../shared/politics.ts';
+import { ideologyGap } from '../../shared/society.ts';
 
 /** New players cannot be attacked by the AI for this long after claiming a nation. */
 const NEWCOMER_PROTECTION_MS = 2 * 3_600_000;
@@ -85,6 +90,10 @@ export interface NationState {
   intel?: Record<number, number>; // nation -> game day our view of its forces lasts until
   tech: { current?: TechId; partial: Partial<Record<TechId, number>>; done: TechId[]; queue?: TechId[] };
   gov: { government: Government; reformUntil?: number; reformedAt?: number; nextElection?: number; oppositionUntil?: number };
+  /** Domestic politics: political capital, laws in force, parliament's support and what it asks. */
+  pol?: { capital: number; support: number; laws: LawId[]; demand?: Demand; nextDemand?: number; claims: number[]; goodwill: number; lastLaw?: number };
+  mem?: Record<number, number>; // what this nation remembers of others: gifts, insults, betrayals (fades)
+  envoys?: { target: number; until: number }[];
 }
 
 export interface WorldOptions {
@@ -341,7 +350,7 @@ export class World {
     for (const p of this.nuked) { const prov = byId.get(p); if (prov) prov.pop *= 0.7; }
     const storedMil = getMeta(db, 'military');
     this.military = new Military(byId, storedMil ? JSON.parse(storedMil) : null, mulberry(seed + 99));
-    this.military.allied = (a, b) => this.diplomacy.allied(a, b);
+    this.military.allied = (a, b) => this.diplomacy.allied(a, b) || this.diplomacy.has('access', a, b);
     for (const p of byId.values()) { const sp = specialtyOf(p as never); if (sp) this.specialty.set(p.id, sp); }
     this.military.intelOn = (nation) => [
       ...Object.entries(this.nations.get(nation)?.intel ?? {}).filter(([, until]) => until >= this.market.day).map(([id]) => Number(id)),
@@ -364,7 +373,7 @@ export class World {
     }
     for (const n of this.nations.values()) this.applyCustom(n);
     this.recomputeNeighbours();
-    for (const n of this.nations.values()) n.soc ??= this.initialSociety(n);
+    for (const n of this.nations.values()) { n.soc ??= this.initialSociety(n); n.pol ??= this.initialPolitics(n); }
     this.military.bonus = (nation, kind) => this.effects(nation)[kind];
     this.military.storm = (p) => this.stormy.has(p);
     this.storms = JSON.parse(getMeta(db, 'storms') ?? '[]');
@@ -414,6 +423,8 @@ export class World {
     e = effectsOf(n.gov.government, n.tech.done, n.gov.reformUntil !== undefined);
     if (n.gov.government === 'democracy' && this.military.enemiesOf(nation).length) e.stability -= 5; // war weariness
     if (n.policy.focus === 'military') { e.build += 0.2; e.manpower += 0.15; } // a war footing: faster arms output, more men called up
+    for (const l of n.pol?.laws ?? []) for (const [k, v] of Object.entries(LAWS[l].effects)) e[k as keyof Effects] += v as number;
+    e.research += 0.05 * this.diplomacy.partners('research', nation).length; // research cooperation
     const sb = this.specialties(nation).bonus; // what the land is known for
     e.stability += sb.stability; e.growth += sb.growth; e.research += sb.research; e.build += sb.build;
     if ((n.gov.oppositionUntil ?? -1) > this.market.day) { e.growth -= 0.002; e.stability += 3; } // a new government's honeymoon
@@ -631,6 +642,10 @@ export class World {
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
       research: this.researchView(n),
       specialties: { own: this.specialties(n.id).own, shared: this.specialties(n.id).shared },
+      politics: this.politicsView(n),
+      relations: Object.fromEntries([...this.nations.values()].filter((x) => x.id !== n.id && !x.annexedBy).map((x) => [x.id, this.opinion(x.id, n.id)])),
+      contracts: this.diplomacy.contractsOf(n.id),
+      envoys: (n.envoys ?? []).filter((v) => v.until > this.market.day),
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
     };
   }
@@ -835,6 +850,9 @@ export class World {
         if (p.tax !== undefined) {
           if (typeof p.tax !== 'number' || !Number.isFinite(p.tax)) return fail('bad_request', 'Tax must be a number.');
           next.tax = Math.round(Math.min(LIMITS.taxMax, Math.max(LIMITS.taxMin, p.tax)));
+          if (next.tax > HIGH_TAX && next.tax > n.policy.tax && this.needsVote(n) && (n.pol?.support ?? 50) < HIGH_TAX_SUPPORT) {
+            return fail('not_allowed', `Parliament will not pass taxes above ${HIGH_TAX}% (support ${Math.round(n.pol?.support ?? 0)}%, needs ${HIGH_TAX_SUPPORT}%).`);
+          }
         }
         const focusChanged = next.focus !== n.policy.focus;
         n.policy = next;
@@ -897,6 +915,12 @@ export class World {
         if (overlord !== undefined && overlord !== t.id) return fail('not_allowed', 'A vassal cannot start wars. Declare independence first (war on your overlord).');
         if (d.overlords.get(t.id) === n.id) return fail('not_allowed', 'That is your vassal. Release it first.');
         if ((n.gov.oppositionUntil ?? -1) > this.market.day) return fail('not_allowed', 'After losing the election, parliament blocks any new war.');
+        const justified = this.justified(n.id, t.id);
+        if (overlord !== t.id && this.needsVote(n)) {
+          const need = justified ? 25 : WAR_SUPPORT;
+          if ((n.pol?.support ?? 50) < need) return fail('not_allowed', `Parliament will not back this war (support ${Math.round(n.pol?.support ?? 0)}%, needs ${need}%). Raise its support, win a claim (a demand they refuse), or pass Emergency powers.`);
+        }
+        const betrayal = this.diplomacy.has('nap', n.id, t.id);
         if (overlord === t.id) {
           d.overlords.delete(n.id);
           this.event('war', n.id, `The ${this.defs.get(n.id)!.name} declares independence from the ${this.defs.get(t.id)!.name}!`);
@@ -907,8 +931,14 @@ export class World {
         this.military.declareWar(n.id, t.id, this.market.day);
         this.diplomacy.withdraw(n.id, t.id);
         this.diplomacy.withdraw(t.id, n.id);
-        this.diplomacy.cancel('trade', n.id, t.id);
-        this.event('war', n.id, `The ${this.defs.get(n.id)!.name} declares war on the ${this.defs.get(t.id)!.name}.`);
+        this.diplomacy.sever(n.id, t.id);
+        this.event('war', n.id, betrayal
+          ? `The ${this.defs.get(n.id)!.name} breaks its non-aggression pact and declares war on the ${this.defs.get(t.id)!.name}!`
+          : `The ${this.defs.get(n.id)!.name} declares war on the ${this.defs.get(t.id)!.name}${justified ? ', pressing its claim' : ''}.`);
+        // the world remembers: the victim most, everyone a little, betrayal and unprovoked wars most of all
+        this.remember(t.id, n.id, betrayal ? -100 : -60);
+        for (const x of this.nations.values()) if (x.id !== n.id && x.id !== t.id && !x.annexedBy) this.remember(x.id, n.id, betrayal ? -25 : justified ? -3 : -10);
+        if (n.pol) n.pol.claims = n.pol.claims.filter((c) => c !== t.id);
         // the aggressor's vassals follow it to war
         for (const v of this.diplomacy.vassalsOf(n.id)) {
           if (v === t.id || this.military.atWar(v, t.id) || this.diplomacy.allied(v, t.id)) continue;
@@ -921,6 +951,17 @@ export class World {
           this.diplomacy.cancel('trade', ally, n.id);
           this.event('war', ally, `The ${this.defs.get(ally)!.name} honours its alliance and enters the war against the ${this.defs.get(n.id)!.name}.`);
           const a = this.nations.get(ally)!;
+          a.nextThink = Math.min(a.nextThink, this.gameNow());
+          this.touch(a, false);
+          this.pushUnits(a);
+        }
+        // guarantors keep their word
+        for (const g of this.diplomacy.guarantorsOf(t.id)) {
+          if (g === n.id || this.diplomacy.allied(g, n.id) || this.military.atWar(g, n.id) || this.nations.get(g)?.annexedBy) continue;
+          this.military.declareWar(g, n.id, this.market.day);
+          this.diplomacy.sever(g, n.id);
+          this.event('war', g, `The ${this.defs.get(g)!.name} stands by its guarantee of the ${this.defs.get(t.id)!.name} and declares war on the ${this.defs.get(n.id)!.name}.`);
+          const a = this.nations.get(g)!;
           a.nextThink = Math.min(a.nextThink, this.gameNow());
           this.touch(a, false);
           this.pushUnits(a);
@@ -938,6 +979,8 @@ export class World {
         if (!t || t.id === n.id || !deal) return fail('bad_request', 'Choose another nation and a deal.');
         const problem = this.dealProblem(n.id, t.id, deal);
         if (problem) return fail('not_allowed', problem);
+        // a gift needs no answer
+        if (deal.kind === 'gift') { this.conclude(n, t, deal); return ok; }
         // proposing exactly what they already offered us is accepting it
         const theirs = this.diplomacy.pending(t.id, n.id, deal.kind);
         if (theirs && JSON.stringify(theirs.deal) === JSON.stringify(deal)) {
@@ -947,7 +990,10 @@ export class World {
         }
         if (t.controller === 'ai' || t.autopilot) {
           // AI governments answer at once
-          if (!this.brain.answer(t, n.id, deal)) return fail('not_allowed', `The ${this.defs.get(t.id)!.short} declines the ${dealText(deal)}.`);
+          if (!this.brain.answer(t, n.id, deal)) {
+            if (deal.kind === 'demand') { this.refused(n, t); return fail('not_allowed', `The ${this.defs.get(t.id)!.short} refuses. You now hold a claim on them: a war on them is justified.`); }
+            return fail('not_allowed', `The ${this.defs.get(t.id)!.short} declines the ${dealText(deal)}.`);
+          }
           this.conclude(n, t, deal);
           return ok;
         }
@@ -967,6 +1013,7 @@ export class World {
           if (problem) { this.touch(n, false); return fail('not_allowed', problem); }
           this.conclude(from, n, p.deal);
         } else {
+          if (p.deal.kind === 'demand') this.refused(from, n);
           this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} rejects the ${dealText(p.deal)} offered by the ${this.defs.get(from.id)!.name}.`);
           this.touch(from, false);
           this.touch(n, false);
@@ -1029,7 +1076,8 @@ export class World {
         const busy = [...this.military.buildings].filter(([q, list]) => this.military.provinces.get(q)?.owner === n.id && list.some((b) => b.progress < 1)).length;
         if (busy >= MAX_CONSTRUCTION) return fail('not_allowed', `At most ${MAX_CONSTRUCTION} projects at a time.`);
         // uranium (ours or a trade partner's) makes nuclear power much cheaper
-        const cost = order.building === 'nuclear_plant' && this.hasAccess(n.id, 'uranium') ? spec.cost * 0.6 : spec.cost;
+        const cost = order.building === 'nuclear_plant' && this.hasAccess(n.id, 'uranium') ? spec.cost * 0.6
+          : order.building === 'renewables' && this.hasLaw(n, 'green_energy') ? spec.cost * 0.5 : spec.cost;
         if (n.econ.treasury < cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
         n.econ.treasury -= cost;
         this.military.buildings.set(p.id, [...here, { type: order.building, progress: 0 }]);
@@ -1291,11 +1339,61 @@ export class World {
       }
       case 'cancel': {
         const t = this.nations.get(Number(order.target));
-        if (!t || (order.pact !== 'alliance' && order.pact !== 'trade')) return fail('bad_request', 'Unknown treaty.');
+        if (!t || !PACTS.includes(order.pact)) return fail('bad_request', 'Unknown treaty.');
         if (!this.diplomacy.cancel(order.pact, n.id, t.id)) return fail('not_found', 'There is no such treaty.');
-        this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} ends its ${order.pact === 'alliance' ? 'alliance' : 'trade agreement'} with the ${this.defs.get(t.id)!.name}.`);
+        this.remember(t.id, n.id, order.pact === 'nap' || order.pact === 'guarantee' || order.pact === 'alliance' ? -20 : -8);
+        this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} ends its ${PACT_INFO[order.pact].name.toLowerCase()} with the ${this.defs.get(t.id)!.name}.`);
         this.warChanged();
         this.touch(t, false);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'law': {
+        if (!LAW_IDS.includes(order.law)) return fail('bad_request', 'Unknown law.');
+        return this.passLaw(n, order.law, !!order.enact);
+      }
+      case 'dismiss_demand': {
+        const pol = n.pol, dem = pol?.demand;
+        if (!pol || !dem) return fail('not_found', 'Nobody is asking anything of you.');
+        this.demandOutcome(n, false, true);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'denounce': {
+        const t = this.nations.get(Number(order.target));
+        if (!t || t.id === n.id || t.annexedBy) return fail('bad_request', 'Choose another nation.');
+        if (this.diplomacy.allied(n.id, t.id)) return fail('not_allowed', 'You cannot denounce an ally.');
+        this.remember(t.id, n.id, -30);
+        for (const e of this.military.enemiesOf(t.id)) this.remember(e, n.id, 10);
+        for (const a of this.diplomacy.allies(t.id)) this.remember(a, n.id, -10);
+        if (n.pol) n.pol.capital = Math.min(MAX_CAPITAL, n.pol.capital + 5); // rallying the home front
+        this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} publicly denounces the ${this.defs.get(t.id)!.name}.`);
+        this.touch(t, false);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'envoy': {
+        const t = this.nations.get(Number(order.target));
+        if (!t || t.id === n.id || t.annexedBy) return fail('bad_request', 'Choose another nation.');
+        if (this.military.atWar(n.id, t.id)) return fail('not_allowed', 'Not while at war with them.');
+        const active = (n.envoys ?? []).filter((v) => v.until > this.market.day);
+        if (active.some((v) => v.target === t.id)) return fail('not_allowed', 'An envoy is already there.');
+        if (active.length >= MAX_ENVOYS) return fail('not_allowed', `All ${MAX_ENVOYS} envoys are abroad.`);
+        if (n.econ.treasury < ENVOY_COST) return fail('no_funds', `An embassy costs $${ENVOY_COST}bn.`);
+        n.econ.treasury -= ENVOY_COST;
+        n.envoys = [...active, { target: t.id, until: this.market.day + ENVOY_DAYS }];
+        this.touch(n, false);
+        return ok;
+      }
+      case 'end_contract': {
+        const c = this.diplomacy.contracts.find((x) => x.id === Number(order.id) && (x.seller === n.id || x.buyer === n.id));
+        if (!c) return fail('not_found', 'No such contract.');
+        this.diplomacy.contracts = this.diplomacy.contracts.filter((x) => x !== c);
+        const other = c.seller === n.id ? c.buyer : c.seller;
+        this.remember(other, n.id, -15);
+        this.event('diplomacy', n.id, `The ${this.defs.get(n.id)!.name} breaks off a supply contract with the ${this.defs.get(other)!.name}.`);
+        const o = this.nations.get(other);
+        if (o) this.touch(o, false);
         this.touch(n, false);
         return ok;
       }
@@ -1449,6 +1547,7 @@ export class World {
       this.effectCache.clear();
       this.specialtyCache.clear();
       this.constructionDay();
+      this.contractsDay();
       this.unrestDay();
       const inputs = [...this.nations.values()].filter((n) => !n.annexedBy).map((n) => ({
         econ: n.econ, tax: n.policy.tax, focus: n.policy.focus,
@@ -1464,6 +1563,10 @@ export class World {
         ...this.seasonFactors(n),
         bonusStability: this.effects(n.id).stability,
         foodBonus: this.specialties(n.id).bonus.food,
+        spendFactor: this.hasLaw(n, 'austerity') ? 0.9 : 1,
+        shortageFactor: this.hasLaw(n, 'rationing') ? 0.5 : 1,
+        stockFactor: this.hasLaw(n, 'strategic_reserves') ? 1.5 : 1,
+        tradeGrowth: this.hasLaw(n, 'free_trade') ? 1.5 : 1,
       }));
       runDay(inputs, this.market, this.market.day + 1);
       this.politicsDay(this.market.day);
@@ -1770,6 +1873,10 @@ export class World {
         business: 50 + e.growth * 800 - (n.policy.tax - 25) * 2 + d.partners('trade', n.id).length * 3 - (e.blackout ?? 0) * 100 - d.embargoes.filter((x) => x.to === n.id).length * 5,
         public: 20 + e.budget.welfare * 0.8 + (e.stability - 50) * 0.5 - (atWar ? 10 : 0) - (e.blackout ?? 0) * 80 - (n.gov.government === 'junta' ? 10 : 0),
       };
+      for (const l of n.pol?.laws ?? []) {
+        for (const [f, v] of Object.entries(LAWS[l].lean)) target[f as Faction] += (v as number) * 6;
+        ide.liberty = Math.max(-1, Math.min(1, ide.liberty + (LAWS[l].liberty ?? 0) / 365));
+      }
       for (const f of ['military', 'business', 'public'] as Faction[]) {
         s.factions[f] += (Math.max(0, Math.min(100, target[f])) - s.factions[f]) * 0.02;
       }
@@ -2183,7 +2290,7 @@ export class World {
           const t = this.plants.get(prov.owner) ?? { share: 0, thermal: 0, coal: 0, gas: 0 };
           t.share += share;
           const fuel = POWER_FUEL[b.type];
-          if (fuel) { t.thermal += share; t[fuel] += share; }
+          if (fuel) { t.thermal += share; t[fuel] += share * (this.hasLaw(this.nations.get(prov.owner)!, 'green_energy') ? 0.85 : 1); }
           this.plants.set(prov.owner, t);
         }
       }
@@ -2218,6 +2325,7 @@ export class World {
     for (const n of this.nations.values()) {
       if (n.annexedBy) continue;
       n.econ.treasury += (n.econ.gdp * this.specialties(n.id).bonus.treasury) / 365; // gold fields and gem mines
+      this.domesticDay(n, day);
       const name = this.defs.get(n.id)!.name;
       const human = n.controller === 'human';
       const cur = n.tech.current;
@@ -2228,7 +2336,8 @@ export class World {
         const fromBank = Math.min(n.econ.research, rate * 0.5);
         n.econ.research -= fromBank;
         const p = (n.tech.partial[cur] ?? 0) + rate + fromBank;
-        if (p >= TIER_COST[t.tier]) {
+        const shared = this.diplomacy.partners('research', n.id).some((x) => this.nations.get(x)?.tech.done.includes(cur));
+        if (p >= TIER_COST[t.tier] * (shared ? 0.8 : 1)) {
           n.tech.done.push(cur);
           delete n.tech.partial[cur];
           n.tech.current = undefined;
@@ -2255,7 +2364,7 @@ export class World {
         n.gov.nextElection ??= day + 365 + (n.id * 37) % 365;
         if (day >= n.gov.nextElection) {
           n.gov.nextElection = day + 730;
-          const win = Math.min(0.95, Math.max(0.1, (n.econ.stability - 35) / 40));
+          const win = Math.min(0.95, Math.max(0.1, (n.econ.stability - 35) / 80 + ((n.pol?.support ?? 50) - 30) / 80));
           if (this.rand() < win) {
             if (human) this.event('politics', n.id, `${name}: the government wins re-election.`);
           } else {
@@ -2304,6 +2413,240 @@ export class World {
     }
   }
 
+  // ---- politics -------------------------------------------------------------------
+  private initialPolitics(n: NationState): NonNullable<NationState['pol']> {
+    const gov = n.gov.government;
+    const laws: LawId[] = gov === 'democracy' ? ['press_freedom'] : gov === 'junta' ? ['censorship', 'conscription'] : gov === 'autocracy' ? ['censorship'] : ['research_grants'];
+    return { capital: 40, support: 55, laws, claims: [], goodwill: 0 };
+  }
+
+  hasLaw(n: NationState, law: LawId) { return !!n.pol?.laws.includes(law); }
+
+  legislature(n: NationState): Legislature { return LEGISLATURE[n.gov.government] ?? 'decree'; }
+
+  /** Whether laws, wars and steep taxes need the legislature's consent right now. */
+  needsVote(n: NationState) {
+    const leg = this.legislature(n);
+    return (leg === 'parliament' || leg === 'council') && !this.hasLaw(n, 'emergency_powers') && !n.gov.reformUntil;
+  }
+
+  /** A war on this nation is justified: a claim, or it is at war with one of our friends. */
+  justified(a: number, b: number) {
+    const n = this.nations.get(a);
+    if (n?.pol?.claims.includes(b)) return true;
+    return this.military.enemiesOf(b).some((e) => this.diplomacy.allied(a, e) || this.diplomacy.guarantees(a, e));
+  }
+
+  politicsView(n: NationState): PoliticsPrivate | undefined {
+    const p = n.pol;
+    if (!p) return undefined;
+    return {
+      capital: Math.round(p.capital * 10) / 10, gain: Math.round(this.capitalGain(n) * 100) / 100, legislature: this.legislature(n),
+      support: Math.round(p.support), laws: p.laws, demand: p.demand, claims: p.claims.filter((c) => !this.nations.get(c)?.annexedBy),
+      emergencyUntil: this.hasLaw(n, 'emergency_powers') ? 1 : undefined,
+    };
+  }
+
+  /** Political capital earned each day: a stable, legitimate government earns more. */
+  capitalGain(n: NationState) {
+    return Math.max(0.05, 0.12 + n.econ.stability / 250 + Math.max(0, this.fit(n)) * 0.03 + (n.policy.focus === 'diplomacy' ? 0.05 : 0));
+  }
+
+  private passLaw(n: NationState, law: LawId, enact: boolean): Result {
+    const pol = n.pol!, spec = LAWS[law], name = this.defs.get(n.id)!.name;
+    const has = pol.laws.includes(law);
+    if (enact === has) return fail('not_allowed', has ? 'That law is already in force.' : 'That law is not in force.');
+    if (enact) {
+      const clash = (spec.excludes ?? []).find((x) => pol.laws.includes(x));
+      if (clash) return fail('not_allowed', `Repeal ${LAWS[clash].name} first.`);
+    }
+    const leg = this.legislature(n), vote = this.needsVote(n);
+    const cost = Math.round(spec.cost * (enact ? 1 : 0.5) * (vote ? 1 : DECREE_DISCOUNT));
+    if (pol.capital < cost) return fail('no_funds', `Needs ${cost} political capital (you have ${Math.floor(pol.capital)}).`);
+    if (leg === 'junta' && (spec.lean.military ?? 0) * (enact ? 1 : -1) < 0 && (n.soc?.factions.military ?? 50) < 70) {
+      return fail('not_allowed', 'The officers will not allow it: the military would need to be very content (70+).');
+    }
+    if (vote) {
+      const yes = lawVote({ legislature: leg, support: pol.support, factions: n.soc?.factions ?? { military: 50, business: 50, public: 50 } }, law, !enact);
+      if (yes < 50) {
+        pol.capital -= cost * 0.3;
+        this.touch(n, false);
+        return fail('not_allowed', `${leg === 'parliament' ? 'Parliament' : 'The council'} votes it down, ${yes}% in favour. It cost ${Math.round(cost * 0.3)} capital to try.`);
+      }
+      if (n.controller === 'human') this.event('politics', n.id, `${name}: ${leg === 'parliament' ? 'parliament' : 'the council'} ${enact ? 'passes' : 'repeals'} ${spec.name.toLowerCase()} (${yes}% in favour).`);
+    } else {
+      // by decree: whoever dislikes it resents being overruled
+      const pub = (spec.lean.public ?? 0) * (enact ? 1 : -1);
+      if (pub < 0 && n.soc) { n.soc.factions.public = Math.max(0, n.soc.factions.public + pub * 6); n.econ.stability = Math.max(0, n.econ.stability + pub * 3); }
+      if (n.controller === 'human') this.event('politics', n.id, `${name}: ${enact ? 'decrees' : 'revokes'} ${spec.name.toLowerCase()}.`);
+    }
+    pol.capital -= cost;
+    pol.laws = enact ? [...pol.laws, law] : pol.laws.filter((x) => x !== law);
+    pol.lastLaw = this.market.day;
+    this.effectCache.delete(n.id);
+    this.checkDemand(n);
+    this.touch(n, false);
+    return ok;
+  }
+
+  /** Capital, parliament's mood, law upkeep and tariffs, and what parliament asks for. */
+  private domesticDay(n: NationState, day: number) {
+    const pol = n.pol ??= this.initialPolitics(n);
+    const e = n.econ, f = n.soc?.factions ?? { military: 50, business: 50, public: 50 };
+    pol.capital = Math.min(MAX_CAPITAL, pol.capital + this.capitalGain(n));
+    pol.goodwill *= 0.995;
+    const leg = this.legislature(n);
+    const target = leg === 'council'
+      ? 0.55 * f.business + 0.3 * e.stability + e.growth * 400 + pol.goodwill
+      : 0.4 * f.public + 0.3 * f.business + 0.15 * f.military + 0.25 * (e.stability - 50) + 12 + pol.goodwill
+        - ((n.gov.oppositionUntil ?? -1) > day ? 20 : 0) - (this.military.enemiesOf(n.id).length && !this.military.wars.some((w) => w.b === n.id) ? 8 : 0);
+    pol.support += (Math.max(0, Math.min(100, target)) - pol.support) * 0.03;
+    for (const l of pol.laws) if (LAWS[l].upkeep) e.treasury -= (e.gdp * LAWS[l].upkeep!) / 365;
+    if (pol.laws.includes('tariffs')) {
+      const imports = COMMODITIES.reduce((t, c) => t + Math.max(0, -e.trade[c]) * this.market.prices[c], 0);
+      e.treasury += (imports * 0.02) / 365;
+    }
+    // memories fade; envoys work on their hosts
+    if (n.mem) for (const k of Object.keys(n.mem)) { n.mem[k as never] *= 0.997; if (Math.abs(n.mem[k as never]) < 0.5) delete n.mem[k as never]; }
+    for (const v of n.envoys ?? []) if (v.until > day) this.remember(v.target, n.id, 0.25);
+    if (n.envoys?.some((v) => v.until <= day)) n.envoys = n.envoys.filter((v) => v.until > day);
+    // AI governments pass laws they like now and then
+    if (n.controller === 'ai' || n.autopilot) { if (day % 45 === n.id % 45) this.brain.pickLaw(n); return; }
+    // what parliament (or the elites) want from a player's government
+    if (pol.demand) { if (!this.checkDemand(n) && day >= pol.demand.until) this.demandOutcome(n, false); }
+    else if (day >= (pol.nextDemand ??= day + 60 + (n.id % 60))) this.newDemand(n, day);
+  }
+
+  private newDemand(n: NationState, day: number) {
+    const pol = n.pol!, e = n.econ, f = n.soc?.factions ?? { military: 50, business: 50, public: 50 };
+    const leg = this.legislature(n);
+    // under a parliament or council the legislature asks; otherwise the unhappiest group of the elite
+    const by: Demand['by'] = leg === 'parliament' || leg === 'council' ? 'parliament' : (['military', 'business', 'public'] as const).reduce((a, b) => (f[b] < f[a] ? b : a));
+    const atWar = this.military.enemiesOf(n.id).length > 0;
+    const opts: [DemandKind, string, number | undefined][] = [];
+    if (by === 'parliament' || by === 'public') {
+      if (e.budget.welfare < 60) opts.push(['welfare', `Raise welfare spending to ${e.budget.welfare + 5}% of the budget`, e.budget.welfare + 5]);
+      if (atWar) opts.push(['peace', 'Make peace in every war', undefined]);
+      if (n.policy.tax > LIMITS.taxMin + 3) opts.push(['lower_tax', `Cut taxes to ${n.policy.tax - 3}% or less`, n.policy.tax - 3]);
+    }
+    if (by === 'parliament' || by === 'business') {
+      opts.push(['trade', 'Sign one more trade agreement', this.diplomacy.partners('trade', n.id).length + 1]);
+      if (!pol.laws.includes('infrastructure_act')) opts.push(['infrastructure', 'Pass the Infrastructure act', undefined]);
+      if (e.budget.research < 50) opts.push(['research', `Raise research spending to ${e.budget.research + 5}% of the budget`, e.budget.research + 5]);
+    }
+    if (by === 'military' || (by === 'parliament' && atWar)) {
+      if (e.budget.military < 60) opts.push(['defence', `Raise defence spending to ${e.budget.military + 5}% of the budget`, e.budget.military + 5]);
+    }
+    if (!opts.length) { pol.nextDemand = day + 60; return; }
+    const [kind, text, target] = opts[Math.floor(this.rand() * opts.length)];
+    pol.demand = { kind, text, target, since: day, until: day + 90, by };
+    this.event('politics', n.id, `${this.defs.get(n.id)!.name}: ${by === 'parliament' ? (leg === 'council' ? 'the council' : 'parliament') : `the ${by === 'public' ? 'public' : by}`} demands: ${text.toLowerCase()} (90 days).`);
+    this.touch(n, false);
+  }
+
+  /** Whether the current demand is met; if so, the reward. */
+  private checkDemand(n: NationState) {
+    const d = n.pol?.demand;
+    if (!d) return false;
+    const e = n.econ;
+    const met = d.kind === 'welfare' ? e.budget.welfare >= (d.target ?? 0) - 0.5
+      : d.kind === 'research' ? e.budget.research >= (d.target ?? 0) - 0.5
+      : d.kind === 'defence' ? e.budget.military >= (d.target ?? 0) - 0.5
+      : d.kind === 'lower_tax' ? n.policy.tax <= (d.target ?? 0)
+      : d.kind === 'peace' ? this.military.enemiesOf(n.id).length === 0
+      : d.kind === 'trade' ? this.diplomacy.partners('trade', n.id).length >= (d.target ?? 0)
+      : n.pol!.laws.includes('infrastructure_act');
+    if (met) this.demandOutcome(n, true);
+    return met;
+  }
+
+  private demandOutcome(n: NationState, met: boolean, refused = false) {
+    const pol = n.pol!, d = pol.demand!, name = this.defs.get(n.id)!.name;
+    const who = d.by === 'parliament' ? (this.legislature(n) === 'council' ? 'the council' : 'parliament') : `the ${d.by}`;
+    if (met) {
+      pol.goodwill += 15; pol.capital = Math.min(MAX_CAPITAL, pol.capital + 15);
+      if (d.by !== 'parliament' && n.soc) n.soc.factions[d.by] = Math.min(100, n.soc.factions[d.by] + 12);
+      this.event('politics', n.id, `${name}: ${who} is satisfied (${d.text.toLowerCase()}): +15 political capital and goodwill.`);
+    } else {
+      pol.goodwill -= refused ? 8 : 12;
+      n.econ.stability = Math.max(0, n.econ.stability - (refused ? 2 : 3));
+      if (d.by !== 'parliament' && n.soc) n.soc.factions[d.by] = Math.max(0, n.soc.factions[d.by] - 10);
+      this.event('politics', n.id, `${name}: ${who} is ${refused ? 'rebuffed' : 'disappointed'} (${d.text.toLowerCase()}): support and stability fall.`);
+    }
+    pol.demand = undefined;
+    pol.nextDemand = this.market.day + 75 + Math.floor(this.rand() * 60);
+  }
+
+  // ---- relations ------------------------------------------------------------------
+  /** Remember something one nation did to another (adds up, within ±100, and fades). */
+  remember(of: number, about: number, v: number) {
+    const n = this.nations.get(of);
+    if (!n || of === about) return;
+    n.mem ??= {};
+    n.mem[about] = Math.max(-100, Math.min(100, (n.mem[about] ?? 0) + v));
+  }
+
+  /** What `of` thinks of `about`, and why. */
+  opinion(of: number, about: number): Opinion {
+    const a = this.nations.get(of), b = this.nations.get(about);
+    const parts: [string, number][] = [];
+    if (!a || !b) return { total: 0, parts };
+    const d = this.diplomacy, m = this.military, add = (why: string, v: number) => { if (Math.round(v)) parts.push([why, Math.round(v)]); };
+    if (a.soc && b.soc) { const gap = ideologyGap(a.soc.ideology, b.soc.ideology); add(gap < 0.75 ? 'Similar beliefs' : 'Different beliefs', 15 - gap * 20); }
+    if (a.gov.government === b.gov.government) add('Same form of government', 5);
+    for (const k of PACTS) {
+      if (k === 'guarantee') { if (d.guarantees(about, of)) add('Guarantees our independence', PACT_INFO[k].opinion); }
+      else if (d.has(k, of, about)) add(PACT_INFO[k].name, PACT_INFO[k].opinion);
+    }
+    const bloc = d.blocOf(of);
+    if (bloc && bloc.members.includes(about)) add(`Fellow member of ${bloc.name}`, 15);
+    if (d.overlords.get(of) === about) add('Our overlord', -15);
+    if (d.contractsOf(of).some((c) => c.seller === about || c.buyer === about)) add('Supply contract', 5);
+    if (m.atWar(of, about)) add('At war with us', -80);
+    if (d.embargoed(about, of)) add('Embargoes us', -25);
+    const foes = m.enemiesOf(of);
+    if (foes.length && m.enemiesOf(about).some((x) => foes.includes(x))) add('A common enemy', 20);
+    if (m.enemiesOf(about).some((x) => x !== of && (d.allied(of, x) || d.has('trade', of, x)))) add('At war with our friends', -25);
+    if (this.defs.get(of)?.neighbours.includes(about) && !d.has('nap', of, about) && !d.allied(of, about)) add('Border tensions', -5);
+    if (b.pol?.claims.includes(of)) add('Claims our land', -25);
+    if (this.powerOf(about) > 0.15 && this.powerOf(about) > this.powerOf(of) * 3 && !d.allied(of, about)) add('Fears their power', -10);
+    if (b.pol?.laws.includes('free_trade') && d.has('trade', of, about)) add('Their free trade', 5);
+    if (b.pol?.laws.includes('tariffs') && d.has('trade', of, about)) add('Their tariffs', -6);
+    if (b.policy.focus === 'diplomacy') add('Their diplomatic focus', 10);
+    if ((b.envoys ?? []).some((v) => v.target === of && v.until > this.market.day)) add('Their envoy at our court', 10);
+    if (b.soc?.propaganda.mode === 'abroad' && b.soc.propaganda.target === of) add('Their propaganda against us', -15);
+    const mem = a.mem?.[about];
+    if (mem) add(mem > 0 ? 'Good deeds remembered' : 'Wrongs remembered', mem);
+    const total = Math.max(-100, Math.min(100, parts.reduce((t, [, v]) => t + v, 0)));
+    return { total, parts };
+  }
+
+  /** Supply contracts: the seller ships its share each day from stock, the buyer pays the agreed price. */
+  private contractsDay() {
+    const d = this.diplomacy, day = this.market.day;
+    const before = d.contracts.length;
+    d.contracts = d.contracts.filter((c) => c.until > day && !this.nations.get(c.seller)?.annexedBy && !this.nations.get(c.buyer)?.annexedBy);
+    if (d.contracts.length < before) this.warDirty = true;
+    for (const c of d.contracts) {
+      const s = this.nations.get(c.seller)!, b = this.nations.get(c.buyer)!;
+      const q = Math.min(c.amount / 365, s.econ.stock[c.good]);
+      const pay = Math.min(q * c.price, Math.max(0, b.econ.treasury + b.econ.gdp * 0.6));
+      const got = c.price > 0 ? pay / c.price : q;
+      s.econ.stock[c.good] -= got;
+      b.econ.stock[c.good] += got;
+      b.econ.treasury -= pay;
+      s.econ.treasury += pay;
+    }
+  }
+
+  /** A refused demand: the demander gains a claim, and the refuser remembers being threatened. */
+  private refused(from: NationState, to: NationState) {
+    if (from.pol && !from.pol.claims.includes(to.id)) from.pol.claims.push(to.id);
+    this.remember(to.id, from.id, -10);
+    this.event('diplomacy', from.id, `The ${this.defs.get(to.id)!.name} refuses the demands of the ${this.defs.get(from.id)!.name}, who now claims a just cause against it.`);
+    this.touch(from, false);
+  }
+
   // ---- diplomacy -----------------------------------------------------------------
   /** Why a deal between two nations cannot be made right now, or null if it can. */
   dealProblem(a: number, b: number, deal: Deal): string | null {
@@ -2320,10 +2663,28 @@ export class World {
       return null;
     }
     if (this.military.atWar(a, b)) return `You are at war with the ${name}. Make peace first.`;
-    if (d.has(deal.kind, a, b)) return `You already have that treaty with the ${name}.`;
-    const max = deal.kind === 'alliance' ? MAX_ALLIANCES : MAX_TRADE_DEALS;
-    if (d.partners(deal.kind, a).length >= max) return `You already have ${max} ${deal.kind === 'alliance' ? 'alliances' : 'trade agreements'}.`;
-    if (d.partners(deal.kind, b).length >= max) return `The ${name} cannot take on another ${dealText(deal)}.`;
+    if (deal.kind === 'gift') return deal.amount > 0 && na.econ.treasury >= deal.amount ? null : 'You cannot afford that gift.';
+    if (deal.kind === 'demand') {
+      if (deal.province !== undefined) {
+        const p = this.military.provinces.get(deal.province);
+        if (!p || p.owner !== b) return `That province is not the ${name}'s.`;
+        if (this.defs.get(b)?.capital === deal.province || this.home(b) === deal.province) return 'No nation hands over its capital.';
+        if (!p.adj.some((q) => this.military.provinces.get(q)?.owner === a)) return 'You can only demand a province on your border.';
+        return null;
+      }
+      return deal.tribute && deal.tribute > 0 && deal.tribute <= nb.econ.gdp * 0.05 ? null : 'Tribute must be at most 5% of their GDP.';
+    }
+    if (deal.kind === 'contract') {
+      if (!COMMODITIES.includes(deal.good) || !(deal.amount > 0) || !CONTRACT_YEARS.includes(deal.years)) return 'Choose a good, an amount and a length.';
+      if (d.contractsOf(a).length >= MAX_CONTRACTS) return `You already have ${MAX_CONTRACTS} supply contracts.`;
+      if (d.contractsOf(b).length >= MAX_CONTRACTS) return `The ${name} has no room for another contract.`;
+      return null;
+    }
+    const kind = deal.kind as Pact;
+    if (kind === 'guarantee' ? d.guarantees(a, b) : d.has(kind, a, b)) return `You already have that treaty with the ${name}.`;
+    const max = PACT_INFO[kind].max;
+    if (d.count(kind, a) >= max) return `You already have ${max} of those (${PACT_INFO[kind].name.toLowerCase()}).`;
+    if (kind !== 'guarantee' && d.count(kind, b) >= max) return `The ${name} cannot take on another ${dealText(deal)}.`;
     if (deal.kind === 'alliance' && this.military.enemiesOf(b).some((e) => this.diplomacy.has('alliance', a, e))) {
       return `The ${name} is at war with one of your allies.`;
     }
@@ -2353,9 +2714,31 @@ export class World {
       const bloc = this.diplomacy.blocOf(from.id)!;
       bloc.members.push(to.id);
       this.event('diplomacy', from.id, `The ${B} joins ${bloc.name}.`);
+    } else if (deal.kind === 'gift') {
+      from.econ.treasury -= deal.amount;
+      to.econ.treasury += deal.amount;
+      this.remember(to.id, from.id, Math.min(40, 6 + 30 * deal.amount / Math.max(1, to.econ.gdp * 0.01)));
+      this.event('diplomacy', from.id, `The ${A} sends the ${B} a gift of $${deal.amount}bn.`);
+    } else if (deal.kind === 'demand') {
+      this.remember(to.id, from.id, -10);
+      if (deal.province !== undefined) {
+        this.transfer([deal.province], to, from);
+        this.event('diplomacy', from.id, `Under pressure, the ${B} hands ${this.military.provinces.get(deal.province)?.name ?? 'a province'} to the ${A}.`);
+      } else {
+        to.econ.treasury -= deal.tribute!;
+        from.econ.treasury += deal.tribute!;
+        this.event('diplomacy', from.id, `The ${B} pays the ${A} $${deal.tribute}bn in tribute.`);
+      }
+    } else if (deal.kind === 'contract') {
+      const seller = deal.sell ? from.id : to.id, buyer = deal.sell ? to.id : from.id;
+      const d = this.diplomacy;
+      d.contracts.push({ id: d.nextId++, seller, buyer, good: deal.good, amount: deal.amount, price: this.market.prices[deal.good], until: this.market.day + deal.years * 365 });
+      this.event('diplomacy', from.id, `The ${A} and the ${B} sign a ${deal.years}-year contract for ${COMMODITY_INFO[deal.good].name.toLowerCase()}.`);
     } else {
       this.diplomacy.sign(deal.kind, from.id, to.id, this.market.day);
-      this.event('diplomacy', from.id, `The ${A} and the ${B} sign ${deal.kind === 'alliance' ? 'a defensive alliance' : 'a trade agreement'}.`);
+      this.event('diplomacy', from.id, deal.kind === 'guarantee'
+        ? `The ${A} guarantees the independence of the ${B}.`
+        : `The ${A} and the ${B} sign ${deal.kind === 'alliance' ? 'a defensive alliance' : deal.kind === 'trade' ? 'a trade agreement' : `a ${PACT_INFO[deal.kind].name.toLowerCase()}`}.`);
     }
     this.warChanged();
     for (const x of [from, to]) { this.touch(x, false); this.pushUnits(x); }
@@ -2497,8 +2880,19 @@ function mulberry(seed: number) {
 function cleanDeal(d: unknown): Deal | null {
   const x = d as Deal | undefined;
   if (!x || typeof x !== 'object') return null;
-  if (x.kind === 'alliance' || x.kind === 'trade' || x.kind === 'bloc') return { kind: x.kind };
+  if (x.kind === 'alliance' || x.kind === 'trade' || x.kind === 'bloc' || x.kind === 'nap' || x.kind === 'access' || x.kind === 'research' || x.kind === 'guarantee') return { kind: x.kind };
   if (x.kind === 'peace') return { kind: 'peace', terms: x.terms === 'cede' || x.terms === 'puppet' ? x.terms : 'white' };
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+  if (x.kind === 'gift') { const a = Math.round(num(x.amount) * 10) / 10; return a > 0 ? { kind: 'gift', amount: a } : null; }
+  if (x.kind === 'contract') {
+    const amount = num(x.amount), years = num(x.years);
+    return COMMODITIES.includes(x.good) && amount > 0 ? { kind: 'contract', good: x.good, amount, years, sell: !!x.sell } : null;
+  }
+  if (x.kind === 'demand') {
+    if (x.province !== undefined) return Number.isInteger(x.province) ? { kind: 'demand', province: x.province } : null;
+    const t = Math.round(num(x.tribute) * 10) / 10;
+    return t > 0 ? { kind: 'demand', tribute: t } : null;
+  }
   return null;
 }
 

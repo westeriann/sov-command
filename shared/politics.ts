@@ -4,7 +4,7 @@
 // council of experts; autocracies and juntas rule by decree, cheaper in capital
 // but hard on the public, and a junta cannot act against its own officers.
 import type { Effects } from './research';
-import type { Faction } from './society';
+import { FACTIONS, type Faction } from './society';
 
 export type LawId =
   | 'conscription' | 'free_trade' | 'tariffs' | 'research_grants' | 'infrastructure_act' | 'emergency_powers'
@@ -25,7 +25,7 @@ export interface LawSpec {
 export const LAWS: Record<LawId, LawSpec> = {
   conscription: { name: 'Conscription', text: '+30% reservists, units built 10% faster; the public resents it', cost: 30, lean: { military: 1, public: -1 }, effects: { manpower: 0.3, build: 0.1, stability: -2 } },
   free_trade: { name: 'Free trade act', text: 'trade agreements give 50% more growth; trade partners like you more', cost: 25, lean: { business: 1, public: -0.3 }, effects: { growth: 0.001 }, excludes: ['tariffs'] },
-  tariffs: { name: 'Protective tariffs', text: 'import duties raise 2% of the value of imports... and +2 stability from protected jobs; −0.2% growth, trade partners like you less', cost: 20, lean: { public: 1, business: -1 }, effects: { growth: -0.002, stability: 2 }, excludes: ['free_trade'] },
+  tariffs: { name: 'Protective tariffs', text: 'import duties raise 2% of the value of imports, +2 stability from protected jobs; −0.2% growth, trade partners like you less', cost: 20, lean: { public: 1, business: -1 }, effects: { growth: -0.002, stability: 2 }, excludes: ['free_trade'] },
   research_grants: { name: 'Research grants', text: 'research 15% faster; costs 0.2% of GDP a year', cost: 25, lean: { business: 0.5 }, effects: { research: 0.15 }, upkeep: 0.002 },
   infrastructure_act: { name: 'Infrastructure act', text: '+0.25% growth and a faster-growing power grid; costs 0.3% of GDP a year', cost: 30, lean: { business: 1, public: 0.5 }, effects: { growth: 0.0025 }, upkeep: 0.003 },
   emergency_powers: { name: 'Emergency powers', text: 'laws pass without a vote and wars need no parliament; +3 stability now, but liberties erode and the public sours', cost: 45, lean: { military: 1, public: -1, business: -0.5 }, effects: { stability: 3 }, liberty: -0.15 },
@@ -68,4 +68,19 @@ export interface PoliticsPrivate {
   demand?: Demand;
   claims: number[]; // nations we hold a claim on (a refused demand): wars on them are justified
   emergencyUntil?: number; // game day
+}
+
+/**
+ * Share of the legislature voting for a law (0..100; it passes at 50). Parliament
+ * follows its support and how each group feels about the law; a council follows
+ * its support and business. Repealing a law reverses the groups' feelings.
+ */
+export function lawVote(p: { legislature: Legislature; support: number; factions: Record<Faction, number> }, law: LawId, repeal = false): number {
+  const sign = repeal ? -1 : 1, lean = LAWS[law].lean;
+  let mood = 0;
+  for (const f of FACTIONS) mood += (lean[f] ?? 0) * ((p.factions[f] ?? 50) - 40);
+  const v = p.legislature === 'council'
+    ? p.support * 0.8 + 10 + sign * ((lean.business ?? 0) * 12 + mood * 0.1)
+    : p.support + sign * mood * 0.25;
+  return Math.max(0, Math.min(100, Math.round(v)));
 }

@@ -12,6 +12,7 @@ const BASE_SPEED = 8640; // 1x: a game day every 10 real seconds, as online
 const DEFAULT_X = 5; // single-player starts at 5x: a game day every 2 seconds
 let world: World;
 let db: MemoryDB;
+let paused: number | null = null; // game ms the clock stopped at (the main menu is open)
 let restarted = false; // the saved game was from an older map
 
 const post = (msg: ServerMsg) => postMessage({ t: 'msg', msg });
@@ -96,7 +97,7 @@ async function start(base: string) {
     war: (war) => post({ t: 'war', war }),
   };
   world.setPresence(ME.id, true);
-  setInterval(() => { try { world.tick(); } catch (e) { console.error('tick failed', e); } }, 1000);
+  setInterval(() => { if (paused !== null) return; try { world.tick(); } catch (e) { console.error('tick failed', e); } }, 1000);
   setInterval(() => void save(), 20_000);
   postMessage({ t: 'ready' });
 }
@@ -153,8 +154,21 @@ onmessage = (e: MessageEvent) => {
   else if (d.t === 'save') void save();
   else if (d.t === 'speed' && world) {
     const x = Math.max(1, Math.min(20, Number(d.x) || 1));
+    if (paused !== null) { (world as unknown as { clock: object }).clock = { openedReal: Date.now(), openedGame: paused, speed: BASE_SPEED * x }; return; }
     world.setSpeed(BASE_SPEED * x);
     post({ t: 'clock', clock: { ...world.clock, serverNow: Date.now() } });
+  }
+  else if (d.t === 'pause' && world) {
+    // the main menu stops the world; on return the clock picks up where it stopped
+    if (d.on && paused === null) {
+      paused = world.gameNow();
+      void save();
+      post({ t: 'clock', clock: { openedReal: Date.now(), openedGame: paused, speed: 0, serverNow: Date.now() } });
+    } else if (!d.on && paused !== null) {
+      (world as unknown as { clock: object }).clock = { openedReal: Date.now(), openedGame: paused, speed: world.clock.speed };
+      paused = null;
+      post({ t: 'clock', clock: { ...world.clock, serverNow: Date.now() } });
+    }
   }
   else if (d.t === 'reset') void store(null).then(() => postMessage({ t: 'reset-done' }));
 };

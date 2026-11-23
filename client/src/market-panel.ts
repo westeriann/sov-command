@@ -6,6 +6,8 @@ import { COMMODITIES, COMMODITY_INFO, money, type Commodity, type EconomyPrivate
 import type { Change, Game } from './game';
 import { keepScrollOn } from './keep-scroll';
 import { attr, tip } from './tooltip';
+import type { Political } from './political';
+import { SPECIALTIES, SPECIALTY_LIST, specialtyOf, specialtyWeight, type Specialty } from '../../shared/specialties';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const pct = (x: number, d = 1) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(d)}%`;
@@ -62,7 +64,7 @@ export class MarketPanel {
   private pick: Pick = 'food';
   private html = '';
 
-  constructor(root: HTMLElement, private game: Game) {
+  constructor(root: HTMLElement, private game: Game, private pol?: Political) {
     this.el = document.createElement('section');
     this.el.className = 'panel econ-window market-window';
     keepScrollOn(this.el);
@@ -84,7 +86,54 @@ export class MarketPanel {
   toggle() { this.el.hidden = !this.el.hidden; if (!this.el.hidden) { this.html = ''; this.render(); } }
   close() { this.el.hidden = true; }
   /** Open on a given tab and good (from links in the manual or elsewhere). */
-  show(tab: Tab, good?: Pick) { this.tab = tab; if (good) this.pick = good; this.el.hidden = false; this.html = ''; this.render(); }
+  show(tab: Tab, good?: Pick | 'spec') {
+    this.tab = tab;
+    if (good && good !== 'spec') this.pick = good;
+    this.el.hidden = false; this.html = ''; this.render();
+    if (good === 'spec') requestAnimationFrame(() => this.el.querySelector('#mkSpec')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  }
+
+  /** Your specialties, the luxuries trade partners share, and who holds the ones you lack. */
+  private specialtiesHtml() {
+    const sp = this.game.mine?.specialties;
+    if (!sp) return '';
+    const mineId = this.game.mine!.id;
+    const holders = new Map<Specialty, Map<number, number>>();
+    if (this.pol) for (const p of this.pol.provinces.values()) {
+      if (!p.nation || p.nation === mineId) continue;
+      const s = specialtyOf(p as never);
+      if (!s) continue;
+      const m = holders.get(s) ?? new Map<number, number>();
+      m.set(p.nation, (m.get(p.nation) ?? 0) + 1);
+      holders.set(s, m);
+    }
+    const who = (s: Specialty) => {
+      const list = [...(holders.get(s) ?? new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+      return list.map(([id]) => {
+        const n = this.pol?.nations.get(id);
+        return n ? `<a href="#" class="go" data-go="nation:${id}">${esc(n.name)}</a>` : '';
+      }).filter(Boolean).join(', ') || 'nobody';
+    };
+    const card = (s: Specialty, state: 'own' | 'shared' | 'missing', count = 0) => {
+      const info = SPECIALTIES[s];
+      const strength = state === 'own' ? specialtyWeight(count) : state === 'shared' ? 0.5 : 0;
+      const how = state === 'own' ? `${count} province${count === 1 ? '' : 's'} · ${Math.round(strength * 100)}% strength (each more adds less, up to 200%)`
+        : state === 'shared' ? 'Through a trade partner · 50% strength'
+        : info.luxury ? 'Win a province with it, or sign a trade agreement with a holder to share it' : 'Win a province with it';
+      const t = tip(`${info.icon} ${info.name}`, state === 'missing' ? info.effect : [info.effect, 'good'], how);
+      return `<div class="spec-card ${state}" data-tip="${attr(t)}"><span class="sp-ico">${info.icon}</span><div><b>${info.name}</b>
+        <em>${state === 'own' ? `×${count}` : state === 'shared' ? 'shared' : ''}</em><span>${esc(info.effect)}</span>
+        ${state === 'missing' ? `<span class="muted">Held by ${who(s)}</span>` : ''}</div></div>`;
+    };
+    const own = (Object.entries(sp.own) as [Specialty, number][]).sort((a, b) => b[1] - a[1]);
+    const missing = SPECIALTY_LIST.filter((s) => !sp.own[s] && !sp.shared.includes(s));
+    return `<span class="label" id="mkSpec">SPECIALTIES · what your land is known for</span>
+      <div class="spec-grid">${own.map(([s, c]) => card(s, 'own', c)).join('') || '<p class="hint">None held.</p>'}</div>
+      ${sp.shared.length ? `<span class="label">LUXURIES FROM TRADE PARTNERS</span><div class="spec-grid">${sp.shared.map((s) => card(s, 'shared')).join('')}</div>` : ''}
+      <span class="label">NOT YET YOURS</span>
+      <div class="spec-grid">${missing.map((s) => card(s, 'missing')).join('')}</div>
+      <p class="hint">Each land province is known for one specialty, from its climate, latitude, height, coast and rivers; the province panel shows it. Luxuries (wine, spices, coffee, furs, gems) reach your trade partners at half strength, and theirs reach you.</p>`;
+  }
 
   private render() {
     const e = this.game.mine?.econ;
@@ -159,7 +208,8 @@ export class MarketPanel {
       </table></div>
       <span class="label">${esc(name.toUpperCase())} OVER TIME</span>
       ${chart}
-      <p class="hint">Surpluses are sold and shortfalls bought on the world market every day, at world prices; embargoes and blockades cut that trade. Electricity is local: it cannot be traded, so build power stations (from a province panel) as demand grows.</p>`;
+      <p class="hint">Surpluses are sold and shortfalls bought on the world market every day, at world prices; embargoes and blockades cut that trade. Electricity is local: it cannot be traded, so build power stations (from a province panel) as demand grows.</p>
+      ${this.specialtiesHtml()}`;
   }
 
   // ---- world market ----------------------------------------------------------------
