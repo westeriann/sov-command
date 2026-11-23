@@ -34,7 +34,7 @@ def bbox(lat, lon, span):
     return s, w, n, e
 
 
-def fetch(url, dest, tries=4):
+def fetch(url, dest, tries=8):
     for i in range(tries):
         try:
             with urllib.request.urlopen(url, timeout=60) as r:
@@ -47,7 +47,7 @@ def fetch(url, dest, tries=4):
             if i == tries - 1:
                 raise
             print(f"  retry {i + 1} after error: {exc}")
-            time.sleep(2 ** i)
+            time.sleep(min(60, 3 * 2 ** i))  # the imagery server has bad minutes: wait them out
 
 
 def main():
