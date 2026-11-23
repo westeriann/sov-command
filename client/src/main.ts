@@ -46,6 +46,8 @@ import { Lenses } from './lenses';
 import { diploColours } from './diplo-map';
 import { installMinimize } from './minimize';
 import { installResizable } from './resizable';
+import { installScreens } from './screens';
+import { diplomacyPiece, economyPiece, espionagePiece, forcesPiece, marketPiece, politicsPiece, rankingsPiece, recordsPiece, researchPiece } from './screen-pieces';
 import { installConfirmKeeper } from './confirm-keeper';
 import { WarRoom } from './war-room';
 import { EventDialog } from './event-dialog';
@@ -311,6 +313,18 @@ async function start() {
   installMinimize(hudRoot);
   installConfirmKeeper(document.body);
   queueMicrotask(() => installResizable(hudRoot)); // after the windows exist
+  // the left-hand tabs open as full Orbital screens, each with a working centrepiece
+  queueMicrotask(() => installScreens(hudRoot, [
+    { sel: '.econ-window:not(.market-window):not(.diplo-window):not(.spy-window):not(.forces-window):not(.politics-window):not(.research-window):not(.rankings-window):not(.records-window):not(.admin-window)', make: () => economyPiece(game) },
+    { sel: '.market-window', make: () => marketPiece(game) },
+    { sel: '.forces-window', make: () => forcesPiece(game, () => forces?.view ?? 'land') },
+    { sel: '.diplo-window', make: () => diplomacyPiece(diplomacy!.globe, () => diplomacy?.focused ?? null) },
+    { sel: '.politics-window', make: () => politicsPiece(game, pol) },
+    { sel: '.spy-window', make: () => espionagePiece(game, pol) },
+    { sel: '.research-window', make: () => researchPiece(game) },
+    { sel: '.rankings-window', make: () => rankingsPiece(game, pol) },
+    { sel: '.records-window', make: () => recordsPiece(game, pol) },
+  ]));
   const warRoom = new WarRoom(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const eventDialog = new EventDialog(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   eventDialog.onShow = () => sound.play('alert');

@@ -3,7 +3,7 @@
 const KEY = 'sov.windows';
 const EDGE = 7; // px from the border that counts as an edge
 const MIN_W = 360, MIN_H = 220;
-const WINDOWS = '.econ-window';
+const WINDOWS = '.econ-window:not(.screen)';
 
 type Insets = { left: number; right: number; top: number; bottom: number };
 
@@ -13,7 +13,7 @@ export function installResizable(root: HTMLElement) {
   const keyOf = (el: HTMLElement) => el.getAttribute('aria-label') ?? el.className;
   const apply = (el: HTMLElement) => {
     const s = saved[keyOf(el)];
-    if (!s || window.innerWidth < 760) return; // phones keep full-screen windows
+    if (!s || window.innerWidth < 760 || el.classList.contains('screen')) return; // phones and screens fill their space
     el.style.left = `${s.left}px`; el.style.right = `${s.right}px`; el.style.top = `${s.top}px`; el.style.bottom = `${s.bottom}px`;
   };
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* storage blocked */ } };

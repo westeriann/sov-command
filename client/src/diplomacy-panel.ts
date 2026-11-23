@@ -25,10 +25,10 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 export class DiplomacyPanel {
   private panel: HTMLElement;
-  private focused: number | null = null; // the nation whose page is open
+  focused: number | null = null; // the nation whose page is open
   private tab: 'overview' | 'nations' = 'overview';
 
-  private globe: HoloGlobe;
+  readonly globe: HoloGlobe;
 
   constructor(root: HTMLElement, private game: Game, private pol: Political, private actions: DiplomacyActions) {
     this.globe = new HoloGlobe(game, pol);
@@ -231,13 +231,12 @@ export class DiplomacyPanel {
     const others = PACTS.filter((k) => k !== 'alliance' && k !== 'trade').flatMap((k) => w.treaties.filter((t) => t.kind === k && (t.a === me || t.b === me)).map((t) => [k, t.a === me ? t.b : t.a, t.a === me] as const));
     this.panel.innerHTML = `${head}${tabs}
       <div class="econ-body">
-        <div class="orb-hero"><div class="orb-slot"></div>
-        <div class="econ-kpis orb-kpis">
+        <div class="econ-kpis">
           <div><span>Alliances</span><b>${allies.length} / ${PACT_INFO.alliance.max}</b><em>allies defend you and may cross your land</em></div>
           <div><span>Trade agreements</span><b>${trade.length} / ${PACT_INFO.trade.max}</b><em>+${(trade.length * TRADE_DEAL_GROWTH * 100).toFixed(2)}% growth a year</em></div>
           <div><span>Wars</span><b class="${wars.length ? 'down' : ''}">${wars.length}</b><em>${wars.length ? 'make peace below' : 'at peace'}</em></div>
           <div><span>Awaiting you</span><b class="${incoming.length ? 'up' : ''}">${incoming.length}</b><em>${outgoing.length} of yours pending</em></div>
-        </div></div>
+        </div>
         <div class="econ-cols">
           <section>
             <span class="label">PROPOSALS TO YOU</span>
@@ -276,7 +275,6 @@ export class DiplomacyPanel {
         <span class="label">INTELLIGENCE REPORTS</span>
         ${(mine.reports ?? []).length ? `<ul class="reports">${mine.reports!.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : `<p class="hint">No reports yet. Launch spy operations from another nation's panel ($2bn each, ${mine.spyOps ?? 0} of 3 under way).</p>`}
       </div>`;
-    this.globe.attach(this.panel.querySelector('.orb-slot'));
   }
 
   private nationName(id: number) {

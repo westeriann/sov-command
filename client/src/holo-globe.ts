@@ -39,6 +39,8 @@ export class HoloGlobe {
   private drag?: { x: number; y: number; lon: number; lat: number; moved: boolean };
   private raf = 0;
   private dirty = true;
+  private facing?: number;
+  private target?: [number, number];
   private still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   onPick?: (nation: number) => void;
 
@@ -79,6 +81,21 @@ export class HoloGlobe {
     c.addEventListener('pointerleave', () => { this.readout.textContent = 'drag to turn · click a nation'; });
   }
 
+  /** Put the globe inside an element (the screen's stage) and keep it turning while it shows. */
+  mount(parent: Element) {
+    if (this.el.parentElement !== parent) parent.appendChild(this.el);
+    if (!this.raf) { this.dataAt = 0; this.raf = requestAnimationFrame((t) => this.frame(t)); }
+  }
+
+  /** Turn smoothly to face a nation's capital (undefined: carry on turning). */
+  lookAt(nation: number | undefined) {
+    if (nation === this.facing) return;
+    this.facing = nation;
+    const cap = nation === undefined ? undefined : this.pol.provinces.get(this.pol.nations.get(nation)?.capital ?? -1);
+    this.target = cap ? [cap.label[0], Math.max(-50, Math.min(50, cap.label[1]))] : undefined;
+    this.centred = true;
+  }
+
   /** Put the globe into a slot of a freshly drawn window and keep it turning while it shows. */
   attach(slot: Element | null) {
     if (!slot) return;
@@ -96,7 +113,14 @@ export class HoloGlobe {
     this.lastFrame = t;
     this.size();
     if (t - this.dataAt > 1000) { this.refresh(); this.dataAt = t; this.dirty = true; }
-    if (!this.drag && !this.still && t - this.idleSince > 4000) { this.lon0 += 4 * dt; this.dirty = true; }
+    if (this.target && !this.drag) {
+      let dl = ((this.target[0] - this.lon0 + 540) % 360) - 180;
+      const db = this.target[1] - this.lat0;
+      const k = this.still ? 1 : Math.min(1, dt * 4);
+      this.lon0 += dl * k; this.lat0 += db * k; dl *= 1 - k;
+      if (Math.abs(dl) < 0.2 && Math.abs(db * (1 - k)) < 0.2) { this.target = undefined; this.idleSince = t + 6000; }
+      this.dirty = true;
+    } else if (!this.drag && !this.still && t - this.idleSince > 4000) { this.lon0 += 4 * dt; this.dirty = true; }
     if (this.dirty) { this.draw(); this.dirty = false; }
   }
 

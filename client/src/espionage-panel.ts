@@ -1,4 +1,3 @@
-import { threatStackHtml } from './threat-stack';
 // The Espionage window: agent networks abroad, counter-intelligence at home,
 // covert missions (each needs a network of a certain strength), and reports.
 import { COUNTER_INTEL_COST, MAX_NETWORKS, MAX_SPY_OPS, NETWORK_COST, NETWORK_GROWTH, SPY_COST, SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
@@ -73,7 +72,6 @@ export class EspionagePanel {
         <div data-tip="${attr(tip('Foreign agents here', 'The strongest foreign network inside your nation', 'Counter-intelligence wears it down'))}"><span>Foreign agents here</span><b class="${spy.foreign > 40 ? 'down' : ''}">${spy.foreign}</b><em>strongest foreign network</em></div>
         <div><span>Military funds</span><b>$${funds.toFixed(1)}bn</b><em>recruiting costs $${NETWORK_COST}bn a day per network</em></div>
       </div>
-      ${threatStackHtml({ nets, building: spy.building, ops, maxOps: MAX_SPY_OPS, counter: spy.counter, foreign: spy.foreign, name: (id) => this.pol.nations.get(id)?.name ?? `Nation ${id}` })}
       <span class="label">COUNTER-INTELLIGENCE</span>
       <div class="actions-row">${LEVELS.map((l, i) => `<button type="button" class="claim${spy.counter === i ? ' primary' : ''}" data-s="counter" data-level="${i}" data-tip="${attr(counterTip(i))}">${l}</button>`).join('')}</div>
       <span class="label">AGENT NETWORKS · recruiting adds ${NETWORK_GROWTH} a day; idle networks fade slowly</span>
