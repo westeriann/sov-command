@@ -23,10 +23,10 @@ export const DIPLO_CATS: [DiploCat, string, string][] = [
   ['opinion', 'Others, by their opinion of you', 'linear-gradient(90deg, #b8433a, #6a6e73, #4f9a52)'],
 ];
 
-const rgb = (h: string): [number, number, number] => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+export const rgb = (h: string): [number, number, number] => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
 /** Each nation's colour, given which relationships are shown. */
-export function diploColours(game: Game, pol: Political, shown: Set<DiploCat>) {
+export function diploColours(game: Game, pol: Political, shown: Set<DiploCat>, cats?: Map<number, DiploCat>) {
   const out = new Map<number, [number, number, number]>();
   const mine = game.mine;
   if (!mine) return out;
@@ -53,7 +53,7 @@ export function diploColours(game: Game, pol: Political, shown: Set<DiploCat>) {
       ['claim', !!mine.politics?.claims.includes(id)],
     ];
     const hit = tests.find(([k, yes]) => yes && shown.has(k));
-    if (hit) { out.set(id, rgb(colour[hit[0]])); continue; }
+    if (hit) { out.set(id, rgb(colour[hit[0]])); cats?.set(id, hit[0]); continue; }
     if (shown.has('opinion')) {
       const o = (mine.relations?.[id]?.total ?? 0) / 100; // -1..1
       const a = rgb('#6a6e73'), b = rgb(o < 0 ? '#b8433a' : '#4f9a52'), f = Math.min(1, Math.abs(o) * 1.6);
