@@ -96,7 +96,9 @@ export interface WarState {
   blocs: Bloc[];
   council: Resolution[]; // open resolutions and the most recent results
   vassals: Record<number, number>; // vassal -> overlord
-  storms: { lon: number; lat: number; r: number }[]; // r in km: aircraft grounded, ships battered
+  // r in km: aircraft grounded, ships battered. Hurricanes (rare, warm seas only) have a category 1-5,
+  // a name, and a heading (degrees/day) the map uses to turn and draw them
+  storms: { lon: number; lat: number; r: number; kind?: 'storm' | 'hurricane'; cat?: number; name?: string; vlon?: number; vlat?: number }[];
   lanes: { a: number; b: number; path: number[]; raided: boolean }[]; // sea routes of trade agreements
 }
 
@@ -170,6 +172,7 @@ export type Order =
   | { kind: 'research'; tech: TechId }
   | { kind: 'research_queue'; tech: TechId; remove?: boolean } // line up (or take out) a technology after the current one
   | { kind: 'build'; province: number; building: BuildingType }
+  | { kind: 'repair'; province: number; building: BuildingType } // fix a building a hurricane damaged
   | { kind: 'general'; unit: number }
   | { kind: 'missile'; province: number }
   | { kind: 'warhead' }

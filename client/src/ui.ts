@@ -4,7 +4,7 @@ import { HARVEST, SEASON_NAMES, coldLand, seasonAt } from '../../shared/seasons'
 import { historyHtml } from './rankings-panel';
 import { flagSvg } from '../../shared/flags';
 import { flagOf } from './customize';
-import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
+import { BUILDINGS, BUILDING_TYPES, type BuildingType, REPAIR_COST_SHARE, REPAIR_TIME_SHARE } from '../../shared/buildings';
 import { MISSILE_COST } from '../../shared/military';
 import { SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, type Deal, type Pact } from '../../shared/diplomacy';
@@ -227,7 +227,6 @@ export class Hud {
           <button type="button" class="link offline-only" data-act="newgame">New game</button>
           <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
-          <button type="button" class="link" data-act="guide">Guide</button>
           <button type="button" class="icon-btn" data-act="manual" aria-label="Manual" data-tip="${attr(tip('Manual (I)', 'How everything in the game works, with links to each window'))}">i</button>
           <button type="button" class="icon-btn" data-act="music" aria-label="Music player" data-tip="${attr(tip('Music', 'Play, pause and choose the soundtrack'))}">♪</button>
           <button type="button" class="link" data-act="sound" id="soundBtn" aria-pressed="true">Sound on</button>
@@ -442,6 +441,7 @@ export class Hud {
       }
       else if (a === 'movehere') this.actions.moveHere(Number(act.dataset.province));
       else if (a === 'build') this.actions.build(Number(act.dataset.province), act.dataset.building as BuildingType);
+      else if (a === 'repair') this.actions.order({ kind: 'repair', province: Number(act.dataset.province), building: act.dataset.building as BuildingType });
       else if (a === 'missile') this.actions.missile(Number(act.dataset.province));
       else if (a === 'embargo') this.actions.embargo(Number(act.dataset.nation), act.dataset.on === '1');
       else if (a === 'spy') this.actions.order({ kind: 'spy', target: Number(act.dataset.nation), mission: act.dataset.mission as SpyMission });
@@ -832,7 +832,10 @@ export class Hud {
     const missing = BUILDING_TYPES.filter((t) => !list.some((b) => b.type === t) && (!BUILDINGS[t].coastal || coastal));
     return `<span class="label">BUILDINGS</span>
       ${nuked ? '<p class="hint down">Struck by a nuclear weapon: a third of its people are gone.</p>' : ''}
-      ${list.length ? `<div class="bars">${list.map((b) => `<span>${BUILDINGS[b.type].name}</span><div class="bar"><i style="width:${Math.round(b.progress * 100)}%"></i></div><span class="mono">${b.progress >= 1 ? 'ready' : `${Math.round(b.progress * 100)}%`}</span>`).join('')}</div>` : '<p class="hint">None yet.</p>'}
+      ${list.length ? `<div class="bars">${list.map((b) => b.damaged
+        ? `<span class="down">${BUILDINGS[b.type].name}</span><div class="bar dmg"><i style="width:${Math.round((b.repair ?? 0) * 100)}%"></i></div><span class="mono down">${b.repair !== undefined ? `fixing ${Math.round(b.repair * 100)}%` : 'damaged'}</span>`
+        : `<span>${BUILDINGS[b.type].name}</span><div class="bar"><i style="width:${Math.round(b.progress * 100)}%"></i></div><span class="mono">${b.progress >= 1 ? 'ready' : `${Math.round(b.progress * 100)}%`}</span>`).join('')}</div>` : '<p class="hint">None yet.</p>'}
+      ${mine && list.some((b) => b.damaged && b.repair === undefined) ? `<div class="actions-row">${list.filter((b) => b.damaged && b.repair === undefined).map((b) => `<button type="button" class="claim primary" data-act="repair" data-province="${p.id}" data-building="${b.type}" data-tip="${attr(tip(`Repair the ${BUILDINGS[b.type].name.toLowerCase()}`, ['Damaged by a hurricane: it does nothing until repaired', 'bad'], [`Costs $${(BUILDINGS[b.type].cost * REPAIR_COST_SHARE).toFixed(1)}bn`, 'bad'], `Takes about ${Math.ceil(BUILDINGS[b.type].days * REPAIR_TIME_SHARE)} game days`))}">Repair ${BUILDINGS[b.type].name.toLowerCase()}</button>`).join('')}</div>` : ''}
       ${mine ? `<div class="actions-row">${g.mine?.mil?.rally === p.id ? `<button type="button" class="claim" data-act="rally">Clear rally point</button>` : `<button type="button" class="claim" data-act="rally" data-province="${p.id}" title="New land units march here when they are ready">Set rally point here</button>`}</div>` : ''}
       ${mine && missing.length ? `<div class="build-list">${missing.map((t) => `<button type="button" class="claim" data-act="build" data-province="${p.id}" data-building="${t}" data-tip="${attr(tip(BUILDINGS[t].name, ...effectLines(BUILDINGS[t].text), [`Costs $${BUILDINGS[t].cost}bn from the treasury`, 'bad'], `Takes ${BUILDINGS[t].days} game days to build`))}">
         <b>${BUILDINGS[t].name}</b><span class="mono">$${BUILDINGS[t].cost}bn · ${BUILDINGS[t].days} days</span><span>${BUILDINGS[t].text}</span></button>`).join('')}</div>` : ''}`;

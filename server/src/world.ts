@@ -30,7 +30,7 @@ import { ACHIEVEMENTS, MISSION_CASH, MISSION_KINDS, MISSION_REWARD_DAYS, type Ac
 import { EARNED_EMBLEMS } from '../../shared/flags.ts';
 import { HARVEST, WINTER_POWER, seasonAt } from '../../shared/seasons.ts';
 import { GOV_LIBERTY, PROPAGANDA_COST, type Faction, type Ideology, type PropagandaMode } from '../../shared/society.ts';
-import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, type BuildingType } from '../../shared/buildings.ts';
+import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, REPAIR_COST_SHARE, REPAIR_TIME_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
@@ -173,6 +173,9 @@ function stubProvinces(defs: NationDef[]): Province[] {
   }));
 }
 
+/** Names given to hurricanes in turn. */
+const HURRICANE_NAMES = ['Adara', 'Boris', 'Celine', 'Dmitri', 'Esme', 'Farid', 'Greta', 'Hugo', 'Ines', 'Jonas', 'Kaia', 'Lev', 'Mira', 'Nestor', 'Olya', 'Pablo', 'Rhea', 'Sami', 'Talia', 'Viktor', 'Wren', 'Yusuf', 'Zora'];
+
 export class World {
   readonly defs = new Map<number, NationDef>();
   readonly nations = new Map<number, NationState>();
@@ -194,7 +197,8 @@ export class World {
   private factories = new Map<number, number>();
   globe: WorldState & { lastClimateDay: number; low: number[]; oilCut?: Record<number, number> } = { warming: 0, lastClimateDay: 0, low: [] };
   private migrants = new Map<number, { in: number; out: number }>();
-  storms: { lon: number; lat: number; r: number; vlon: number; vlat: number; until: number }[] = [];
+  storms: { lon: number; lat: number; r: number; vlon: number; vlat: number; until: number; kind?: 'storm' | 'hurricane'; cat?: number; name?: string; hit?: number[] }[] = [];
+  private hurricaneCount = 0;
   private stormy = new Set<number>();
   lanes: { a: number; b: number; path: number[]; raided: boolean }[] = [];
   private laneCache = new Map<string, number[] | null>();
@@ -510,7 +514,11 @@ export class World {
       buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked, embargoes: this.diplomacy.embargoes,
       unrest: Object.fromEntries([...this.diplomacy.unrest].map(([p, u]) => [p, Math.round(u)])),
       blocs: this.diplomacy.blocs, council: this.diplomacy.council, vassals: Object.fromEntries(this.diplomacy.overlords),
-      storms: this.storms.map((s) => ({ lon: Math.round(s.lon * 10) / 10, lat: Math.round(s.lat * 10) / 10, r: Math.round(s.r) })),
+      storms: this.storms.map((s) => ({
+        lon: Math.round(s.lon * 10) / 10, lat: Math.round(s.lat * 10) / 10, r: Math.round(s.r),
+        kind: s.kind ?? 'storm', cat: s.cat !== undefined ? Math.max(1, Math.round(s.cat)) : undefined, name: s.name,
+        vlon: Math.round(s.vlon * 10) / 10, vlat: Math.round(s.vlat * 10) / 10,
+      })),
       lanes: this.lanes,
     };
   }
@@ -973,6 +981,21 @@ export class World {
         n.econ.treasury -= spec.cost;
         this.military.buildings.set(p.id, [...here, { type: order.building, progress: 0 }]);
         if (actor === 'human') this.warChanged(); else this.warDirty = true; // AI projects go out with the daily update
+        this.touch(n, false);
+        return ok;
+      }
+      case 'repair': {
+        const p = this.military.provinces.get(Number(order.province)), spec = BUILDINGS[order.building as BuildingType];
+        const b = p && (this.military.buildings.get(p.id) ?? []).find((x) => x.type === order.building);
+        if (!p || !spec || !b) return fail('bad_request', 'No such building.');
+        if (p.owner !== n.id || this.military.controller(p.id) !== n.id) return fail('not_allowed', 'You can only repair in provinces you own and hold.');
+        if (!b.damaged) return fail('not_allowed', 'It is not damaged.');
+        if (b.repair !== undefined) return fail('not_allowed', 'Repairs are already under way.');
+        const cost = spec.cost * REPAIR_COST_SHARE;
+        if (n.econ.treasury < cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
+        n.econ.treasury -= cost;
+        b.repair = 0;
+        this.warChanged();
         this.touch(n, false);
         return ok;
       }
@@ -1523,22 +1546,35 @@ export class World {
   /** Storm systems drift with the prevailing winds; aircraft under them are grounded and ships battered. */
   private weatherDay() {
     const day = this.market.day;
-    this.storms = this.storms.filter((s) => s.until > day);
+    this.storms = this.storms.filter((s) => s.until > day && (s.kind !== 'hurricane' || (s.cat ?? 0) >= 0.6));
+    const month = new Date(this.worldStart + day * DAY).getUTCMonth();
     for (const s of this.storms) {
+      if (s.kind === 'hurricane') this.hurricaneDay(s, day);
       s.lon += s.vlon; s.lat = Math.max(-70, Math.min(70, s.lat + s.vlat));
       if (s.lon > 180) s.lon -= 360; if (s.lon < -180) s.lon += 360;
     }
-    while (this.storms.length < 7 && this.rand() < 0.5) {
-      // storm seasons: hurricanes in each hemisphere's late summer and autumn, gales at high latitudes in winter
-      const month = new Date(this.worldStart + day * DAY).getUTCMonth();
-      const northSeason = month >= 6 && month <= 10 ? 0.75 : month <= 1 || month === 11 ? 0.55 : 0.5;
-      const hemi = this.rand() < northSeason ? 1 : -1;
+    // ordinary weather: rain and thunderstorms, and gales at high latitudes in winter
+    while (this.storms.filter((s) => s.kind !== 'hurricane').length < 7 && this.rand() < 0.5) {
+      const hemi = this.rand() < 0.5 ? 1 : -1;
       const winterGale = (hemi > 0 ? month <= 1 || month === 11 : month >= 5 && month <= 7) && this.rand() < 0.5;
-      const lat = hemi * (winterGale ? 40 + this.rand() * 25 : 8 + this.rand() * 35);
+      const lat = hemi * (winterGale ? 40 + this.rand() * 25 : 8 + this.rand() * 50);
       const westerly = Math.abs(lat) > 30;
       this.storms.push({
-        lon: this.rand() * 360 - 180, lat, r: 400 + this.rand() * 600,
+        lon: this.rand() * 360 - 180, lat, r: 300 + this.rand() * 500, kind: 'storm',
         vlon: (westerly ? 1 : -1) * (3 + this.rand() * 4), vlat: Math.sign(lat) * this.rand() * 0.6, until: day + 5 + Math.floor(this.rand() * 10),
+      });
+    }
+    // hurricanes: rare, born only over warm tropical sea in each hemisphere's season
+    const season = (hemi: number) => (hemi > 0 ? month >= 6 && month <= 9 : month <= 2);
+    for (const hemi of [1, -1]) {
+      if (!season(hemi) || this.storms.filter((s) => s.kind === 'hurricane').length >= 2 || this.rand() > 0.03) continue;
+      const warm = [...this.military.provinces.values()].filter((p) => p.kind === 'sea' && p.label[1] * hemi >= 8 && p.label[1] * hemi <= 22);
+      if (!warm.length) continue;
+      const at = warm[Math.floor(this.rand() * warm.length)];
+      this.storms.push({
+        lon: at.label[0], lat: at.label[1], r: 260 + this.rand() * 120, kind: 'hurricane', cat: 1,
+        name: HURRICANE_NAMES[this.hurricaneCount++ % HURRICANE_NAMES.length],
+        vlon: -(2.5 + this.rand() * 1.5), vlat: hemi * (0.3 + this.rand() * 0.3), until: day + 24, hit: [],
       });
     }
     this.stormy.clear();
@@ -1546,6 +1582,56 @@ export class World {
       if (this.storms.some((s) => distanceKm([s.lon, s.lat], p.label) < s.r)) this.stormy.add(p.id);
     }
     this.warDirty = true;
+  }
+
+  /**
+   * One day of a hurricane: it strengthens over warm sea and weakens over land or cool water,
+   * curves poleward and east as it leaves the tropics, and where its eye crosses land it can
+   * damage buildings (they stop working until repaired).
+   */
+  private hurricaneDay(h: World['storms'][number], day: number) {
+    // the province or sea zone under the eye
+    let centre: Province | undefined, near = Infinity;
+    for (const p of this.military.provinces.values()) {
+      const km = distanceKm([h.lon, h.lat], p.label);
+      if (km < near) { near = km; centre = p; }
+    }
+    const overSea = !centre || centre.kind === 'sea';
+    const alat = Math.abs(h.lat);
+    let cat = h.cat ?? 1;
+    if (overSea && alat < 28) cat += 0.35; // warm water feeds it
+    if (!overSea) cat -= 0.9; // land starves it
+    if (alat > 32) cat -= 0.6; // cool water
+    h.cat = Math.min(5, cat);
+    h.r = 240 + 40 * Math.max(1, h.cat);
+    // steering: westward in the trade winds, then recurving poleward and east
+    if (alat > 24) { h.vlon = Math.min(5, h.vlon + 0.9); h.vlat += Math.sign(h.lat) * 0.15; }
+    if (overSea || (h.cat ?? 0) < 1) return;
+    // landfall: buildings near the eye may be damaged, once per province per storm
+    const eye = 70 + 25 * h.cat;
+    const struck = new Map<number, { name: string; lost: BuildingType[] }>();
+    for (const p of this.military.provinces.values()) {
+      if (p.kind !== 'land' || (h.hit ?? []).includes(p.id) || distanceKm([h.lon, h.lat], p.label) > eye) continue;
+      h.hit = [...(h.hit ?? []), p.id];
+      const lost: BuildingType[] = [];
+      for (const b of this.military.buildings.get(p.id) ?? []) {
+        if (b.progress >= 1 && !b.damaged && this.rand() < 0.08 * h.cat) { b.damaged = true; lost.push(b.type); }
+      }
+      const owner = p.owner !== undefined ? this.nations.get(p.owner) : undefined;
+      if (owner) owner.econ.gdp *= 1 - 0.0015 * h.cat;
+      if (owner) {
+        const s = struck.get(owner.id) ?? { name: p.name ?? 'the coast', lost: [] };
+        s.lost.push(...lost);
+        struck.set(owner.id, s);
+      }
+    }
+    for (const [id, s] of struck) {
+      const n = this.nations.get(id)!;
+      this.event('war', id, `Hurricane ${h.name} (category ${Math.round(h.cat)}) makes landfall at ${s.name} in the ${this.defs.get(id)!.short}${s.lost.length ? `, damaging the ${[...new Set(s.lost)].map((t) => BUILDINGS[t].name.toLowerCase()).join(', ')}: repairs are needed` : ''}.`);
+      this.touch(n, n.controller === 'human');
+      this.effectCache.delete(id);
+    }
+    void day;
   }
 
   /** Trade agreements between coastal nations sail a sea route; an enemy warship on it cuts the deal's value. */
@@ -2013,6 +2099,23 @@ export class World {
           b.progress = Math.min(1, b.progress + 1 / BUILDINGS[b.type].days);
           if (b.progress >= 1) this.finished(prov.owner, p, b.type);
         }
+        if (b.damaged) {
+          const owner = prov.owner !== undefined ? this.nations.get(prov.owner) : undefined;
+          // AI governments (and advisers) repair what storms broke, when they can afford it
+          if (b.repair === undefined && owner && (owner.controller === 'ai' || owner.autopilot) && owner.econ.treasury > BUILDINGS[b.type].cost) {
+            owner.econ.treasury -= BUILDINGS[b.type].cost * REPAIR_COST_SHARE;
+            b.repair = 0;
+          }
+          if (b.repair !== undefined) {
+            b.repair = Math.min(1, b.repair + 1 / Math.max(1, BUILDINGS[b.type].days * REPAIR_TIME_SHARE));
+            if (b.repair >= 1) {
+              b.damaged = undefined; b.repair = undefined;
+              if (owner?.controller === 'human') this.event('politics', owner.id, `${this.defs.get(owner.id)!.short}: the ${BUILDINGS[b.type].name.toLowerCase()} in ${prov.name ?? 'a province'} is repaired.`);
+              this.warDirty = true;
+            }
+          }
+          continue; // out of action until repaired
+        }
         if (b.progress >= 1 && b.type === 'factory' && prov.owner && this.military.controller(p) === prov.owner) {
           this.factories.set(prov.owner, (this.factories.get(prov.owner) ?? 0) + 1);
         }
@@ -2121,13 +2224,7 @@ export class World {
         else if (r < 0.65) { e.stability -= n.gov.government === 'democracy' ? 7 : 4; text = 'a corruption scandal shakes the government'; }
         else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + 250; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
         else if (r < 0.88 && e.capacity.food > 0) { e.capacity.food *= 0.94; e.stability -= 2; text = 'a severe drought withers the harvest (food output −6%)'; }
-        else if (r < 0.94) {
-          e.gdp *= 0.995;
-          const coast = [...this.military.provinces.values()].filter((p) => p.owner === n.id && p.adj.some((q) => this.military.provinces.get(q)?.kind === 'sea'));
-          const hit = coast.length ? coast[Math.floor(this.rand() * coast.length)] : undefined;
-          const lost = hit ? this.military.destroyBuilding(hit.id) : undefined;
-          text = coast.length ? `a hurricane batters the coast${hit ? ` at ${hit.name}` : ''}${lost ? `, wrecking the ${BUILDINGS[lost].name.toLowerCase()}` : ''}` : 'a heatwave strains power grids and hospitals';
-        }
+        else if (r < 0.94) { e.gdp *= 0.997; e.stability -= 2; text = 'a heatwave strains power grids and hospitals'; }
         else { e.stability += 4; text = 'a national celebration lifts the public mood (+4 stability)'; }
         e.stability = Math.min(100, Math.max(0, e.stability));
         if (human) { this.event('politics', n.id, `${name}: ${text}.`); this.touch(n, false); }

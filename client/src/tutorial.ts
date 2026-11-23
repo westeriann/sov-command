@@ -1,5 +1,5 @@
-// A short guided tour for new players. Runs once on a first visit; "Guide" in
-// the header starts it again. Each step can point at a part of the interface.
+// A short guided tour for new players. Runs once on a first visit; the manual
+// (i in the header) starts it again. Each step can point at a part of the interface.
 
 interface Step {
   title: string;
@@ -49,7 +49,7 @@ const STEPS: Step[] = [
   },
   {
     title: 'Dispatches and chat',
-    text: 'News from around the world arrives in Dispatches; talk to other leaders in Chat. That is everything: "Guide" in the header brings this tour back.',
+    text: 'News from around the world arrives in Dispatches; talk to other leaders in Chat. That is everything: the i button in the header opens the manual, which explains every part of the game and can replay this tour.',
     target: '[data-open="dispatches"]',
   },
 ];

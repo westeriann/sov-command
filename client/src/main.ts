@@ -344,7 +344,11 @@ async function start() {
   await gameMap.ready();
   const cities = new Cities(gameMap.map, pol, game);
   citiesRef = cities;
-  new Presence(gameMap.map, game, pol);
+  const presence = new Presence(gameMap.map, game, pol);
+  // thunder you hear: lightning over your own land, a moment after the flash
+  presence.onThunder = (lon, lat) => {
+    if (game.mine && pol.provinceAt(lat, lon)?.nation === game.mine.id) setTimeout(() => sound.play('thunder'), 400 + Math.random() * 1600);
+  };
   game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
   gameMap.setMode('political', 0.72);
   gameMap.addNationLabels();
@@ -406,6 +410,7 @@ async function start() {
   // 3D troops, cities and buildings once zoomed in; counters float above their models
   const models = new Models3D(map, game, pol, forces, cities.shapes);
   modelsRef = models;
+  models.weather = () => ({ clouds: presence.clouds, flashes: presence.flashes, rainFrame: presence.rainFrame });
   models.brightness = (nation) => cities.brightness(nation);
   models.onSize = (px) => { forces?.setLift(px ? px * 0.8 + 12 : 0); map.setLayoutProperty('buildings', 'visibility', px && models3dOn ? 'none' : 'visible'); };
   let models3dOn = true;

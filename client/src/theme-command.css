@@ -392,3 +392,12 @@ body.arming .maplibregl-canvas { cursor: crosshair !important; }
 .music-list li button[data-mu="pick"]:hover { background: rgba(217, 180, 90, 0.08); }
 .music-list li.on button[data-mu="pick"] { border-left-color: var(--cyan); color: #fff4d6; background: rgba(217, 180, 90, 0.1); }
 .music-add { text-align: center; cursor: pointer; }
+
+/* storms */
+.storm-label {
+  pointer-events: auto; white-space: nowrap; padding: 2px 8px; border-radius: 1px;
+  background: rgba(20, 24, 27, 0.82); border: 1px solid rgba(216, 72, 58, 0.7); color: #ffd2c9;
+  font: 600 11px/16px var(--f-display); letter-spacing: 0.08em; text-transform: uppercase;
+}
+.bar.dmg { background: rgba(216, 72, 58, 0.25); }
+.bar.dmg i { background: linear-gradient(90deg, #a8853a, #e0bd63); }

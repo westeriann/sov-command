@@ -104,7 +104,7 @@ export class Military {
   // ---- queries -------------------------------------------------------------------
   /** A finished building of this type in the province. */
   built(p: number, type: BuildingType) {
-    return !!this.buildings.get(p)?.some((b) => b.type === type && b.progress >= 1);
+    return !!this.buildings.get(p)?.some((b) => b.type === type && b.progress >= 1 && !b.damaged); // damaged: out of action
   }
 
   /** Destroy one finished building at random; returns its type. */

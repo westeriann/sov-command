@@ -15,6 +15,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { BuildingType } from '../../shared/buildings';
 import { domainOf, UNIT_SPECS, UNIT_TYPES, type UnitType, type UnitView } from '../../shared/military';
 import type { CityShape } from './cities';
+import { cloudImage, flashImage, hurricaneImage, rainImage } from './weather';
 import type { Forces } from './forces';
 import type { Game } from './game';
 import type { Political } from './political';
@@ -223,6 +224,16 @@ const GEOMETRY = {
   // --- night: lit towers (UVs kept for the window texture) and the ground glow
   towerLit: () => new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
   glow: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  // --- weather: flat sheets a little above the ground
+  cloud0: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  cloud1: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  cloud2: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  hurN: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  hurS: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  rain0: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  rain1: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  rain2: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  bolt: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   // --- effects
   puff: () => build([part(new THREE.IcosahedronGeometry(1, 1), '#ffffff')]),
   flash: () => build([part(new THREE.IcosahedronGeometry(1, 1), '#ffffff')]),
@@ -265,11 +276,31 @@ function glowTexture() {
   return t;
 }
 
+/** A weather image as a texture. */
+function weatherTexture(img: ImageData) {
+  const t = new THREE.DataTexture(img.data, img.width, img.height);
+  t.flipY = true;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+}
+const sheet = (img: ImageData, additive = false, opacity = 0.9) => new THREE.MeshBasicMaterial({
+  map: weatherTexture(img), transparent: true, depthWrite: false, opacity, side: THREE.DoubleSide,
+  blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+});
+
 /** Window size in metres: windows tile by the building's real size, never stretched. */
 const nightUniforms = { uWin: { value: 400 } };
 
 /** Effects use their own, unlit and see-through, materials. */
 const EFFECTS: Partial<Record<Kind, THREE.Material>> = {
+  cloud0: sheet(cloudImage(101)), cloud1: sheet(cloudImage(118)), cloud2: sheet(cloudImage(135)),
+  hurN: sheet(hurricaneImage(7, false), false, 0.95), hurS: sheet(hurricaneImage(7, true), false, 0.95),
+  rain0: sheet(rainImage(0), false, 0.8), rain1: sheet(rainImage(1), false, 0.8), rain2: sheet(rainImage(2), false, 0.8),
+  bolt: sheet(flashImage(), true, 1),
   towerLit: (() => {
     const m = new THREE.MeshBasicMaterial({ map: windowTexture() });
     // tile the windows by the instance's real width and height, and keep roofs dark
@@ -354,6 +385,8 @@ export class Models3D implements CustomLayerInterface {
   private enabled = true;
   private start = performance.now();
   private repaintQueued = false;
+  /** Storms to draw (set by the game from the weather state); shown at every zoom, whatever the 3D switch. */
+  weather: () => { clouds: { lon: number; lat: number; km: number; img: string; rot: number; part: string }[]; flashes: { lon: number; lat: number; km: number }[]; rainFrame: number } = () => ({ clouds: [], flashes: [], rainFrame: 0 });
   /** Pixels a vehicle model spans on screen right now; 0 while models are hidden. */
   sizePx = 0;
   onSize: (px: number) => void = () => {};
@@ -512,7 +545,8 @@ export class Models3D implements CustomLayerInterface {
     const on = this.enabled && grow > 0;
     const px = on ? Math.min(66, 30 + (z - MODELS_FULL) * 11) * grow : 0;
     if (Math.abs(px - this.sizePx) > 0.5) { this.sizePx = px; this.onSize(px); }
-    if (!on) return;
+    const sky = this.weather();
+    if (!on && !sky.clouds.length) return;
 
     this.flat = this.map.getProjection()?.type === 'mercator';
     const c = this.map.getCenter();
@@ -533,9 +567,12 @@ export class Models3D implements CustomLayerInterface {
     for (const k of this.meshes.keys()) this.counts.set(k, 0);
 
     nightUniforms.uWin.value = Math.max(250, mpp * 3);
-    this.drawCities(t, mpp);
-    this.drawBuildings(t, mpp);
-    this.drawForces(unit * 1.6, t, px * 1.6);
+    if (on) {
+      this.drawCities(t, mpp);
+      this.drawBuildings(t, mpp);
+      this.drawForces(unit * 1.6, t, px * 1.6);
+    }
+    this.drawWeather(sky, z);
 
     for (const [k, mesh] of this.meshes) {
       mesh.count = this.counts.get(k) ?? 0;
@@ -549,6 +586,28 @@ export class Models3D implements CustomLayerInterface {
     if (!this.repaintQueued) {
       this.repaintQueued = true;
       window.setTimeout(() => { this.repaintQueued = false; this.map.triggerRepaint(); }, 33);
+    }
+  }
+
+  /** Clouds float a few kilometres up, real size; rain hangs under storm cores up close; lightning flashes inside. */
+  private drawWeather(sky: ReturnType<Models3D['weather']>, z: number) {
+    const kinds: Record<string, Kind> = { 'cloud-0': 'cloud0', 'cloud-1': 'cloud1', 'cloud-2': 'cloud2', 'hurricane-n': 'hurN', 'hurricane-s': 'hurS' };
+    for (const c of sky.clouds) {
+      if (!this.visible(c.lon, c.lat)) continue;
+      const kind = kinds[c.img];
+      if (!kind) continue;
+      const size = c.km * 1000;
+      this.at(c.lon, c.lat, 1, 9000 + (c.part === 'core' ? 1500 : 0));
+      this.put(kind, 0, 0, 0, (c.rot * Math.PI) / 180, size, 1, size);
+      if (c.part === 'core' && z >= 3) {
+        this.at(c.lon, c.lat, 1, 4000);
+        this.put((['rain0', 'rain1', 'rain2'] as Kind[])[sky.rainFrame % 3], 0, 0, 0, 0.3, size * 0.75, 1, size * 0.75);
+      }
+    }
+    for (const f of sky.flashes) {
+      if (!this.visible(f.lon, f.lat)) continue;
+      this.at(f.lon, f.lat, 1, 10_500);
+      this.put('bolt', 0, 0, 0, Math.random() * 6, f.km * 1000, 1, f.km * 1000);
     }
   }
 
@@ -589,6 +648,7 @@ export class Models3D implements CustomLayerInterface {
     const g = Math.min(2.5, Math.max(1, (5 * mpp) / unitM));
     for (const [pid, list] of Object.entries(this.game.war.buildings)) {
       const done = list.filter((x) => x.progress >= 1).map((x) => x.type);
+      const broken = new Set(list.filter((x) => x.damaged).map((x) => x.type));
       if (!done.length) continue;
       const id = Number(pid);
       const p = this.pol.provinces.get(id);
@@ -608,6 +668,7 @@ export class Models3D implements CustomLayerInterface {
           if (k < 7 && this.pol.provinceAt(lat, lon)?.kind !== 'land' && type !== 'port') continue; // try another spot on land
           this.at(lon, lat, unitM * g);
           this.drawBuilding(type, done.filter((x) => x === type).length, t, id * 31 + i);
+          if (broken.has(type)) this.smoke(0, 0.3, 0, t, id * 7 + i, '#3a3634', 1.2); // storm damage smoulders until repaired
           break;
         }
       });

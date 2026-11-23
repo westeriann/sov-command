@@ -25,4 +25,12 @@ export const MAX_CONSTRUCTION = 4; // projects under way per nation
 export const FACTORY_GROWTH = 0.0008;
 export const MAX_FACTORIES = 10;
 
-export interface BuildingState { type: BuildingType; progress: number } // progress 0..1; 1 = finished
+export interface BuildingState {
+  type: BuildingType;
+  progress: number; // 0..1; 1 = finished
+  damaged?: boolean; // hit by a hurricane: it does nothing until repaired
+  repair?: number; // 0..1 while being repaired
+}
+/** Repairing a damaged building costs this share of building it, and this share of its build time. */
+export const REPAIR_COST_SHARE = 0.4;
+export const REPAIR_TIME_SHARE = 0.33;

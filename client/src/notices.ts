@@ -91,7 +91,7 @@ export class Notices {
     if (/NUCLEAR|nuclear missile/i.test(t)) return 'urgent';
     if (e.kind === 'war') {
       if (byOthers && /declares war|enters the war|occupy|missiles strike|bombers destroy|declares independence|splits apart/i.test(t)) return 'urgent';
-      if (/division was destroyed|Revolt in|Partisans rise|Uprising|Civil war/i.test(t)) return 'urgent';
+      if (/division was destroyed|Revolt in|Partisans rise|Uprising|Civil war|Hurricane .* makes landfall/i.test(t)) return 'urgent';
       return 'important';
     }
     if (/coup|revolution|loses the election/i.test(t)) return 'urgent';
@@ -184,6 +184,9 @@ export class Notices {
     if (e && e.shortage > 0.05) out.push({ id: 'shortage', icon: 'shortage', level: 'warn', open: 'economy', tip: tip('Shortage of goods', [`${Math.round(e.shortage * 100)}% of needs unmet`, 'bad'], 'Trade deals and imports help (Economy)') });
     const cut = this.game.units.filter((u) => u.nation === mine.id && u.supplied === false).length;
     if (cut) out.push({ id: 'supply', icon: 'supply', level: 'bad', open: 'army', tip: tip(`${cut} unit${cut > 1 ? 's' : ''} out of supply`, ['Weaker in battle and losing strength each day', 'bad'], 'Reconnect them to your territory or a port') });
+    const broken = Object.entries(this.game.war.buildings).filter(([p]) => this.pol.provinces.get(Number(p))?.nation === mine.id)
+      .flatMap(([, l]) => l).filter((b) => b.damaged && b.repair === undefined).length;
+    if (broken) out.push({ id: 'repair', icon: 'unrest', level: 'bad', open: 'economy', tip: tip(`${broken} building${broken > 1 ? 's' : ''} damaged by storms`, ['Out of action until repaired', 'bad'], 'Repair them from the province panel (click the province)') });
     const props = mine.diplo?.incoming.length ?? 0;
     if (props) out.push({ id: 'mail', icon: 'mail', level: 'warn', open: 'diplomacy', tip: tip(`${props} proposal${props > 1 ? 's' : ''} awaiting your answer`, 'They lapse after 30 game days', 'Click: Diplomacy') });
     if (mine.mil && !mine.mil.queue.length && wars.length) out.push({ id: 'idle', icon: 'idle', level: 'warn', open: 'army', tip: tip('No units in production', ['At war with nothing being built', 'bad'], 'Click: Ground forces to recruit') });

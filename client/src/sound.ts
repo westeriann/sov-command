@@ -1,7 +1,7 @@
 // Interface sound, synthesised with Web Audio (no audio files to download).
 // Quiet, short cues for things that happen to your own nation.
 
-export type Cue = 'click' | 'notice' | 'war' | 'peace' | 'research' | 'alert' | 'battle' | 'urgent';
+export type Cue = 'click' | 'notice' | 'war' | 'peace' | 'research' | 'alert' | 'battle' | 'urgent' | 'thunder';
 
 const KEY = 'sov.sound';
 
@@ -50,7 +50,7 @@ export class Sound {
   play(cue: Cue) {
     if (!this.on) return;
     const now = performance.now();
-    if (now - (this.last.get(cue) ?? 0) < (cue === 'battle' ? 4000 : 250)) return; // no machine-gun repeats
+    if (now - (this.last.get(cue) ?? 0) < (cue === 'battle' ? 4000 : cue === 'thunder' ? 6000 : 250)) return; // no machine-gun repeats
     this.last.set(cue, now);
     const ctx = this.audio();
     if (!ctx) return;
@@ -65,6 +65,19 @@ export class Sound {
         this.tone(ctx, 220, 0.05, 0.4, 'square', 0.03, 110);
         this.tone(ctx, 98, 0.45, 0.7, 'sawtooth', 0.07, 49);
         break;
+      case 'thunder': {
+        // a crack, then a long low rumble: filtered noise
+        const len = 2.6, buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+        let last = 0;
+        for (let i = 0; i < d.length; i++) { last = last * 0.985 + (Math.random() * 2 - 1) * 0.15; d[i] = last; }
+        const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+        src.buffer = buf; f.type = 'lowpass'; f.frequency.value = 420;
+        const t = ctx.currentTime;
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.9, t + 0.04); g.gain.exponentialRampToValueAtTime(0.25, t + 0.5); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        src.connect(f); f.connect(g); g.connect(ctx.destination);
+        src.start(t); src.stop(t + len);
+        break;
+      }
       case 'urgent':
         // a klaxon: three rising-falling two-tone wails, unmistakable for anything else
         for (let i = 0; i < 3; i++) {
