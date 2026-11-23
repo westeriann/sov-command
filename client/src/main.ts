@@ -29,7 +29,12 @@ import './theme-command.css';
 import { EconomyPanel } from './economy-panel';
 import { MarketPanel } from './market-panel';
 import { PoliticsPanel } from './politics-panel';
+import { EspionagePanel } from './espionage-panel';
+import { RecordsPanel } from './records-panel';
 import { MainMenu } from './menu';
+import { HoverCard } from './hover-card';
+import { WarRoom } from './war-room';
+import { EventDialog } from './event-dialog';
 import { Manual } from './manual';
 import { MusicPlayer } from './music';
 import { Forces } from './forces';
@@ -49,12 +54,19 @@ async function start() {
   const desktop = navigator.userAgent.includes('Electron');
   let menuPause = (_on: boolean) => {};
   let menuContinue = () => {};
-  let menuNewGame = () => {};
+  let menuNewGame = (_ironman: boolean) => {};
+  let connRef: Connection | null = null;
+  let gameRef: Game | null = null;
+  let polRef: Political | null = null;
   let menuManual = () => {};
   let musicRef: MusicPlayer | null = null;
   const mainMenu = new MainMenu(hudRoot, {
     offline: OFFLINE, desktop,
-    continue: () => menuContinue(), newGame: () => menuNewGame(), manual: () => menuManual(), pause: (on) => menuPause(on),
+    continue: () => menuContinue(), newGame: (iron) => menuNewGame(iron), manual: () => menuManual(), pause: (on) => menuPause(on),
+    slots: OFFLINE ? (msg) => (connRef as LocalConnection).slots(msg) : undefined,
+    lobby: () => (gameRef ? [...gameRef.nations.values()].filter((n) => !n.annexedBy).map((n) => ({ id: n.id, name: polRef?.nations.get(n.id)?.name ?? `Nation ${n.id}`, player: n.player, online: n.online, gdp: gameRef!.economy.get(n.id)?.gdp ?? 0 })) : []),
+    claim: (id) => connRef?.claimNation(id),
+    mineId: () => gameRef?.mine?.id,
     music: {
       get level() { return musicRef?.level ?? 0.45; }, get on() { return musicRef?.on ?? false; },
       setLevel: (v) => musicRef?.setLevel(v), toggle: () => musicRef?.toggle(), play: () => musicRef?.play(), pause: () => musicRef?.pause(),
@@ -87,6 +99,7 @@ async function start() {
     }
   }
   const conn = localWorld ? new LocalConnection(game, localWorld) : new Connection(game);
+  connRef = conn; gameRef = game; polRef = pol;
   mainMenu.setProgress('Drawing the map', 0.7);
   const gameMap = new GameMap(document.getElementById('map')!, world, pol);
 
@@ -215,9 +228,22 @@ async function start() {
       research.toggle();
       hud.setOpenPanel(research.isOpen ? 'research' : null);
     },
+    toggleRecords: () => {
+      const open = !records.isOpen; // decided first: closing the others fires events that close this one too
+      rankings?.close(); economy.close(); market.close(); forces?.close(); research?.close(); diplomacy?.close(); politics.close(); espionage.close();
+      if (open) { if (!records.isOpen) records.toggle(); } else records.close();
+      hud.setOpenPanel(records.isOpen ? 'records' : null);
+    },
+    toggleEspionage: () => {
+      const open = !espionage.isOpen; // decided first: closing the others fires events that close this one too
+      rankings?.close(); economy.close(); market.close(); forces?.close(); research?.close(); diplomacy?.close(); politics.close();
+      if (open) { if (!espionage.isOpen) espionage.toggle(); } else espionage.close();
+      hud.setOpenPanel(espionage.isOpen ? 'espionage' : null);
+    },
     togglePolitics: () => {
+      const open = !politics.isOpen; // decided first: closing the others fires events that close this one too
       rankings?.close(); economy.close(); market.close(); forces?.close(); research?.close(); diplomacy?.close();
-      politics.toggle();
+      if (open) { if (!politics.isOpen) politics.toggle(); } else politics.close();
       hud.setOpenPanel(politics.isOpen ? 'politics' : null);
     },
     toggleDiplomacy: () => {
@@ -251,6 +277,12 @@ async function start() {
   let lobby: Lobby | null = null;
   const market = new MarketPanel(hudRoot, game, pol);
   const politics = new PoliticsPanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
+  const espionage = new EspionagePanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
+  const records = new RecordsPanel(hudRoot, game, pol);
+  const hoverCard = new HoverCard(hudRoot, game, pol);
+  const warRoom = new WarRoom(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
+  const eventDialog = new EventDialog(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
+  eventDialog.onShow = () => sound.play('alert');
   const music = new MusicPlayer(hudRoot, ASSET_BASE, () => hudRoot.querySelector('[data-act="music"]'));
   musicRef = music;
   const manual = new Manual(hudRoot, { go: (target) => go(target) });
@@ -296,6 +328,9 @@ async function start() {
         diplomacy?.focus(Number(a));
       } else if (kind === 'build') buildAt(Number(a));
       else if (kind === 'manual') manual.open(a);
+      else if (kind === 'war') warRoom.declare(Number(a));
+      else if (kind === 'peacecon') warRoom.peace(Number(a));
+      else if (kind === 'event') eventDialog.open();
       else if (kind === 'politics') { if (!politics?.isOpen) module('politics'); if (a) politics?.focus(a); }
   }
   const economy = new EconomyPanel(hudRoot, game, pol, {
@@ -317,9 +352,11 @@ async function start() {
   document.addEventListener('research-closed', () => hud.setOpenPanel(null));
   document.addEventListener('rankings-closed', () => hud.setOpenPanel(null));
   document.addEventListener('politics-closed', () => hud.setOpenPanel(null));
+  document.addEventListener('espionage-closed', () => hud.setOpenPanel(null));
+  document.addEventListener('records-closed', () => hud.setOpenPanel(null));
   { // opening any other window closes Politics
     const setOpen = hud.setOpenPanel.bind(hud);
-    hud.setOpenPanel = (panel) => { if (panel !== 'politics') politics.close(); setOpen(panel); };
+    hud.setOpenPanel = (panel) => { if (panel !== 'politics') politics.close(); if (panel !== 'espionage') espionage.close(); if (panel !== 'records') records.close(); setOpen(panel); };
   }
   lobby = new Lobby(hudRoot);
   rankings = new RankingsPanel(hudRoot, game, pol, {
@@ -350,7 +387,7 @@ async function start() {
     if (cb) { document.body.classList.add('cb'); gameMap.setColorBlind(true); (hudRoot.querySelector('#colorBlind') as HTMLInputElement | null)?.setAttribute('checked', ''); }
   }
   // keyboard shortcuts (ignored while typing)
-  const keys: Record<string, string> = { e: 'economy', x: 'market', f: 'army', n: 'navy', b: 'air', p: 'diplomacy', o: 'politics', r: 'research', k: 'rankings', m: 'map' };
+  const keys: Record<string, string> = { e: 'economy', x: 'market', f: 'army', n: 'navy', b: 'air', p: 'diplomacy', o: 'politics', j: 'espionage', v: 'records', r: 'research', k: 'rankings', m: 'map' };
   document.addEventListener('keydown', (ev) => {
     if (ev.ctrlKey || ev.metaKey || ev.altKey || (ev.target as HTMLElement).closest('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea')) return;
     const mod = keys[ev.key.toLowerCase()];
@@ -359,16 +396,16 @@ async function start() {
     else if (ev.key.toLowerCase() === 'g') tutorial?.start();
     else if (ev.key.toLowerCase() === 'i') manual.toggle();
     else if (ev.key === '?') shortcuts.hidden = !shortcuts.hidden;
-    else if (ev.key === 'Escape' && ![economy.isOpen, market.isOpen, forces?.isOpen, diplomacy?.isOpen, research?.isOpen, rankings?.isOpen, politics.isOpen, !shortcuts.hidden].some(Boolean) && !(forces?.selected.size)
+    else if (ev.key === 'Escape' && ![economy.isOpen, market.isOpen, forces?.isOpen, diplomacy?.isOpen, research?.isOpen, rankings?.isOpen, politics.isOpen, espionage.isOpen, records.isOpen, !shortcuts.hidden].some(Boolean) && !(forces?.selected.size)
       && !document.querySelector('.unit-card:not([hidden]), .music-panel:not([hidden]), .manual-backdrop:not([hidden])')) mainMenu.open(); // nothing to close: the main menu
-    else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); market.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); politics.close(); hud.setOpenPanel(null); }
+    else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); market.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); politics.close(); espionage.close(); records.close(); hud.setOpenPanel(null); }
   });
   const shortcuts = document.createElement('section');
   shortcuts.className = 'panel shortcuts';
   shortcuts.hidden = true;
   shortcuts.setAttribute('aria-label', 'Keyboard shortcuts');
   shortcuts.innerHTML = `<span class="label">KEYBOARD</span><dl>
-    <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>X</dt><dd>Market</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>O</dt><dd>Politics</dd><dt>R</dt><dd>Research &amp; government</dd>
+    <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>X</dt><dd>Market</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>O</dt><dd>Politics</dd><dt>J</dt><dd>Espionage</dd><dt>V</dt><dd>Records: ledger and log</dd><dt>Space</dt><dd>Pause (single player)</dd><dt>R</dt><dd>Research &amp; government</dd>
     <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd><dt>I</dt><dd>Manual</dd>
     <dt>Q</dt><dd>Selected units: give an order, then click a province</dd><dt>H T L U</dt><dd>Selected units: halt, go to, appoint a general, stand down aircraft</dd><dt>Tab</dt><dd>Next army, fleet or air wing (Shift: back)</dd><dt>Esc</dt><dd>Cancel an order, close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
   hudRoot.appendChild(shortcuts);
@@ -550,9 +587,13 @@ async function start() {
   map.on('touchend', () => { if (press) { window.clearTimeout(press.timer); press = null; } });
   map.on('mousemove', (e) => {
     const lat = e.lngLat.lat, lon = e.lngLat.wrap().lng;
-    hud.hover(world.sample(lat, lon), pol.provinceAt(lat, lon));
+    const prov = pol.provinceAt(lat, lon);
+    hud.hover(world.sample(lat, lon), prov);
+    const r = map.getCanvas().getBoundingClientRect();
+    hoverCard.move(prov, r.left + e.point.x, r.top + e.point.y);
   });
-  map.on('mouseout', () => hud.hover(null));
+  map.on('mouseout', () => { hud.hover(null); hoverCard.hide(); });
+  map.on('movestart', () => hoverCard.hide());
   map.on('click', (e) => {
     // an armed order (Q on the command card) goes where you click
     if (card.mapClick(pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng) ?? null)) return;
@@ -566,8 +607,31 @@ async function start() {
   // the main menu: the globe turns slowly behind it; single player pauses while it is open
   menuManual = () => manual.open();
   menuContinue = () => {};
-  menuPause = (on) => localWorld?.postMessage({ t: 'pause', on });
-  menuNewGame = () => (conn as LocalConnection).newGame();
+  // Space pauses single player; the menu pauses too, and leaving it keeps a pause you asked for
+  let userPaused = false;
+  const pauseBadge = document.createElement('div');
+  pauseBadge.className = 'pause-badge';
+  pauseBadge.textContent = 'PAUSED · Space to resume';
+  pauseBadge.hidden = true;
+  hudRoot.appendChild(pauseBadge);
+  menuPause = (on) => localWorld?.postMessage({ t: 'pause', on: on || userPaused });
+  menuNewGame = (iron) => (conn as LocalConnection).newGame(iron);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== ' ' || mainMenu.isOpen || (ev.target as HTMLElement).closest('input, select, textarea, button')) return;
+    ev.preventDefault();
+    if (localWorld) {
+      userPaused = !userPaused;
+      pauseBadge.hidden = !userPaused;
+      localWorld.postMessage({ t: 'pause', on: userPaused });
+    } else if (game.mine) conn.send({ t: 'order', order: { kind: 'pause_vote', on: !game.mine.pause?.mine } });
+  });
+  // shared worlds: show the pause vote
+  game.on((c) => {
+    if (localWorld || !c.has('mine')) return;
+    const p = game.mine?.pause;
+    pauseBadge.hidden = !p || (!p.paused && p.votes === 0);
+    if (p) pauseBadge.textContent = p.paused ? 'PAUSED · every leader agreed · Space to resume' : `PAUSE VOTE ${p.votes} OF ${p.needed}${p.mine ? ' · you voted' : ' · Space to vote'}`;
+  });
   hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('[data-act="mainmenu"]')) mainMenu.open(); });
   {
     let last = performance.now();

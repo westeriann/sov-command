@@ -10,7 +10,9 @@ import { BUDGET_KEYS, normalizeBudget, type Budget } from '../../shared/economy.
 import { FOCI, LIMITS, PERSONALITIES, type Focus, type Order, type Personality, type Policy } from '../../shared/protocol.ts';
 import { UNIT_SPECS, distanceKm, domainOf, type UnitType } from '../../shared/military.ts';
 import type { NationState, World } from './world.ts';
-import { MAX_ALLIANCES, MAX_BLOC, MAX_TRADE_DEALS, SPY_COST, type Deal, type Resolution, type SpyMission } from '../../shared/diplomacy.ts';
+import { MAX_ALLIANCES, MAX_BLOC, MAX_TRADE_DEALS, SPY_COST, SPY_MISSIONS, type Deal, type Resolution, type SpyMission } from '../../shared/diplomacy.ts';
+import { MAX_REPARATIONS, type PeaceTreaty } from '../../shared/peace.ts';
+import type { WarGoal } from '../../shared/military.ts';
 import { COMMODITIES } from '../../shared/economy.ts';
 import { LAWS, type LawId } from '../../shared/politics.ts';
 
@@ -125,6 +127,9 @@ export class AiBrain {
     if (debt > 0.3) target += 3;
     if (e.stability < 40) target -= 3;
     if (e.treasury > 0.3 * e.gdp) target -= 2;
+    // keep the books near balance: spending is about 24% of GDP, plus the upkeep of laws
+    const balanced = 24 * (n.pol?.laws.includes('austerity') ? 0.9 : 1) + (n.pol?.laws ?? []).length * 0.15;
+    if (e.treasury < 0.1 * e.gdp) target = Math.max(target, Math.round(balanced + 2 + debt * 10));
     const step = Math.max(-2, Math.min(2, target - n.policy.tax));
     const tax = Math.min(LIMITS.taxMax, Math.max(LIMITS.taxMin, n.policy.tax + step));
     if (tax !== n.policy.tax) policy.tax = tax;
@@ -166,10 +171,10 @@ export class AiBrain {
       const days = this.warDays(me, foe);
       const gain = 1 - w.controlOf(foe), loss = 1 - control;
       if (w.diplomacy.pending(me, foe, 'peace')) continue;
-      const aggressive = n.personality === 'expansionist' || n.personality === 'opportunist';
-      if (gain > 0.35 && aggressive && days > 30) orders.push({ kind: 'propose', target: foe, deal: { kind: 'peace', terms: 'puppet' } });
-      else if (gain > 0.08 && gain > loss + 0.05 && days > 20) orders.push({ kind: 'propose', target: foe, deal: { kind: 'peace', terms: 'cede' } });
-      else if ((loss >= gain && days > 30) || days > 150 || control < 0.7) orders.push({ kind: 'peace', target: foe });
+      const score = w.warScore(me, foe);
+      const treaty = score >= 15 && days > 20 ? this.buildTreaty(n, foe, score) : null;
+      if (treaty) orders.push({ kind: 'propose', target: foe, deal: { kind: 'peace', terms: 'treaty', treaty } });
+      else if ((loss >= gain && days > 30) || days > 150 || control < 0.7 || score < -40) orders.push({ kind: 'peace', target: foe });
     }
     if (!enemies.length) orders.push(...this.diplomacyOrders(n));
     orders.push(...this.strategicOrders(n, enemies.length > 0));
@@ -198,7 +203,8 @@ export class AiBrain {
           return [t.id, ...allies].reduce((s, id) => s + (w.publicView(w.nations.get(id)!).army ?? 0), 0) < units.length * 0.7;
         })
         .filter((t) => !(t.controller === 'human' && Date.now() - (t.claimedAt ?? 0) < 2 * 3_600_000));
-      if (targets.length) orders.push({ kind: 'war', target: targets[Math.floor(this.random() * targets.length)].id });
+      const goal: WarGoal = p === 'expansionist' ? (this.random() < 0.5 ? 'conquest' : 'subjugate') : this.random() < 0.5 ? 'reparations' : 'conquest';
+      if (targets.length) orders.push({ kind: 'war', target: targets[Math.floor(this.random() * targets.length)].id, goal });
     }
     if (!enemies.length) return orders;
 
@@ -355,10 +361,33 @@ export class AiBrain {
     }
     // peace: weigh what each side holds of the other's people
     const days = this.warDays(me, from);
+    if (deal.terms === 'treaty' && deal.treaty) {
+      // pay what the war score says we owe, more as the war drags on or we collapse
+      const cost = w.treatyCostFor(from, me, deal.treaty), score = w.warScore(from, me);
+      return cost <= score + 5 + Math.max(0, days - 120) / 10 || (w.controlOf(me) < 0.35 && cost <= score + 40);
+    }
     const loss = 1 - w.controlOf(me), gain = 1 - w.controlOf(from);
     if (deal.terms === 'white') return loss >= gain - 0.02 || days > 120 || (days > 40 && gain < 0.1);
     if (deal.terms === 'puppet') return w.controlOf(me) < 0.45 || (loss > gain + 0.25 && days > 60) || days > 300;
     return w.controlOf(me) < 0.6 || (loss > gain + 0.1 && days > 30) || days > 240;
+  }
+
+  /** Peace terms worth the war score: the war goal first, then the most populous land we hold, then reparations. */
+  private buildTreaty(n: NationState, foe: number, score: number): PeaceTreaty | null {
+    const w = this.world, m = w.military, me = n.id;
+    const t: PeaceTreaty = { provinces: [], reparations: 0, demilitarize: false };
+    const cost = () => w.treatyCostFor(me, foe, t);
+    const goal = m.warBetween(me, foe)?.a === me ? m.warBetween(me, foe)?.goal : undefined;
+    if (goal === 'subjugate') { t.puppet = true; if (cost() > score) t.puppet = false; }
+    if (goal === 'regime' && w.nations.get(foe)?.gov.government !== n.gov.government) { t.regime = n.gov.government; if (cost() > score) t.regime = undefined; }
+    if (goal === 'humiliate') { t.demilitarize = true; if (cost() > score) t.demilitarize = false; }
+    if (!t.puppet) {
+      const held = [...m.occupied].filter(([p, o]) => o === me && m.provinces.get(p)?.owner === foe && p !== w.defs.get(foe)?.capital).map(([p]) => p)
+        .sort((a, b) => (m.provinces.get(b)?.pop ?? 0) - (m.provinces.get(a)?.pop ?? 0));
+      for (const p of held) { t.provinces.push(p); if (cost() > score) { t.provinces.pop(); break; } }
+    }
+    while (t.reparations < MAX_REPARATIONS - 1e-9) { t.reparations = Math.round((t.reparations + 0.005) * 1000) / 1000; if (cost() > score) { t.reparations = Math.round((t.reparations - 0.005) * 1000) / 1000; break; } }
+    return t.provinces.length || t.reparations > 0 || t.puppet || t.regime || t.demilitarize ? t : null;
   }
 
   /** Peacetime diplomacy: trade with neighbours, and an ally or two. */
@@ -496,14 +525,22 @@ export class AiBrain {
       const villain = w.military.wars.find((x) => d.allied(me, x.b) && !d.allied(me, x.a))?.a;
       if (villain !== undefined) orders.push({ kind: 'resolution', resolution: this.random() < 0.5 ? 'condemn' : 'sanction', target: villain });
     }
+    // agent networks: in the enemy, or in a rival ahead of us; counter-intelligence by character
+    const spy = n.spy ?? { nets: {}, building: [], counter: 0 };
+    const wantCounter = n.personality === 'turtle' ? 2 : n.personality === 'idealist' ? 0 : 1;
+    if (spy.counter !== wantCounter && this.random() < 0.05) orders.push({ kind: 'counter_intel', level: wantCounter });
+    const rival = enemies[0] ?? (w.defs.get(me)?.neighbours ?? []).filter((x) => !w.nations.get(x)?.annexedBy).sort((a, b) => w.opinion(me, a).total - w.opinion(me, b).total)[0];
+    if (rival !== undefined && !spy.building.includes(rival) && spy.building.length < 2 && (spy.nets[rival] ?? 0) < 60 && n.mil.funds > 3 && this.random() < 0.05) orders.push({ kind: 'network', target: rival, build: true });
+    for (const t of spy.building) if ((spy.nets[t] ?? 0) >= 60 || (t !== rival && this.random() < 0.02)) orders.push({ kind: 'network', target: t, build: false });
     // spies: scout and sabotage enemies; steal from the advanced in peacetime
     if (n.mil.funds > SPY_COST * 4 && (n.spyOps?.length ?? 0) < 2) {
       const r = this.random();
+      const can = (t: number, m: SpyMission) => (spy.nets[t] ?? 0) >= SPY_MISSIONS[m].need;
       if (enemies.length && r < 0.3) {
-        const mission: SpyMission = r < 0.15 ? 'recon' : 'sabotage';
-        orders.push({ kind: 'spy', target: enemies[0], mission });
+        const mission: SpyMission = r < 0.15 || !can(enemies[0], 'sabotage') ? 'recon' : 'sabotage';
+        if (can(enemies[0], mission)) orders.push({ kind: 'spy', target: enemies[0], mission });
       } else if (!enemies.length && r < 0.04) {
-        const ahead = [...w.nations.values()].filter((x) => !x.annexedBy && x.id !== me && (w.publicView(x).techs ?? 0) > n.tech.done.length);
+        const ahead = [...w.nations.values()].filter((x) => !x.annexedBy && x.id !== me && (w.publicView(x).techs ?? 0) > n.tech.done.length && can(x.id, 'steal'));
         if (ahead.length) orders.push({ kind: 'spy', target: ahead[Math.floor(this.random() * ahead.length)].id, mission: 'steal' });
       }
     }

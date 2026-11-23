@@ -13,3 +13,4 @@ world-gen.log
 server/data/
 client/dist-offline/
 desktop/release/
+desktop/host/

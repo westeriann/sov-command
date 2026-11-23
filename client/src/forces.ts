@@ -3,7 +3,7 @@
 import { Marker, type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import { money } from '../../shared/economy';
 import {
-  bestRoute, distanceKm, domainOf, legDays, STRIKERS, UNIT_ROLE, UNIT_SPECS, UNIT_TECH, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
+  EQUIP_PER_BN, bestRoute, distanceKm, domainOf, legDays, STRIKERS, UNIT_ROLE, UNIT_SPECS, UNIT_TECH, UNIT_TYPES, type Domain, type Mission, type RouteNode, type UnitType, type UnitView,
 } from '../../shared/military';
 import type { Game } from './game';
 import { seasonSlow } from '../../shared/seasons';
@@ -458,6 +458,7 @@ export class Forces {
           <div><span>Forces</span><b>${units.length}</b><em>${(['land', 'sea', 'air'] as Domain[]).map((d) => `${units.filter((u) => domainOf(u.type) === d).length} ${d}`).join(' · ')}</em></div>
           <div><span>Military funds</span><b class="${mil.funds < 0 ? 'down' : ''}">${money(mil.funds)}</b><em>+${money(mil.income)}/yr · upkeep ${money(mil.upkeep)}/yr</em></div>
           <div><span>Reservists free</span><b>${(mil.manpower / 1e3).toFixed(0)}k</b><em>men available to recruit</em></div>
+          <div data-tip="${attr(tip('Equipment', 'Weapons, vehicles and kit: units need it to be built and reinforced', [`Made: ${mil.equipmentRate ?? 0} a day by state arsenals (defence budget) and factories (with metals and power)`, 'good'], `The production line uses ${mil.equipmentNeed ?? 0} a day`, 'Short of it, production and reinforcement stall'))}"><span>Equipment</span><b class="${(mil.equipment ?? 0) < (mil.equipmentNeed ?? 0) * 3 ? 'down' : ''}">${mil.equipment ?? 0}</b><em>+${mil.equipmentRate ?? 0}/day · line uses ${mil.equipmentNeed ?? 0}/day</em></div>
           <div><span>Wars</span><b class="${wars.length ? 'down' : ''}">${wars.length}</b><em>${this.game.mine?.econ ? `munitions ${this.game.mine.econ.munitions}%` : ''}</em></div>
         </div>
         ${sel.length ? `<section class="selection">
@@ -481,7 +482,7 @@ export class Forces {
             <span class="label">RECRUIT</span>
             ${UNIT_TYPES.filter((t) => UNIT_SPECS[t].domain === this.view).map((t, i) => { const s = UNIT_SPECS[t]; return `
               ${i === 0 ? `<span class="label sub">${DOMAIN_NAMES[s.domain]}</span>` : ''}
-              <div class="recruit" data-tip="${attr(tip(s.name, UNIT_ROLE[t] ?? null, [`Attack ${s.attack}, defense ${s.defense}`, 'good'], s.range ? `Combat radius ${s.range} km` : `Moves ${s.speed} km a day`, [`Costs ${money(s.cost)} and ${(s.men / 1e3).toFixed(0)}k reservists`, 'bad'], [`Upkeep ${money(s.upkeep)} a year`, 'bad'], `Ready in ${s.days} game days`))}">
+              <div class="recruit" data-tip="${attr(tip(s.name, UNIT_ROLE[t] ?? null, [`Attack ${s.attack}, defense ${s.defense}`, 'good'], s.range ? `Combat radius ${s.range} km` : `Moves ${s.speed} km a day`, [`Costs ${money(s.cost)}, ${Math.round(s.cost * EQUIP_PER_BN)} equipment and ${(s.men / 1e3).toFixed(0)}k reservists`, 'bad'], [`Upkeep ${money(s.upkeep)} a year`, 'bad'], `Ready in ${s.days} game days`))}">
                 <div><b class="recruit-name"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${s.name}</b>${UNIT_ROLE[t] ? `<span>${UNIT_ROLE[t]}</span>` : ''}<span class="mono">attack ${s.attack} · defense ${s.defense} · ${s.range ? `radius ${s.range} km` : `${s.speed} km/day`}</span>
                 <span class="mono">${money(s.cost)} · ${s.days} days (~${Math.round((s.days * 10) / 60)} min) · ${(s.men / 1e3).toFixed(0)}k men · upkeep ${money(s.upkeep)}/yr</span></div>
                 <button type="button" class="claim primary" data-f="recruit" data-type="${t}" ${mil.manpower < s.men || mil.queue.length >= 10 || (UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never)) ? 'disabled' : ''}>${UNIT_TECH[t] && !mine.research?.done.includes(UNIT_TECH[t] as never) ? 'Needs research' : 'Recruit'}</button>

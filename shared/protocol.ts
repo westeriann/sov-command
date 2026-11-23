@@ -8,6 +8,9 @@ import type { Budget, EconomyPrivate, EconomyPublic, MarketSnapshot } from './ec
 import type { MilitaryPrivate, Mission, UnitType, UnitView, War } from './military';
 import type { Bloc, Contract, Deal, DealKind, Opinion, Pact, Proposal, Resolution, ResolutionKind, SpyMission, Treaty } from './diplomacy';
 import type { LawId, PoliticsPrivate } from './politics';
+import type { EventKey, PendingEvent } from './events';
+import type { Party } from './parties';
+import type { WarGoal } from './military';
 import type { Government, ResearchPrivate, TechId } from './research';
 import type { BuildingState, BuildingType } from './buildings';
 import type { Specialty } from './specialties';
@@ -88,6 +91,17 @@ export interface NationPrivate extends NationPublic {
   relations?: Record<number, Opinion>; // what each nation thinks of us, and why
   contracts?: Contract[];
   envoys?: { target: number; until: number }[];
+  event?: PendingEvent; // a decision waiting for us
+  parties?: Party[]; // parliament's parties (democracies and technocracies)
+  election?: number; // game day of the next election
+  campaigned?: boolean; // a campaign push is under way
+  spy?: { nets: Record<number, number>; building: number[]; counter: number; foreign: number }; // our networks abroad; counter-intelligence level; how much foreign networks hold here (0..100)
+  warScores?: Record<number, number>; // war score against each enemy (-100..100)
+  reparations?: { to: number; share: number; until: number }[]; // what we pay (to: payee) or receive (share < 0)
+  demil?: { by: number; until: number; provinces: number[] };
+  rate?: number; // interest rate on our debt, a year
+  autonomy?: number[]; // provinces we have granted autonomy
+  pause?: { votes: number; needed: number; mine: boolean; paused: boolean }; // the pause vote of a shared world
 }
 
 /** Front lines and wars are public knowledge. */
@@ -172,7 +186,7 @@ export type Order =
   | { kind: 'move'; units: number[]; to: number }
   | { kind: 'halt'; units: number[] }
   | { kind: 'mission'; units: number[]; mission: Mission | null }
-  | { kind: 'war'; target: number }
+  | { kind: 'war'; target: number; goal?: WarGoal }
   | { kind: 'peace'; target: number } // offer white peace, or accept theirs
   | { kind: 'propose'; target: number; deal: Deal }
   | { kind: 'answer'; from: number; deal: DealKind; accept: boolean }
@@ -203,7 +217,15 @@ export type Order =
   | { kind: 'dismiss_demand' } // refuse what parliament (or the elites) ask
   | { kind: 'denounce'; target: number }
   | { kind: 'envoy'; target: number } // a diplomatic mission to improve relations
-  | { kind: 'end_contract'; id: number };
+  | { kind: 'end_contract'; id: number }
+  | { kind: 'appeal' } // a national appeal: spend political capital for stability
+  | { kind: 'choose'; event: EventKey; option: number }
+  | { kind: 'campaign' }
+  | { kind: 'coalition'; party: string; join: boolean }
+  | { kind: 'autonomy'; province: number }
+  | { kind: 'network'; target: number; build: boolean }
+  | { kind: 'counter_intel'; level: number }
+  | { kind: 'pause_vote'; on: boolean }; // shared worlds pause when every player online agrees
 
 export type ClientMsg =
   | { t: 'hello'; token: string }

@@ -110,7 +110,7 @@ export function backupDb(db: ReturnType<typeof openDb>, dbFile: string, keep: nu
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('index.ts')) {
+if (!process.env.SOV_HOST && (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("index.ts"))) {
   const app = start();
   app.ready.then((port) => {
     console.log(`world server on :${port} · ${app.world.nations.size} nations · seed map from ${config.worldDir}`);

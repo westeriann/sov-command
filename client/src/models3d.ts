@@ -207,6 +207,10 @@ const GEOMETRY = {
     part(cyl(0.04, 0.05, 0.3, 8), '#c6c1b6', [0.35, 0.15, -0.3]),
     part(cyl(0.07, 0.06, 0.06, 8), GLASS, [0.35, 0.32, -0.3]),
   ]),
+  depot: () => build([
+    ...[[-0.3, -0.15], [0, -0.15], [0.3, -0.15], [-0.15, 0.2], [0.15, 0.2]].map(([x, z]) => part(box(0.26, 0.16, 0.18), '#6b6a4e', [x, 0.08, z])),
+    part(box(0.9, 0.02, 0.06), '#555', [0, 0.01, 0.42]),
+  ]),
   fort: () => build([
     ...Array.from({ length: 6 }, (_, i) => {
       const a = (i / 6) * Math.PI * 2;
@@ -752,6 +756,9 @@ export class Models3D implements CustomLayerInterface {
       }
       case 'fort':
         this.put('fort', 0, 0, 0);
+        break;
+      case 'depot':
+        this.put('depot', 0, 0, 0);
         break;
       case 'air_defense':
         this.put('launcher', -0.15, 0, 0, 0.5);

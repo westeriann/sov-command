@@ -9,6 +9,7 @@ import type { Change, Game } from './game';
 import type { Political } from './political';
 import { keepScrollOn } from './keep-scroll';
 import { attr, effectLines, tip } from './tooltip';
+import { CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST } from '../../shared/parties';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const LEG_NAME = { parliament: 'Parliament', council: 'Council of experts', decree: 'Rule by decree', junta: 'Military junta' } as const;
@@ -32,6 +33,9 @@ export class PoliticsPanel {
       const a = t.dataset.pl;
       if (a === 'close') { this.close(); document.dispatchEvent(new CustomEvent('politics-closed')); }
       else if (a === 'law') this.order({ kind: 'law', law: t.dataset.law as LawId, enact: t.dataset.enact === '1' });
+      else if (a === 'appeal') this.order({ kind: 'appeal' });
+      else if (a === 'campaign') this.order({ kind: 'campaign' });
+      else if (a === 'coalition') this.order({ kind: 'coalition', party: t.dataset.party!, join: t.dataset.join === '1' });
       else if (a === 'refuse') {
         if (t.dataset.confirm === '1') this.order({ kind: 'dismiss_demand' });
         else { t.dataset.confirm = '1'; t.textContent = 'Confirm: refuse'; }
@@ -98,11 +102,38 @@ export class PoliticsPanel {
       ? p.claims.map((c) => `<a href="#" class="go" data-go="diplo:${c}">${esc(this.pol.nations.get(c)?.name ?? `Nation ${c}`)}</a>`).join(', ')
       : 'none';
     this.set(`${head}<div class="econ-body">${kpis}
+      ${this.partiesHtml()}
+      <div class="actions-row"><button type="button" class="claim" data-pl="appeal" ${p.capital < 50 ? 'disabled' : ''} data-tip="${attr(tip('National appeal', ['+6 stability', 'good'], ['+5 goodwill in parliament', 'good'], ['Costs 50 political capital', 'bad']))}">Address the nation · 50</button></div>
       <div class="econ-cols"><section>${demand}${groups}
         <span class="label" id="pol-claims">CLAIMS</span>
         <p class="hint">You hold claims on: ${claims}. A claim comes from a demand another nation refused (made in <a href="#" class="go" data-go="module:diplomacy">Diplomacy</a>). A war on a nation you claim is justified: parliament needs less convincing and the world condemns you far less.</p>
       </section>
       <section><span class="label" id="pol-laws">LAWS</span>${laws}</section></div></div>`);
+  }
+
+  /** Parliament's parties: seats, polls, the governing coalition, and the next election. */
+  private partiesHtml() {
+    const mine = this.game.mine!, ps = mine.parties;
+    if (!ps?.length) return '';
+    const day = this.game.market?.day ?? 0;
+    const gov = ps.filter((x) => x.gov), seats = gov.reduce((t, x) => t + x.seats, 0), poll = gov.reduce((t, x) => t + x.poll, 0);
+    const toElection = mine.election !== undefined ? mine.election - day : undefined;
+    const bar = ps.map((x) => `<i style="width:${(x.seats * 100).toFixed(1)}%;background:${x.colour}" class="${x.gov ? 'gov' : ''}" data-tip="${attr(tip(x.name, `${Math.round(x.seats * 100)}% of seats · polling ${Math.round(x.poll * 100)}%`, x.gov ? ['In government', 'good'] : 'In opposition'))}"></i>`).join('');
+    const rows = ps.map((x) => {
+      const t = tip(x.name, `Speaks for ${x.base === 'public' ? 'the public' : x.base === 'military' ? 'the military' : 'business'}`, `${x.liberty > 0.2 ? 'Liberal' : x.liberty < -0.2 ? 'Authoritarian' : 'Centrist'}, ${x.openness > 0.2 ? 'internationalist' : x.openness < -0.2 ? 'nationalist' : 'moderate on the world'}`,
+        'Polls follow how close it stands to what people believe, how its group feels, and for the government, how the country is doing');
+      return `<div class="party-row${x.gov ? ' gov' : ''}" data-tip="${attr(t)}"><i style="background:${x.colour}"></i><b>${esc(x.name)}</b>
+        <span class="mono">${Math.round(x.seats * 100)}% seats · polls ${Math.round(x.poll * 100)}%</span>
+        ${x.gov ? (gov.length > 1 ? `<button type="button" class="claim" data-pl="coalition" data-party="${esc(x.name)}" data-join="0">Drop</button>` : '<span class="pill ok">leads</span>')
+          : `<button type="button" class="claim" data-pl="coalition" data-party="${esc(x.name)}" data-join="1" ${mine.politics!.capital < COALITION_COST ? 'disabled' : ''}>Invite · ${COALITION_COST}</button>`}</div>`;
+    }).join('');
+    const canCampaign = toElection !== undefined && toElection <= CAMPAIGN_DAYS;
+    return `<span class="label">PARLIAMENT · governing coalition ${Math.round(seats * 100)}% of seats, ${Math.round(poll * 100)}% in the polls${toElection !== undefined ? ` · election in ${toElection} days` : ''}</span>
+      <div class="hemicycle">${bar}</div>
+      <div class="parties">${rows}</div>
+      ${toElection !== undefined ? `<div class="actions-row"><button type="button" class="claim${canCampaign ? ' primary' : ''}" data-pl="campaign" ${canCampaign && mine.politics!.capital >= CAMPAIGN_COST ? '' : 'disabled'}
+        data-tip="${attr(tip('Campaign push', ['The governing parties gain in the polls until the election', 'good'], [`Costs ${CAMPAIGN_COST} political capital and 0.05% of GDP`, 'bad'], `Opens ${CAMPAIGN_DAYS} days before the election`))}">${canCampaign ? `Campaign · ${CAMPAIGN_COST}` : `Campaigning opens ${CAMPAIGN_DAYS} days before the election`}</button></div>` : ''}
+      <p class="hint">At the election, seats follow the polls. If the governing parties fall short of half, a new coalition forms: parliament blocks new wars for six months and repeals a law the new leaders' voters dislike.</p>`;
   }
 
   /** Where to go to meet a demand. */

@@ -24,6 +24,8 @@ const ICONS: Record<string, string> = {
   mail: '<rect x="1.5" y="3.5" width="13" height="9" rx="1" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M2 4l6 5 6-5" stroke="currentColor" stroke-width="1.4" fill="none"/>',
   idle: '<rect x="2" y="7" width="12" height="7" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M4 7V4h3v3M9 7V2h3v5" stroke="currentColor" stroke-width="1.4" fill="none"/>',
   shortage: '<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M4 12L12 4" stroke="currentColor" stroke-width="1.6"/>',
+  decision: '<path d="M3 15V2M3 2h9l-2 3 2 3H3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/>',
+  kit: '<path d="M2 6h12v7H2zM5 6V3h6v3" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M2 9h12" stroke="currentColor" stroke-width="1.2"/>',
   bell: '<path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14a1.5 1.5 0 0 0 3 0" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/>',
 };
 export const icon = (name: string) => `<svg viewBox="0 0 16 16" aria-hidden="true">${ICONS[name] ?? ''}</svg>`;
@@ -187,10 +189,13 @@ export class Notices {
     const broken = Object.entries(this.game.war.buildings).filter(([p]) => this.pol.provinces.get(Number(p))?.nation === mine.id)
       .flatMap(([, l]) => l).filter((b) => b.damaged && b.repair === undefined).length;
     if (broken) out.push({ id: 'repair', icon: 'unrest', level: 'bad', open: 'economy', tip: tip(`${broken} building${broken > 1 ? 's' : ''} damaged by storms`, ['Out of action until repaired', 'bad'], 'Repair them from the province panel (click the province)') });
+    if (mine.event) out.push({ id: 'event', icon: 'decision', level: 'bad', open: 'event:', tip: tip('A decision is waiting', `${mine.event.key.replace(/_/g, ' ')}: choose how to answer`, 'Unanswered, the first option is taken after 30 days', 'Click to decide') });
+    const m = mine.mil;
+    if (m?.queue.length && (m.equipment ?? 0) < (m.equipmentNeed ?? 0) * 3) out.push({ id: 'kit', icon: 'kit', level: 'bad', open: 'army', tip: tip(`Equipment running out: ${m.equipment ?? 0} in store`, [`The production line needs ${m.equipmentNeed} a day; arsenals and factories make ${m.equipmentRate}`, 'bad'], 'Raise the military budget, build factories, secure metals') });
     const props = mine.diplo?.incoming.length ?? 0;
     if (props) out.push({ id: 'mail', icon: 'mail', level: 'warn', open: 'diplomacy', tip: tip(`${props} proposal${props > 1 ? 's' : ''} awaiting your answer`, 'They lapse after 30 game days', 'Click: Diplomacy') });
     if (mine.mil && !mine.mil.queue.length && wars.length) out.push({ id: 'idle', icon: 'idle', level: 'warn', open: 'army', tip: tip('No units in production', ['At war with nothing being built', 'bad'], 'Click: Ground forces to recruit') });
-    const html = out.map((a) => `<button type="button" class="alert-icon ${a.level}" data-open="${a.open}" data-tip="${attr(a.tip)}" aria-label="${attr(a.tip.replace(/<[^>]+>/g, '').split('\n')[0])}">${icon(a.icon)}</button>`).join('');
+    const html = out.map((a) => `<button type="button" class="alert-icon ${a.level}" data-${a.open.includes(':') ? 'go' : 'open'}="${a.open}" data-tip="${attr(a.tip)}" aria-label="${attr(a.tip.replace(/<[^>]+>/g, '').split('\n')[0])}">${icon(a.icon)}</button>`).join('');
     if (html !== this.alertsHtml) { this.alertsHtml = html; this.alerts.innerHTML = html; } // redraw only on change: hover and clicks stay put
   }
   private alertsHtml = '';

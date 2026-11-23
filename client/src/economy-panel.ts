@@ -240,6 +240,8 @@ export class EconomyPanel {
             </div>`).join('')}
           <div class="kv mono">
             <span>Infrastructure</span><span>${(e.infra * 100).toFixed(0)}% of need</span>
+            <span data-tip="${attr(tip('Interest rate', 'What lenders charge on your debt each year', ['Rises with debt and with turmoil', 'bad'], 'Pay down debt and keep stability up to borrow cheaply'))}">Interest rate</span><span>${((this.game.mine?.rate ?? 0.04) * 100).toFixed(1)}% a year${e.treasury < 0 ? ` · ${money((-e.treasury) * (this.game.mine?.rate ?? 0.04))}/yr` : ''}</span>
+            ${(this.game.mine?.reparations ?? []).map((r) => `<span>${r.share > 0 ? 'Reparations paid to' : 'Reparations from'} ${esc(this.pol.nations.get(r.to)?.short ?? '?')}</span><span class="${r.share > 0 ? 'down' : 'up'}">${(Math.abs(r.share) * 100).toFixed(1)}% of ${r.share > 0 ? 'our' : 'their'} GDP a year</span>`).join('')}
             <span data-tip="${attr(tip('Research banked', 'Points earned while nothing is being researched are saved here', ['Spent automatically: up to half again your research rate each day', 'good']))}">Research banked</span><span>${Math.round(e.research).toLocaleString('en-US')} pts</span>
             <span>Defence budget</span><span>${money(e.defence)}/yr</span>
             <span>Munitions</span><span>${e.munitions}% of reserve</span>

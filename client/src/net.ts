@@ -111,6 +111,8 @@ export class Connection {
     };
   }
 
+  claimNation(nation: number) { this.send({ t: 'claim', nation }); }
+
   send(msg: ClientMsg) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }

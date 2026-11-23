@@ -36,17 +36,45 @@ async function load(): Promise<string | undefined> {
     });
   } catch { return undefined; }
 }
-async function store(bytes: string | null) {
+async function store(bytes: string | null, key = 'world') {
   try {
     const d = await idb();
     await new Promise<void>((res) => {
       const tx = d.transaction('saves', 'readwrite');
-      if (bytes) tx.objectStore('saves').put(bytes, 'world'); else tx.objectStore('saves').delete('world');
+      if (bytes) tx.objectStore('saves').put(bytes, key); else tx.objectStore('saves').delete(key);
       tx.oncomplete = () => res();
       tx.onerror = () => res();
     });
   } catch { /* storage blocked: the game still runs, it just won't be saved */ }
 }
+async function get(key: string): Promise<string | undefined> {
+  try {
+    const d = await idb();
+    return await new Promise((res) => {
+      const q = d.transaction('saves').objectStore('saves').get(key);
+      q.onsuccess = () => res(typeof q.result === 'string' ? q.result : undefined);
+      q.onerror = () => res(undefined);
+    });
+  } catch { return undefined; }
+}
+async function keys(): Promise<string[]> {
+  try {
+    const d = await idb();
+    return await new Promise((res) => {
+      const q = d.transaction('saves').objectStore('saves').getAllKeys();
+      q.onsuccess = () => res((q.result as IDBValidKey[]).map(String));
+      q.onerror = () => res([]);
+    });
+  } catch { return []; }
+}
+
+/** Save slots: a copy of the world under a name, with a line describing it. */
+async function slots() {
+  const out: { name: string; info: string }[] = [];
+  for (const k of await keys()) if (k.startsWith('meta:')) out.push({ name: k.slice(5), info: (await get(k)) ?? '' });
+  return out.sort((a, b) => b.info.localeCompare(a.info));
+}
+const ironman = () => !!world && getMeta(db, 'ironman') === '1';
 async function save() {
   if (!world) return;
   world.persistAll();
@@ -68,6 +96,7 @@ async function start(base: string) {
   db = new MemoryDB(saved);
   migrate(db);
   setMeta(db, 'mapStamp', stamp);
+  if ((await get('ironman-next')) === '1') { setMeta(db, 'ironman', '1'); await store(null, 'ironman-next'); }
   // the world waits while the tab is closed: pick the clock up where it stopped
   const clock = getMeta(db, 'clock');
   const last = getMeta(db, 'lastGame');
@@ -170,5 +199,22 @@ onmessage = (e: MessageEvent) => {
       post({ t: 'clock', clock: { ...world.clock, serverNow: Date.now() } });
     }
   }
-  else if (d.t === 'reset') void store(null).then(() => postMessage({ t: 'reset-done' }));
+  else if (d.t === 'reset') void store(null).then(() => store(d.ironman ? '1' : null, 'ironman-next')).then(() => postMessage({ t: 'reset-done' }));
+  else if (d.t === 'slots') void slots().then((list) => postMessage({ t: 'slots', list, ironman: ironman() }));
+  else if (d.t === 'save-slot' && world) {
+    if (ironman()) { postMessage({ t: 'slots', list: [], ironman: true, error: 'Ironman games keep a single autosave.' }); return; }
+    const name = String(d.name ?? '').trim().slice(0, 40) || 'Quick save';
+    void save().then(async () => {
+      await store(db.dump(), `slot:${name}`);
+      const mine = world.nationOf(ME.id);
+      const date = new Date(world.gameNow()).toISOString().slice(0, 10);
+      await store(`${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${date} · ${mine ? world.defs.get(mine.id)?.name ?? '' : 'no nation'}`, `meta:${name}`);
+      postMessage({ t: 'slots', list: await slots(), ironman: false, saved: name });
+    });
+  }
+  else if (d.t === 'load-slot') {
+    if (ironman()) { postMessage({ t: 'slots', list: [], ironman: true, error: 'Ironman games cannot load other saves.' }); return; }
+    void get(`slot:${d.name}`).then(async (bytes) => { if (!bytes) return; await store(bytes); postMessage({ t: 'reset-done' }); });
+  }
+  else if (d.t === 'delete-slot') void store(null, `slot:${d.name}`).then(() => store(null, `meta:${d.name}`)).then(async () => postMessage({ t: 'slots', list: await slots(), ironman: ironman() }));
 };

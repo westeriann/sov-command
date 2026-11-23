@@ -183,6 +183,8 @@ test('spies: operations take days and report back; elections can bind a democrac
   const a = w.nations.get(1)!, b = w.nations.get(2)!;
   a.mil.funds = 50;
   b.tech.done.push('automation');
+  assert.equal(w.submit(1, { kind: 'spy', target: 2, mission: 'steal' }, 'human').ok, false, 'no agents there yet');
+  a.spy = { nets: { 2: 40 }, building: [], counter: 0 };
   assert.equal(w.submit(1, { kind: 'spy', target: 2, mission: 'steal' }, 'human').ok, true);
   (w as unknown as { rand: () => number }).rand = () => 0.2; // success, not caught
   (w as unknown as { spyDay: (d: number) => void }).spyDay(w.market.day + 5);
@@ -191,6 +193,7 @@ test('spies: operations take days and report back; elections can bind a democrac
   // a democracy that loses an election cannot start a war for six months
   a.gov = { government: 'democracy', nextElection: w.market.day };
   a.econ.stability = 20;
+  a.parties = undefined;
   (w as unknown as { rand: () => number }).rand = () => 0.99;
   (w as unknown as { politicsDay: (d: number) => void }).politicsDay(w.market.day);
   assert.ok((a.gov.oppositionUntil ?? 0) > w.market.day);

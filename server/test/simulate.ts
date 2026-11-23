@@ -54,6 +54,8 @@ function report(label: string) {
     const ops = live.slice(0, 40).flatMap((a) => live.slice(0, 40).filter((b) => b !== a).map((b) => w.opinion(a.id, b.id).total)).sort((x, y) => x - y);
     console.log(`   laws: ${JSON.stringify(laws)}; capital median ${live.map((n) => n.pol?.capital ?? 0).sort((x, y) => x - y)[live.length >> 1].toFixed(0)}`);
     console.log(`   pacts: ${JSON.stringify(pacts)}; ${w.diplomacy.contracts.length} contracts; ${live.reduce((t, n) => t + (n.pol?.claims.length ?? 0), 0)} claims; opinion p10/p50/p90 ${ops[Math.floor(ops.length * 0.1)]}/${ops[ops.length >> 1]}/${ops[Math.floor(ops.length * 0.9)]}`);
+    const eq = live.map((n) => n.mil.equipment ?? 0).sort((x, y) => x - y);
+    console.log(`   equipment median ${Math.round(eq[eq.length >> 1])}, min ${Math.round(eq[0])}; queues stalled ${live.filter((n) => n.mil.queue.length && (n.mil.equipment ?? 0) < 5).length}; nations with parties ${live.filter((n) => n.parties).length}; networks ${live.reduce((t, n) => t + Object.keys(n.spy?.nets ?? {}).length, 0)}; reparations ${live.reduce((t, n) => t + (n.repay?.length ?? 0), 0)}; demilitarised ${live.filter((n) => n.mil.demil).length}; autonomy ${live.reduce((t, n) => t + (n.autonomy?.length ?? 0), 0)}; wars with goals ${w.military.wars.filter((x) => x.goal).length}/${w.military.wars.length}`);
     console.log(`   debt: median treasury/GDP ${(live.map((n) => n.econ.treasury / n.econ.gdp).sort((x, y) => x - y)[live.length >> 1] * 100).toFixed(1)}%`);
   }
 }

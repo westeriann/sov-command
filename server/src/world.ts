@@ -48,6 +48,11 @@ import {
   type Demand, type DemandKind, type LawId, type Legislature, type PoliticsPrivate,
 } from '../../shared/politics.ts';
 import { ideologyGap } from '../../shared/society.ts';
+import { EVENTS, EVENT_DAYS, type EventKey, type PendingEvent } from '../../shared/events.ts';
+import { AUTONOMY_COST, CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST, PARTIES_PER_NATION, PARTY_POOL, type Party } from '../../shared/parties.ts';
+import { DEMIL_YEARS, MAX_REPARATIONS, REPARATION_YEARS, treatyCost, treatyText, type PeaceTreaty } from '../../shared/peace.ts';
+import { COUNTER_INTEL_COST, MAX_NETWORKS, NETWORK_COST, NETWORK_GROWTH } from '../../shared/diplomacy.ts';
+import { EQUIP_PER_BN, WAR_GOALS } from '../../shared/military.ts';
 
 /** New players cannot be attacked by the AI for this long after claiming a nation. */
 const NEWCOMER_PROTECTION_MS = 2 * 3_600_000;
@@ -94,6 +99,14 @@ export interface NationState {
   pol?: { capital: number; support: number; laws: LawId[]; demand?: Demand; nextDemand?: number; claims: number[]; goodwill: number; lastLaw?: number };
   mem?: Record<number, number>; // what this nation remembers of others: gifts, insults, betrayals (fades)
   envoys?: { target: number; until: number }[];
+  event?: PendingEvent; // a decision waiting for the player
+  nextEvent?: number; // game day
+  flags?: Record<string, number>; // event chains: key -> game day it fires
+  parties?: Party[];
+  campaign?: number; // poll bonus for the governing parties until the election
+  spy?: { nets: Record<number, number>; building: number[]; counter: number };
+  repay?: { to: number; share: number; until: number }[]; // reparations we owe
+  autonomy?: number[]; // provinces granted autonomy
 }
 
 export interface WorldOptions {
@@ -113,6 +126,7 @@ export interface WorldListener {
   economy(update: EconomyUpdate): void;
   units(userId: number, units: UnitView[]): void;
   war(state: WarState): void;
+  clock?(c: ClockInfo): void; // the world paused or resumed
 }
 
 /** Province resource scores (0..100) feeding each good. */
@@ -351,6 +365,7 @@ export class World {
     const storedMil = getMeta(db, 'military');
     this.military = new Military(byId, storedMil ? JSON.parse(storedMil) : null, mulberry(seed + 99));
     this.military.allied = (a, b) => this.diplomacy.allied(a, b) || this.diplomacy.has('access', a, b);
+    this.military.barred = (nation, p) => { const d = this.nations.get(nation)?.mil.demil; return !!d && d.until > this.market.day && d.provinces.includes(p); };
     for (const p of byId.values()) { const sp = specialtyOf(p as never); if (sp) this.specialty.set(p.id, sp); }
     this.military.intelOn = (nation) => [
       ...Object.entries(this.nations.get(nation)?.intel ?? {}).filter(([, until]) => until >= this.market.day).map(([id]) => Number(id)),
@@ -398,6 +413,40 @@ export class World {
       .reverse().map((c) => ({ at: c.at, from: c.name, nation: c.nation ?? undefined, text: c.text }));
   }
 
+  // ---- the pause vote (shared worlds) ----------------------------------------------
+  private pauseVotes = new Set<number>();
+  private pausedSpeed: number | null = null;
+  private pausedAt = 0;
+
+  /** Players leading nations who are online now. */
+  private onlineLeaders() {
+    return [...this.nations.values()].filter((n) => n.controller === 'human' && !n.autopilot && n.userId !== undefined && this.online.has(n.userId)).map((n) => n.id);
+  }
+
+  pauseState(nation: number) {
+    const online = this.onlineLeaders();
+    return { votes: online.filter((x) => this.pauseVotes.has(x)).length, needed: online.length, mine: this.pauseVotes.has(nation), paused: this.pausedSpeed !== null };
+  }
+
+  /** Pause when every leader online has voted for it; resume when any takes the vote back, or after ten minutes. */
+  private checkPause() {
+    const online = this.onlineLeaders();
+    const all = online.length > 0 && online.every((x) => this.pauseVotes.has(x));
+    if (all && this.pausedSpeed === null) {
+      this.pausedSpeed = this.clock.speed;
+      this.pausedAt = Date.now();
+      this.setSpeed(0);
+      this.event('world', undefined, 'Every leader agrees: the world is paused.');
+    } else if (this.pausedSpeed !== null && (!all || Date.now() - this.pausedAt > 600_000)) {
+      this.setSpeed(this.pausedSpeed);
+      this.pausedSpeed = null;
+      this.pauseVotes.clear();
+      this.event('world', undefined, 'The world resumes.');
+    } else return;
+    this.listener?.clock?.({ ...this.clock, serverNow: Date.now() });
+    for (const n of this.nations.values()) if (n.controller === 'human') this.touch(n, false);
+  }
+
   /** Change the game speed, keeping today's date (single-player). */
   setSpeed(speed: number) {
     const now = Date.now();
@@ -428,6 +477,8 @@ export class World {
     const sb = this.specialties(nation).bonus; // what the land is known for
     e.stability += sb.stability; e.growth += sb.growth; e.research += sb.research; e.build += sb.build;
     if ((n.gov.oppositionUntil ?? -1) > this.market.day) { e.growth -= 0.002; e.stability += 3; } // a new government's honeymoon
+    if ((n.flags?.slump ?? -1) > this.market.day) e.growth -= 0.003; // a long strike
+    if ((n.flags?.purge ?? -1) > this.market.day) { e.landAttack -= 0.1; e.landDefense -= 0.1; } // officers purged
     // society: how well the government suits the people, what the factions think, propaganda at home
     if (n.soc) {
       e.stability += this.fit(n);
@@ -615,6 +666,8 @@ export class World {
       satellites: n.mil.satellites ?? 0,
       warheads: n.mil.warheads ?? 0, missileReady: (n.mil.lastMissileDay ?? -1) < this.market.day,
       generals: this.military.unitsOf(n.id).filter((u) => u.general).length, maxGenerals: this.maxGenerals(n.id), rally: n.mil.rally,
+      equipment: Math.round(n.mil.equipment ?? 0), equipmentRate: Math.round(this.equipmentRate(n) * 10) / 10,
+      equipmentNeed: Math.round((n.mil.queue[0] ? UNIT_SPECS[n.mil.queue[0].type].cost * EQUIP_PER_BN / UNIT_SPECS[n.mil.queue[0].type].days : 0) * 10) / 10,
     };
   }
 
@@ -646,6 +699,16 @@ export class World {
       relations: Object.fromEntries([...this.nations.values()].filter((x) => x.id !== n.id && !x.annexedBy).map((x) => [x.id, this.opinion(x.id, n.id)])),
       contracts: this.diplomacy.contractsOf(n.id),
       envoys: (n.envoys ?? []).filter((v) => v.until > this.market.day),
+      event: n.event, parties: n.parties, election: n.parties ? n.gov.nextElection : undefined, campaigned: (n.campaign ?? 0) > 0,
+      spy: n.spy ? { nets: Object.fromEntries(Object.entries(n.spy.nets).map(([k, v]) => [k, Math.round(v)])), building: n.spy.building, counter: n.spy.counter,
+        foreign: Math.round(Math.max(0, ...[...this.nations.values()].map((x) => x.spy?.nets[n.id] ?? 0))) } : { nets: {}, building: [], counter: 0, foreign: Math.round(Math.max(0, ...[...this.nations.values()].map((x) => x.spy?.nets[n.id] ?? 0))) },
+      warScores: Object.fromEntries(this.military.enemiesOf(n.id).map((x) => [x, this.warScore(n.id, x)])),
+      reparations: [...(n.repay ?? []).map((r) => ({ to: r.to, share: r.share, until: r.until })),
+        ...[...this.nations.values()].flatMap((x) => (x.repay ?? []).filter((r) => r.to === n.id).map((r) => ({ to: x.id, share: -r.share, until: r.until })))],
+      demil: n.mil.demil && n.mil.demil.until > this.market.day ? n.mil.demil : undefined,
+      rate: Math.round(this.interestRate(n) * 1000) / 1000,
+      autonomy: n.autonomy,
+      pause: this.pauseState(n.id),
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
     };
   }
@@ -790,6 +853,8 @@ export class World {
     const n = this.nationOf(userId);
     if (!n) return;
     n.lastSeen = Date.now();
+    if (!isOnline) this.pauseVotes.delete(n.id);
+    this.checkPause();
     if (isOnline && n.autopilot && n.autopilotReason === 'inactive') {
       n.autopilot = false;
       n.autopilotReason = undefined;
@@ -929,12 +994,14 @@ export class World {
           return fail('not_allowed', 'That leader is new and protected.');
         }
         this.military.declareWar(n.id, t.id, this.market.day);
+        const goal = order.goal && WAR_GOALS[order.goal] ? order.goal : undefined;
+        if (goal) this.military.warBetween(n.id, t.id)!.goal = goal;
         this.diplomacy.withdraw(n.id, t.id);
         this.diplomacy.withdraw(t.id, n.id);
         this.diplomacy.sever(n.id, t.id);
         this.event('war', n.id, betrayal
           ? `The ${this.defs.get(n.id)!.name} breaks its non-aggression pact and declares war on the ${this.defs.get(t.id)!.name}!`
-          : `The ${this.defs.get(n.id)!.name} declares war on the ${this.defs.get(t.id)!.name}${justified ? ', pressing its claim' : ''}.`);
+          : `The ${this.defs.get(n.id)!.name} declares war on the ${this.defs.get(t.id)!.name}${justified ? ', pressing its claim' : ''}${goal ? ` (war goal: ${WAR_GOALS[goal].name.toLowerCase()})` : ''}.`);
         // the world remembers: the victim most, everyone a little, betrayal and unprovoked wars most of all
         this.remember(t.id, n.id, betrayal ? -100 : -60);
         for (const x of this.nations.values()) if (x.id !== n.id && x.id !== t.id && !x.annexedBy) this.remember(x.id, n.id, betrayal ? -25 : justified ? -3 : -10);
@@ -1217,6 +1284,8 @@ export class World {
         const t = this.nations.get(Number(order.target)), mission = order.mission as SpyMission;
         if (!t || t.id === n.id || t.annexedBy || !SPY_MISSIONS[mission]) return fail('bad_request', 'Choose a nation and a mission.');
         if (mission.startsWith('cyber') && !n.tech.done.includes('digital_state')) return fail('not_allowed', 'Cyber operations need Digital government research.');
+        const net = n.spy?.nets[t.id] ?? 0;
+        if (net < SPY_MISSIONS[mission].need) return fail('not_allowed', `Needs an agent network of ${SPY_MISSIONS[mission].need} there (yours: ${Math.floor(net)}). Build one in Espionage.`);
         n.spyOps ??= [];
         if (n.spyOps.length >= MAX_SPY_OPS) return fail('not_allowed', `At most ${MAX_SPY_OPS} operations at a time.`);
         if (n.mil.funds < SPY_COST) return fail('no_funds', 'Not enough military funds.');
@@ -1397,6 +1466,92 @@ export class World {
         this.touch(n, false);
         return ok;
       }
+      case 'pause_vote': {
+        if (actor !== 'human') return fail('not_allowed', 'Only players vote.');
+        if (order.on) this.pauseVotes.add(n.id); else this.pauseVotes.delete(n.id);
+        this.checkPause();
+        this.touch(n, false);
+        return ok;
+      }
+      case 'appeal': {
+        const pol = n.pol!;
+        if (pol.capital < 50) return fail('no_funds', 'A national appeal needs 50 political capital.');
+        pol.capital -= 50;
+        n.econ.stability = Math.min(100, n.econ.stability + 6);
+        pol.goodwill += 5;
+        if (n.controller === 'human') this.event('politics', n.id, `${this.defs.get(n.id)!.name}: the leader addresses the nation (+6 stability).`);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'choose': {
+        const ev = n.event;
+        if (!ev || ev.key !== order.event) return fail('not_found', 'That decision has already been made.');
+        const opts = EVENTS[ev.key].options;
+        const i = Math.floor(Number(order.option));
+        if (!(i >= 0 && i < opts.length)) return fail('bad_request', 'Choose one of the options.');
+        this.resolveEvent(n, i);
+        return ok;
+      }
+      case 'campaign': {
+        const pol = n.pol!, day = this.market.day;
+        if (this.legislature(n) !== 'parliament' || !n.parties) return fail('not_allowed', 'Only parliaments hold elections.');
+        if ((n.gov.nextElection ?? Infinity) - day > CAMPAIGN_DAYS) return fail('not_allowed', `Campaigns open ${CAMPAIGN_DAYS} days before the election.`);
+        if ((n.campaign ?? 0) >= 0.12) return fail('not_allowed', 'The campaign is already at full stretch.');
+        if (pol.capital < CAMPAIGN_COST) return fail('no_funds', `A campaign push needs ${CAMPAIGN_COST} political capital.`);
+        pol.capital -= CAMPAIGN_COST;
+        n.econ.treasury -= n.econ.gdp * 0.0005;
+        n.campaign = (n.campaign ?? 0) + 0.04;
+        this.pollDay(n);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'coalition': {
+        const pol = n.pol!, party = n.parties?.find((x) => x.name === order.party);
+        if (!party) return fail('not_found', 'No such party.');
+        if (order.join === party.gov) return fail('not_allowed', party.gov ? 'They are already in government.' : 'They are not in government.');
+        if (order.join) {
+          if (pol.capital < COALITION_COST) return fail('no_funds', `Bringing a party into government needs ${COALITION_COST} political capital.`);
+          const ours = n.parties!.filter((x) => x.gov);
+          const gap = ours.length ? Math.min(...ours.map((x) => Math.abs(x.liberty - party.liberty) + Math.abs(x.openness - party.openness))) : 0;
+          if (gap > 1.6) return fail('not_allowed', `The ${party.name} will not sit with your government: too far apart.`);
+          pol.capital -= COALITION_COST;
+        } else if (n.parties!.filter((x) => x.gov).length <= 1) return fail('not_allowed', 'The government needs at least one party.');
+        party.gov = order.join;
+        this.event('politics', n.id, `${this.defs.get(n.id)!.name}: the ${party.name} ${order.join ? 'joins' : 'leaves'} the government.`);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'autonomy': {
+        const p = Number(order.province), prov = this.military.provinces.get(p);
+        if (!prov || prov.owner !== n.id) return fail('not_allowed', 'Only your own provinces.');
+        if (n.autonomy?.includes(p)) return fail('not_allowed', 'It already governs itself.');
+        if ((n.pol?.capital ?? 0) < AUTONOMY_COST) return fail('no_funds', `Autonomy needs ${AUTONOMY_COST} political capital.`);
+        n.pol!.capital -= AUTONOMY_COST;
+        n.autonomy = [...(n.autonomy ?? []), p];
+        const u = this.diplomacy.unrest.get(p);
+        if (u !== undefined) this.diplomacy.unrest.set(p, u * 0.5);
+        this.event('politics', n.id, `${this.defs.get(n.id)!.name} grants ${prov.name ?? 'a province'} self-government.`);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'network': {
+        const t = this.nations.get(Number(order.target));
+        if (!t || t.id === n.id || t.annexedBy) return fail('bad_request', 'Choose another nation.');
+        const spy = n.spy ??= { nets: {}, building: [], counter: 0 };
+        if (order.build) {
+          if (spy.building.includes(t.id)) return fail('not_allowed', 'Agents are already being recruited there.');
+          if (spy.building.length >= MAX_NETWORKS) return fail('not_allowed', `At most ${MAX_NETWORKS} networks can be built up at once.`);
+          spy.building.push(t.id);
+        } else spy.building = spy.building.filter((x) => x !== t.id);
+        this.touch(n, false);
+        return ok;
+      }
+      case 'counter_intel': {
+        const lvl = Math.max(0, Math.min(3, Math.round(Number(order.level) || 0)));
+        (n.spy ??= { nets: {}, building: [], counter: 0 }).counter = lvl;
+        this.touch(n, false);
+        return ok;
+      }
       case 'autopilot': {
         if (actor !== 'human' || n.controller !== 'human') return fail('not_ruling', 'Only a player can do that.');
         n.autopilot = !!order.on;
@@ -1432,6 +1587,7 @@ export class World {
   // ---- simulation -----------------------------------------------------------------
   /** Called once a real second. Cheap: a scan of nations plus a bounded slice of AI work. */
   tick(realNow = Date.now()) {
+    if (this.pausedSpeed !== null) this.checkPause(); // the ten-minute limit
     const now = this.gameNow(realNow);
     const due: NationState[] = [];
     for (const n of this.nations.values()) {
@@ -1478,6 +1634,8 @@ export class World {
       const who = this.defs.get(e.nation)?.short ?? '?';
       if (e.kind === 'occupied') {
         changed = true;
+        const w = e.other !== undefined ? this.military.warBetween(e.nation, e.other) : undefined;
+        if (w) { w.wins ??= [0, 0]; w.wins[w.a === e.nation ? 0 : 1]++; }
         this.event('war', e.nation, `${who} forces occupy ${where}${e.other ? ` in the ${this.defs.get(e.other)?.short}` : ''}.`);
       } else if (e.kind === 'liberated') {
         changed = true;
@@ -1488,6 +1646,12 @@ export class World {
         const n = this.nations.get(e.nation);
         if (n?.controller === 'human') this.event('war', e.nation, `A ${who} general is promoted after the fighting near ${where}.`);
       } else if (e.kind === 'destroyed') {
+        for (const foe of this.military.enemiesOf(e.nation)) {
+          if (this.military.controller(e.province) !== foe && !this.military.unitsIn(e.province).some((u) => u.nation === foe)) continue;
+          const w = this.military.warBetween(e.nation, foe)!;
+          w.lost ??= [0, 0]; w.lost[w.a === e.nation ? 0 : 1]++;
+          break;
+        }
         const n = this.nations.get(e.nation);
         if (n?.controller === 'human') this.event('war', e.nation, `A ${who} division was destroyed near ${where}.`);
       }
@@ -1524,7 +1688,12 @@ export class World {
       events,
     );
     for (const n of this.nations.values()) {
-      this.military.logistics(n.id, n.mil, this.defenceIncome(n), this.manpower(n), (t) => this.homeFor(n.id, t), this.gameNow());
+      this.military.logistics(n.id, n.mil, this.defenceIncome(n), this.manpower(n), (t) => this.homeFor(n.id, t), this.gameNow(), this.equipmentRate(n));
+      // a demilitarised border: our troops there go home
+      if (n.mil.demil && n.mil.demil.until > this.market.day) {
+        const home = this.home(n.id);
+        for (const u of this.military.unitsOf(n.id)) if (n.mil.demil.provinces.includes(u.province) && home !== undefined) { u.province = home; u.path = []; u.next = undefined; }
+      }
     }
     this.insurgency();
     this.handleMilEvents(events);
@@ -1567,6 +1736,7 @@ export class World {
         shortageFactor: this.hasLaw(n, 'rationing') ? 0.5 : 1,
         stockFactor: this.hasLaw(n, 'strategic_reserves') ? 1.5 : 1,
         tradeGrowth: this.hasLaw(n, 'free_trade') ? 1.5 : 1,
+        interest: this.interestRate(n),
       }));
       runDay(inputs, this.market, this.market.day + 1);
       this.politicsDay(this.market.day);
@@ -1646,7 +1816,8 @@ export class World {
         const t = this.nations.get(op.target);
         if (!t || t.annexedBy) continue;
         const T = this.defs.get(t.id)!.name, A = this.defs.get(n.id)!.name;
-        const chance = Math.min(0.85, Math.max(0.25, 0.75 - t.econ.stability / 250 + (n.tech.done.length - t.tech.done.length) * 0.02));
+        const net = n.spy?.nets[t.id] ?? 0;
+        const chance = Math.min(0.9, Math.max(0.2, 0.55 - t.econ.stability / 250 + (n.tech.done.length - t.tech.done.length) * 0.02 + net / 250 - (t.spy?.counter ?? 0) * 0.08));
         const success = this.rand() < chance;
         if (success) {
           if (op.mission === 'steal') {
@@ -1665,6 +1836,23 @@ export class World {
           } else if (op.mission === 'cyber_grid') {
             t.econ.grid = (t.econ.grid ?? t.econ.gdp) * 0.85;
             this.report(n, `Our hackers knocked out 15% of the power grid of the ${T}.`);
+          } else if (op.mission === 'blueprints') {
+            n.mil.equipment = (n.mil.equipment ?? 0) + 150;
+            if (n.mil.queue[0]) n.mil.queue[0].progress = Math.min(0.99, n.mil.queue[0].progress + 0.3);
+            this.report(n, `Our agents copied arms blueprints in the ${T}: +150 equipment.`);
+          } else if (op.mission === 'rig_election') {
+            if (t.pol) { t.pol.support = Math.max(0, t.pol.support - 20); t.pol.goodwill -= 10; }
+            if (t.gov.nextElection !== undefined && t.gov.nextElection - day < 120 && t.parties) for (const x of t.parties) if (x.gov) x.poll *= 0.85;
+            this.report(n, `Our money and media campaign turned the parliament of the ${T} against its government.`);
+          } else if (op.mission === 'back_coup') {
+            if (t.econ.stability < 45 && this.rand() < 0.6) {
+              t.gov = { government: 'junta', reformedAt: day };
+              t.econ.stability = 40;
+              this.effectCache.delete(t.id);
+              this.event('politics', t.id, `Coup in the ${T}: officers seize power and declare a military junta.`);
+              this.report(n, `The coup we backed in the ${T} succeeded.`);
+              this.touch(t);
+            } else this.report(n, `The officers we armed in the ${T} lost their nerve.`);
           } else if (op.mission === 'cyber_heist') {
             const take = Math.max(0, t.econ.treasury * 0.015) || t.econ.gdp * 0.002;
             t.econ.treasury -= take; n.econ.treasury += take;
@@ -1675,9 +1863,12 @@ export class World {
           }
         } else this.report(n, `Our ${SPY_MISSIONS[op.mission].name.toLowerCase()} operation in the ${T} failed.`);
         // caught agents make the news
-        if (this.rand() < (success ? 0.15 : 0.4)) {
+        if (this.rand() < (success ? 0.15 : 0.4) + (t.spy?.counter ?? 0) * 0.1) {
           this.diplomacy.cancel('trade', n.id, t.id);
+          this.remember(t.id, n.id, -20);
+          if (n.spy) n.spy.nets[t.id] = (n.spy.nets[t.id] ?? 0) * 0.6;
           this.event('diplomacy', t.id, `Spy scandal: agents of the ${A} are caught in the ${T}.`);
+          if (t.controller === 'human' && !t.event) t.event = { key: 'spy_caught', day, about: n.id };
         }
         this.touch(n, false);
       }
@@ -2326,6 +2517,7 @@ export class World {
       if (n.annexedBy) continue;
       n.econ.treasury += (n.econ.gdp * this.specialties(n.id).bonus.treasury) / 365; // gold fields and gem mines
       this.domesticDay(n, day);
+      this.statecraftDay(n, day);
       const name = this.defs.get(n.id)!.name;
       const human = n.controller === 'human';
       const cur = n.tech.current;
@@ -2365,7 +2557,22 @@ export class World {
         if (day >= n.gov.nextElection) {
           n.gov.nextElection = day + 730;
           const win = Math.min(0.95, Math.max(0.1, (n.econ.stability - 35) / 80 + ((n.pol?.support ?? 50) - 30) / 80));
-          if (this.rand() < win) {
+          let won = this.rand() < win;
+          if (n.parties) {
+            // the governing parties keep their majority, or a new coalition takes over (and parliament turns on you for a while)
+            this.pollDay(n);
+            for (const x of n.parties) x.seats = x.poll;
+            n.campaign = 0;
+            won = n.parties.filter((x) => x.gov).reduce((t, x) => t + x.seats, 0) >= 0.5;
+            if (!won) {
+              this.formCoalition(n);
+              // the new government undoes a law its voters dislike
+              const lead = n.parties.filter((x) => x.gov).sort((a, b) => b.seats - a.seats)[0];
+              const drop = n.pol?.laws.find((l) => (LAWS[l].lean[lead.base] ?? 0) < 0);
+              if (drop && n.pol) { n.pol.laws = n.pol.laws.filter((l) => l !== drop); this.event('politics', n.id, `${name}: the new ${lead.name}-led government repeals ${LAWS[drop].name.toLowerCase()}.`); }
+            }
+          }
+          if (won) {
             if (human) this.event('politics', n.id, `${name}: the government wins re-election.`);
           } else {
             n.gov.oppositionUntil = day + 180;
@@ -2395,8 +2602,8 @@ export class World {
         this.touch(n);
         continue;
       }
-      // national events, about one every three game months
-      if (this.rand() < 1 / 90) {
+      // national events, about one every three game months (players decide theirs: see statecraftDay)
+      if (!human && this.rand() < 1 / 90) {
         const r = this.rand();
         let text: string;
         if (r < 0.2) { e.gdp *= 1.005; text = 'an investment boom lifts the economy'; }
@@ -2500,7 +2707,14 @@ export class World {
       ? 0.55 * f.business + 0.3 * e.stability + e.growth * 400 + pol.goodwill
       : 0.4 * f.public + 0.3 * f.business + 0.15 * f.military + 0.25 * (e.stability - 50) + 12 + pol.goodwill
         - ((n.gov.oppositionUntil ?? -1) > day ? 20 : 0) - (this.military.enemiesOf(n.id).length && !this.military.wars.some((w) => w.b === n.id) ? 8 : 0);
-    pol.support += (Math.max(0, Math.min(100, target)) - pol.support) * 0.03;
+    const seats = n.parties ? n.parties.filter((x) => x.gov).reduce((t, x) => t + x.seats, 0) : null;
+    const goal = seats === null ? target : target * 0.5 + (seats * 100) * 0.5 + (seats >= 0.5 ? 5 : -10); // a majority behind you counts
+    pol.support += (Math.max(0, Math.min(100, goal)) - pol.support) * 0.03;
+    // a coalition partner walks out when the government loses its way
+    if (n.parties && pol.support < 30 && this.rand() < 0.01) {
+      const partners = n.parties.filter((x) => x.gov);
+      if (partners.length > 1) { const x = partners[partners.length - 1]; x.gov = false; if (n.controller === 'human') this.event('politics', n.id, `${this.defs.get(n.id)!.name}: the ${x.name} quits the governing coalition.`); }
+    }
     for (const l of pol.laws) if (LAWS[l].upkeep) e.treasury -= (e.gdp * LAWS[l].upkeep!) / 365;
     if (pol.laws.includes('tariffs')) {
       const imports = COMMODITIES.reduce((t, c) => t + Math.max(0, -e.trade[c]) * this.market.prices[c], 0);
@@ -2511,7 +2725,11 @@ export class World {
     for (const v of n.envoys ?? []) if (v.until > day) this.remember(v.target, n.id, 0.25);
     if (n.envoys?.some((v) => v.until <= day)) n.envoys = n.envoys.filter((v) => v.until > day);
     // AI governments pass laws they like now and then
-    if (n.controller === 'ai' || n.autopilot) { if (day % 45 === n.id % 45) this.brain.pickLaw(n); return; }
+    if (n.controller === 'ai' || n.autopilot) {
+      if (day % 45 === n.id % 45) this.brain.pickLaw(n);
+      if (pol.capital > 150 && e.stability < 80) this.submit(n.id, { kind: 'appeal' }, 'ai');
+      return;
+    }
     // what parliament (or the elites) want from a player's government
     if (pol.demand) { if (!this.checkDemand(n) && day >= pol.demand.until) this.demandOutcome(n, false); }
     else if (day >= (pol.nextDemand ??= day + 60 + (n.id % 60))) this.newDemand(n, day);
@@ -2575,6 +2793,255 @@ export class World {
     }
     pol.demand = undefined;
     pol.nextDemand = this.market.day + 75 + Math.floor(this.rand() * 60);
+  }
+
+  // ---- war score and peace conferences ---------------------------------------------
+  /** Share of a nation's people living in a province. */
+  popShare(nation: number, p: number) {
+    return (this.military.provinces.get(p)?.pop ?? 0) / Math.max(1, this.ownedPop.get(nation) ?? 1);
+  }
+
+  /** War score of `me` against `foe`, -100..100: land held, battles won, units destroyed. */
+  warScore(me: number, foe: number) {
+    const m = this.military, w = m.warBetween(me, foe);
+    if (!w) return 0;
+    let mine = 0, theirs = 0;
+    for (const [p, occ] of m.occupied) {
+      const owner = m.provinces.get(p)?.owner;
+      if (occ === me && owner === foe) theirs += this.popShare(foe, p);
+      else if (occ === foe && owner === me) mine += this.popShare(me, p);
+    }
+    const i = w.a === me ? 0 : 1, j = 1 - i;
+    const wins = (w.wins?.[i] ?? 0) - (w.wins?.[j] ?? 0), kills = (w.lost?.[j] ?? 0) - (w.lost?.[i] ?? 0);
+    const score = (theirs - mine) * 130 + Math.max(-25, Math.min(25, wins * 2)) + Math.max(-25, Math.min(25, kills * 2));
+    return Math.round(Math.max(-100, Math.min(100, score)));
+  }
+
+  treatyCostFor(winner: number, loser: number, t: PeaceTreaty) {
+    const w = this.military.warBetween(winner, loser);
+    return treatyCost(t, (p) => this.popShare(loser, p), w && w.a === winner ? w.goal : undefined);
+  }
+
+  private applyTreaty(winner: NationState, loser: NationState, t: PeaceTreaty) {
+    const A = this.defs.get(winner.id)!.name, B = this.defs.get(loser.id)!.name, day = this.market.day;
+    const provs = t.provinces.filter((p) => this.military.provinces.get(p)?.owner === loser.id);
+    this.military.makePeace(winner.id, loser.id, (x) => this.home(x));
+    if (provs.length) {
+      for (const p of provs) this.diplomacy.formerOwner.set(p, loser.id);
+      this.transfer(provs, loser, winner);
+      for (const p of provs) this.diplomacy.unrest.set(p, Math.max(this.diplomacy.unrest.get(p) ?? 0, 40));
+      if (this.provincesHeld(loser.id) === 0) this.annex(loser, winner.id);
+    }
+    if (t.reparations > 0) loser.repay = [...(loser.repay ?? []), { to: winner.id, share: t.reparations, until: day + REPARATION_YEARS * 365 }];
+    if (t.demilitarize) {
+      const border = [...this.military.provinces.values()].filter((p) => p.kind === 'land' && p.owner === loser.id && p.adj.some((q) => this.military.provinces.get(q)?.owner === winner.id)).map((p) => p.id);
+      loser.mil.demil = { by: winner.id, until: day + DEMIL_YEARS * 365, provinces: border };
+      for (const p of border) if (this.military.built(p, 'fort')) this.military.destroyBuilding(p);
+      for (const x of this.nations.values()) if (x.id !== loser.id) this.remember(x.id, loser.id, -5); // humiliated
+    }
+    if (t.regime && !loser.annexedBy) {
+      loser.gov = { government: t.regime, reformUntil: day + 60, reformedAt: day };
+      if (loser.pol) loser.pol.laws = [];
+      loser.parties = undefined;
+      this.effectCache.delete(loser.id);
+    }
+    if (t.puppet && !loser.annexedBy) {
+      this.diplomacy.overlords.set(loser.id, winner.id);
+      this.diplomacy.leaveBloc(loser.id);
+      for (const x of this.diplomacy.partners('alliance', loser.id)) this.diplomacy.cancel('alliance', loser.id, x);
+    }
+    this.remember(loser.id, winner.id, -20);
+    this.event('peace', winner.id, `The ${A} and the ${B} sign a peace treaty: ${treatyText({ ...t, provinces: provs })}.`);
+  }
+
+  // ---- equipment ---------------------------------------------------------------------
+  /** Kit made each game day: state arsenals (from the defence budget) and factories (with metals and power). */
+  equipmentRate(n: NationState) {
+    const e = n.econ;
+    const metals = 1 - 0.6 * Math.min(1, e.short.metals), power = 1 - (e.blackout ?? 0);
+    return (this.defenceIncome(n) / 365) * 5 * metals + Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * 1.5 * metals * power;
+  }
+
+  /** The interest rate on a nation's debt: higher with more debt and more turmoil. */
+  interestRate(n: NationState) {
+    const debt = Math.max(0, -n.econ.treasury / n.econ.gdp);
+    return Math.min(0.15, Math.max(0.015, 0.02 + debt * 0.05 + Math.max(0, 50 - n.econ.stability) * 0.0006));
+  }
+
+  // ---- events, parties, espionage, reparations, separatism ---------------------------
+  private statecraftDay(n: NationState, day: number) {
+    const human = n.controller === 'human' && !n.autopilot;
+    // reparations
+    if (n.repay?.length) {
+      n.repay = n.repay.filter((r) => r.until > day && !this.nations.get(r.to)?.annexedBy);
+      for (const r of n.repay) {
+        const pay = (n.econ.gdp * r.share) / 365;
+        n.econ.treasury -= pay;
+        const to = this.nations.get(r.to);
+        if (to) to.econ.treasury += pay;
+      }
+    }
+    // parties
+    if ((this.legislature(n) === 'parliament' || this.legislature(n) === 'council') && !n.gov.reformUntil) {
+      if (!n.parties) this.initParties(n);
+      if (day % 7 === n.id % 7) this.pollDay(n);
+    } else if (n.parties) n.parties = undefined;
+    // agent networks abroad, and counter-intelligence at home
+    if (n.spy) {
+      for (const t of n.spy.building) {
+        if (n.mil.funds < NETWORK_COST) break;
+        n.mil.funds -= NETWORK_COST;
+        n.spy.nets[t] = Math.min(100, (n.spy.nets[t] ?? 0) + NETWORK_GROWTH);
+      }
+      for (const [k, v] of Object.entries(n.spy.nets)) {
+        const t = this.nations.get(Number(k));
+        if (!t || t.annexedBy) { delete n.spy.nets[k as never]; continue; }
+        const next = v - (n.spy.building.includes(Number(k)) ? 0 : 0.05) - (t.spy?.counter ?? 0) * 0.25;
+        if (next <= 0) delete n.spy.nets[k as never]; else n.spy.nets[k as never] = next;
+      }
+      if (n.spy.counter) n.econ.treasury -= (n.econ.gdp * COUNTER_INTEL_COST * n.spy.counter) / 365;
+    }
+    // decisions
+    if (n.event && day - n.event.day >= EVENT_DAYS) this.resolveEvent(n, 0);
+    const chained = Object.entries(n.flags ?? {}).find(([, at]) => at <= day);
+    if (chained && !n.event) { delete n.flags![chained[0]]; this.raiseEvent(n, chained[0] as EventKey, day); }
+    if (!n.event && day >= (n.nextEvent ??= day + 30 + (n.id % 40))) {
+      n.nextEvent = day + (human ? 45 : 90) + Math.floor(this.rand() * 45);
+      const key = this.pickEvent(n, day);
+      if (key) this.raiseEvent(n, key, day);
+    }
+  }
+
+  private raiseEvent(n: NationState, key: EventKey, day: number, about?: number) {
+    if (n.controller === 'ai' || n.autopilot) { n.event = { key, day, about }; this.resolveEvent(n, this.aiChoice(n, key)); return; }
+    n.event = { key, day, about };
+    this.event('politics', n.id, `${this.defs.get(n.id)!.name}: ${EVENTS[key].title.toLowerCase()}. A decision is needed.`);
+    this.touch(n, false);
+  }
+
+  /** Which event fits this nation now (null: nothing happens). */
+  private pickEvent(n: NationState, day: number): EventKey | null {
+    const e = n.econ, f = n.soc?.factions ?? { military: 50, business: 50, public: 50 };
+    const pool: EventKey[] = ['strike', 'scandal', 'boom', 'drought', 'breakthrough', 'investment'];
+    if (this.specialties(n.id).own.gold) pool.push('gold_rush', 'gold_rush');
+    if ((e.capacity.oil ?? 0) > 0 && this.rand() < 0.5) pool.push('oil_find');
+    if (e.short.food > 0.08) pool.push('famine', 'famine', 'famine');
+    if ((n.gov.government === 'junta' || n.gov.government === 'autocracy') && (f.military < 40 || e.stability < 40)) pool.push('coup_plot', 'coup_plot');
+    if (f.public < 35) pool.push('protests', 'protests');
+    if (this.defs.get(n.id)?.neighbours.some((x) => this.military.enemiesOf(x).length)) pool.push('refugees');
+    if (n.parties && n.gov.nextElection !== undefined && n.gov.nextElection - day < CAMPAIGN_DAYS && n.gov.nextElection - day > 10) pool.push('campaign', 'campaign');
+    if ([...this.military.buildings.entries()].some(([p, list]) => this.military.provinces.get(p)?.owner === n.id && list.some((b) => b.damaged))) pool.push('storm_damage');
+    if (!this.diplomacy.partners('trade', n.id).length) pool.splice(pool.indexOf('investment'), 1);
+    return pool[Math.floor(this.rand() * pool.length)] ?? null;
+  }
+
+  private aiChoice(n: NationState, key: EventKey) {
+    const p = n.personality;
+    const pref: Partial<Record<EventKey, number>> = {
+      strike: p === 'expansionist' ? 1 : p === 'idealist' ? 0 : 2, scandal: 0, boom: p === 'trader' ? 0 : 1, drought: 0, refugees: p === 'idealist' ? 0 : 1,
+      breakthrough: 0, gold_rush: 0, boomtown: 1, oil_find: 0, famine: 1, coup_plot: 1, protests: p === 'idealist' ? 0 : 2, campaign: 2, investment: p === 'turtle' ? 1 : 0, storm_damage: 0, spy_caught: 0,
+    };
+    return pref[key] ?? 0;
+  }
+
+  /** Apply the chosen answer to the nation's pending event. */
+  private resolveEvent(n: NationState, i: number) {
+    const ev = n.event!;
+    n.event = undefined;
+    const e = n.econ, gdp = e.gdp, day = this.market.day, pol = n.pol!, f = n.soc?.factions;
+    const fac = (k: 'military' | 'business' | 'public', v: number) => { if (f) f[k] = Math.max(0, Math.min(100, f[k] + v)); };
+    const stab = (v: number) => { e.stability = Math.max(0, Math.min(100, e.stability + v)); };
+    const k = `${ev.key}:${i}`;
+    switch (k) {
+      case 'strike:0': e.treasury -= gdp * 0.003; stab(5); fac('public', 8); fac('business', -6); break;
+      case 'strike:1': stab(-4); fac('public', -12); fac('military', 5); break;
+      case 'strike:2': n.flags = { ...n.flags, slump: day + 365 }; e.gdp *= 0.997; stab(1); break;
+      case 'scandal:0': pol.capital = Math.max(0, pol.capital - 20); stab(2); break;
+      case 'scandal:1': if (this.rand() < 0.5) { stab(-8); pol.support -= 10; } break;
+      case 'scandal:2': pol.support -= 8; fac('public', -5); pol.capital += 10; break;
+      case 'boom:0': e.gdp *= 1.006; stab(-2); break;
+      case 'boom:1': e.treasury += gdp * 0.005; fac('business', -5); break;
+      case 'drought:0': e.treasury -= gdp * 0.003; break;
+      case 'drought:1': e.capacity.food *= 0.94; stab(-2); break;
+      case 'refugees:0': e.pop *= 1.004; stab(-2); for (const x of this.defs.get(n.id)?.neighbours ?? []) this.remember(x, n.id, 5); break;
+      case 'refugees:1': stab(1); n.policy.openBorders = false; for (const x of this.defs.get(n.id)?.neighbours ?? []) this.remember(x, n.id, -5); break;
+      case 'breakthrough:0': if (n.tech.current) n.tech.partial[n.tech.current] = (n.tech.partial[n.tech.current] ?? 0) + 500; else e.research += 500; break;
+      case 'breakthrough:1': e.treasury += gdp * 0.0025; break;
+      case 'gold_rush:0': e.treasury += gdp * 0.004; n.flags = { ...n.flags, boomtown: day + 60 }; break;
+      case 'gold_rush:1': e.treasury += gdp * 0.002; fac('business', -5); break;
+      case 'boomtown:0': stab(-2); break;
+      case 'boomtown:1': e.treasury -= gdp * 0.0015; stab(3); break;
+      case 'oil_find:0': e.treasury -= gdp * 0.002; e.capacity.oil *= 1.12; break;
+      case 'oil_find:1': e.treasury += gdp * 0.0025; e.capacity.oil *= 1.04; break;
+      case 'famine:0': e.treasury -= gdp * 0.004; stab(3); break;
+      case 'famine:1': if (!pol.laws.includes('rationing')) pol.laws = [...pol.laws, 'rationing']; stab(-2); this.effectCache.delete(n.id); break;
+      case 'famine:2': {
+        stab(-3);
+        for (const x of this.diplomacy.partners('trade', n.id)) { const t = this.nations.get(x); if (t && this.opinion(x, n.id).total > 0) { const g = t.econ.gdp * 0.0005; t.econ.treasury -= g; e.treasury += g; e.stock.food += e.capacity.food * 0.02; } }
+        break;
+      }
+      case 'coup_plot:0': fac('military', -15); stab(3); n.flags = { ...n.flags, purge: day + 120 }; break;
+      case 'coup_plot:1': e.treasury -= gdp * 0.003; fac('military', 15); break;
+      case 'coup_plot:2': if (this.rand() < 0.35) { e.stability = 20; fac('military', -30); } break; // the politics day may then see a coup
+      case 'protests:0': pol.capital = Math.max(0, pol.capital - 15); fac('public', 10); stab(2); break;
+      case 'protests:1': stab(2); fac('public', -10); if (n.soc) n.soc.ideology.liberty = Math.max(-1, n.soc.ideology.liberty - 0.05); break;
+      case 'protests:2': stab(-3); break;
+      case 'campaign:0': n.campaign = (n.campaign ?? 0) + 0.05; pol.demand = { kind: 'lower_tax', text: `Cut taxes to ${Math.max(LIMITS.taxMin, n.policy.tax - 3)}% or less`, target: Math.max(LIMITS.taxMin, n.policy.tax - 3), since: day, until: day + 180, by: 'parliament' }; break;
+      case 'campaign:1': n.campaign = (n.campaign ?? 0) + 0.04; pol.demand = { kind: 'welfare', text: `Raise welfare spending to ${e.budget.welfare + 5}% of the budget`, target: e.budget.welfare + 5, since: day, until: day + 180, by: 'parliament' }; break;
+      case 'campaign:2': n.campaign = (n.campaign ?? 0) + (e.stability > 60 ? 0.04 : -0.03); break;
+      case 'investment:0': {
+        e.gdp *= 1.004;
+        const partner = this.diplomacy.partners('trade', n.id)[0];
+        if (partner !== undefined) this.remember(partner, n.id, 8);
+        if (n.soc) n.soc.ideology.openness = Math.min(1, n.soc.ideology.openness + 0.04);
+        break;
+      }
+      case 'investment:1': fac('business', -5); stab(1); break;
+      case 'storm_damage:0':
+        for (const [p, list] of this.military.buildings) {
+          if (this.military.provinces.get(p)?.owner !== n.id) continue;
+          for (const b of list) if (b.damaged) { e.treasury -= BUILDINGS[b.type].cost * REPAIR_COST_SHARE; b.damaged = undefined; b.repair = undefined; }
+        }
+        this.warDirty = true;
+        break;
+      case 'spy_caught:0': if (ev.about !== undefined) { this.remember(ev.about, n.id, -25); const t = this.nations.get(ev.about); if (t?.spy) delete t.spy.nets[n.id]; } break;
+      case 'spy_caught:1': if (ev.about !== undefined) { n.intel = { ...(n.intel ?? {}), [ev.about]: day + 60 }; const t = this.nations.get(ev.about); if (t?.spy?.nets[n.id]) t.spy.nets[n.id] *= 0.5; } break;
+    }
+    if (n.controller === 'human') this.event('politics', n.id, `${this.defs.get(n.id)!.name}: ${EVENTS[ev.key].title.toLowerCase()}: ${EVENTS[ev.key].options[i].text.toLowerCase()}.`);
+    this.effectCache.delete(n.id);
+    this.touch(n, false);
+  }
+
+  /** Four parties, picked by the nation's id, the governing coalition the closest to the government. */
+  private initParties(n: NationState) {
+    const pool = [...PARTY_POOL];
+    const picked: typeof PARTY_POOL = [];
+    let h = n.id * 2654435761 >>> 0;
+    while (picked.length < PARTIES_PER_NATION && pool.length) { h = (Math.imul(h ^ (h >>> 13), 0x5bd1e995) >>> 0); picked.push(pool.splice(h % pool.length, 1)[0]); }
+    n.parties = picked.map((p) => ({ ...p, seats: 0.25, poll: 0.25, gov: false }));
+    this.pollDay(n);
+    for (const x of n.parties) x.seats = x.poll;
+    this.formCoalition(n);
+  }
+
+  /** The governing coalition: the party closest to the government's stance, then its nearest partners until a majority. */
+  private formCoalition(n: NationState) {
+    const ps = n.parties!, gov = GOV_LIBERTY[n.gov.government] ?? 0.5;
+    for (const x of ps) x.gov = false;
+    const lead = [...ps].sort((a, b) => b.seats - a.seats - (Math.abs(a.liberty - gov) - Math.abs(b.liberty - gov)) * 0.3)[0];
+    lead.gov = true;
+    let seats = lead.seats;
+    const rest = ps.filter((x) => !x.gov).sort((a, b) => (Math.abs(a.liberty - lead.liberty) + Math.abs(a.openness - lead.openness)) - (Math.abs(b.liberty - lead.liberty) + Math.abs(b.openness - lead.openness)));
+    for (const x of rest) { if (seats >= 0.5) break; x.gov = true; seats += x.seats; }
+  }
+
+  /** Polls: closeness to what the people believe, how each party's group feels, and the government's record. */
+  private pollDay(n: NationState) {
+    const ps = n.parties!, ide = n.soc?.ideology ?? { liberty: 0, openness: 0 }, f = n.soc?.factions ?? { military: 50, business: 50, public: 50 }, e = n.econ;
+    const record = (e.stability - 55) / 120 + e.growth * 3 + (n.pol?.goodwill ?? 0) / 150 + (n.campaign ?? 0);
+    const appeal = ps.map((x) => Math.max(0.05, 1 - Math.abs(x.liberty - ide.liberty) * 0.7 - Math.abs(x.openness - ide.openness) * 0.45 + (f[x.base] - 50) / 120 + (x.gov ? record : -record * 0.4)) ** 2);
+    const total = appeal.reduce((t, v) => t + v, 0);
+    ps.forEach((x, i) => { x.poll = Math.round((appeal[i] / total) * 1000) / 1000; });
   }
 
   // ---- relations ------------------------------------------------------------------
@@ -2653,7 +3120,16 @@ export class World {
     const na = this.nations.get(a), nb = this.nations.get(b);
     if (!na || !nb || na.annexedBy || nb.annexedBy) return 'That nation no longer exists.';
     const d = this.diplomacy, name = this.defs.get(b)!.short;
-    if (deal.kind === 'peace') return this.military.atWar(a, b) ? null : `You are not at war with the ${name}.`;
+    if (deal.kind === 'peace') {
+      if (!this.military.atWar(a, b)) return `You are not at war with the ${name}.`;
+      if (deal.terms === 'treaty' && deal.treaty) {
+        const t = deal.treaty;
+        if (t.provinces.some((p) => this.military.provinces.get(p)?.owner !== b)) return 'Only their own provinces can be ceded.';
+        if (t.provinces.includes(this.defs.get(b)!.capital) && !t.puppet && t.provinces.length < this.provincesHeld(b)) return 'Their capital goes last: take it only with everything else.';
+        if (t.reparations < 0 || t.reparations > MAX_REPARATIONS) return `Reparations are at most ${MAX_REPARATIONS * 100}% of GDP a year.`;
+      }
+      return null;
+    }
     if (deal.kind === 'bloc') {
       const bloc = d.blocOf(a);
       if (!bloc || bloc.leader !== a) return 'Only a bloc leader can invite members.';
@@ -2694,6 +3170,12 @@ export class World {
   /** Put a deal into effect. `from` proposed it, `to` accepted. */
   private conclude(from: NationState, to: NationState, deal: Deal) {
     const A = this.defs.get(from.id)!.name, B = this.defs.get(to.id)!.name;
+    if (deal.kind === 'peace' && deal.terms === 'treaty' && deal.treaty) {
+      this.applyTreaty(from, to, deal.treaty);
+      this.warChanged();
+      for (const x of [from, to]) { this.touch(x); this.pushUnits(x); }
+      return;
+    }
     if (deal.kind === 'peace') {
       const ceded = deal.terms === 'cede' ? this.cede(from.id, to.id) : 0;
       this.military.makePeace(from.id, to.id, (x) => this.home(x));
@@ -2780,6 +3262,7 @@ export class World {
       const prov = this.military.provinces.get(p);
       if (prov?.owner === nation) lost += prov.pop * u / 200;
     }
+    for (const p of this.nations.get(nation)?.autonomy ?? []) { const prov = this.military.provinces.get(p); if (prov?.owner === nation) lost += prov.pop * 0.25; }
     return lost / Math.max(1, this.ownedPop.get(nation) ?? 1);
   }
 
@@ -2800,10 +3283,11 @@ export class World {
       const n = this.nations.get(owner);
       if (!n || n.annexedBy) { this.diplomacy.unrest.delete(p); continue; }
       const garrison = m.unitsIn(p).filter((x) => x.nation === owner && UNIT_SPECS[x.type].domain === 'land');
-      const next = u - 0.25 - (garrison.length ? 0.6 : 0) - Math.max(0, n.econ.budget.welfare - 35) * 0.02;
+      const autonomous = !!n.autonomy?.includes(p);
+      const next = u - 0.25 - (garrison.length ? 0.6 : 0) - Math.max(0, n.econ.budget.welfare - 35) * 0.02 - (autonomous ? 0.75 : 0);
       if (next <= 0) { this.diplomacy.unrest.delete(p); this.diplomacy.formerOwner.delete(p); continue; }
       this.diplomacy.unrest.set(p, next);
-      if (this.rand() >= next / 100 / 40) continue;
+      if (autonomous || this.rand() >= next / 100 / 40) continue;
       const where = prov.name ?? 'a province';
       if (garrison.length) {
         for (const x of garrison) x.strength = Math.max(10, x.strength - 15);
@@ -2820,6 +3304,12 @@ export class World {
         this.warChanged();
         this.touch(n);
         this.touch(back);
+      } else if ((!back || back.annexedBy) && next > 60 && prov.pop > 2e5) {
+        // nobody to go back to: the separatists declare their own nation, with any restless neighbours
+        const with_ = [p, ...prov.adj.filter((q) => m.provinces.get(q)?.owner === owner && (this.diplomacy.unrest.get(q) ?? 0) > 40)].slice(0, 3);
+        for (const q of with_) { this.diplomacy.unrest.delete(q); this.diplomacy.formerOwner.delete(q); }
+        this.createNation(n, with_, 'revolt');
+        this.event('war', owner, `Separatists in ${where} declare independence from the ${this.defs.get(owner)!.name}!`);
       } else {
         n.econ.stability = Math.max(0, n.econ.stability - 3);
         this.event('war', owner, `Riots in ${where} against ${this.defs.get(owner)!.short} rule.`);
@@ -2881,6 +3371,14 @@ function cleanDeal(d: unknown): Deal | null {
   const x = d as Deal | undefined;
   if (!x || typeof x !== 'object') return null;
   if (x.kind === 'alliance' || x.kind === 'trade' || x.kind === 'bloc' || x.kind === 'nap' || x.kind === 'access' || x.kind === 'research' || x.kind === 'guarantee') return { kind: x.kind };
+  if (x.kind === 'peace' && x.terms === 'treaty') {
+    const t = x.treaty as PeaceTreaty | undefined;
+    if (!t || typeof t !== 'object') return null;
+    const provinces = Array.isArray(t.provinces) ? [...new Set(t.provinces.filter((p) => Number.isInteger(p)))].slice(0, 60) : [];
+    const reparations = typeof t.reparations === 'number' && Number.isFinite(t.reparations) ? Math.round(Math.max(0, t.reparations) * 1000) / 1000 : 0;
+    const regime = t.regime && GOVERNMENTS.includes(t.regime) ? t.regime : undefined;
+    return { kind: 'peace', terms: 'treaty', treaty: { provinces, reparations, demilitarize: !!t.demilitarize, regime, puppet: !!t.puppet } };
+  }
   if (x.kind === 'peace') return { kind: 'peace', terms: x.terms === 'cede' || x.terms === 'puppet' ? x.terms : 'white' };
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
   if (x.kind === 'gift') { const a = Math.round(num(x.amount) * 10) / 10; return a > 0 ? { kind: 'gift', amount: a } : null; }

@@ -6,7 +6,7 @@ import { DAY } from '../../shared/clock.ts';
 import type { BuildingState, BuildingType } from '../../shared/buildings.ts';
 import { WINTER_ATTRITION, coldLand, seasonAt, seasonSlow } from '../../shared/seasons.ts';
 import {
-  BEACHHEAD, GENERAL_BONUS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, bestRoute, distanceKm, domainOf, legDays,
+  BEACHHEAD, EQUIP_CAP, EQUIP_PER_BN, GENERAL_BONUS, SUPPLY_HOPS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, bestRoute, distanceKm, domainOf, legDays,
   type Domain, type General, type Mission, type QueueItem, type RouteNode, type UnitType, type UnitView, type War,
 } from '../../shared/military.ts';
 
@@ -36,6 +36,8 @@ export interface NationMil {
   lastMissileDay?: number;
   rally?: number; // new land units march here
   satellites?: number;
+  equipment?: number; // kit in store
+  demil?: { by: number; until: number; provinces: number[] }; // a peace treaty keeps our troops out of these
 }
 
 export interface MilitaryState {
@@ -69,6 +71,8 @@ export class Military {
   wars: War[] = [];
   /** Set by the World: whether two nations are allied (allies may cross each other's land). */
   allied: (a: number, b: number) => boolean = () => false;
+  /** Set by the World: provinces a nation's troops may not enter (a demilitarised border). */
+  barred: (nation: number, p: number) => boolean = () => false;
   /** Set by the World: nations whose forces this nation can see through intelligence. */
   intelOn: (nation: number) => number[] = () => [];
   /** Set by the World: a nation's bonus from technology and government (0.1 = +10%). */
@@ -134,7 +138,7 @@ export class Military {
     }
     for (const [nation, units] of byNation) {
       // the common case: every unit stands on land its own nation holds
-      if (units.every((u) => this.controller(u.province) === nation)) { for (const u of units) u.supplied = true; continue; }
+      if (units.every((u) => this.controller(u.province) === nation && this.provinces.get(u.province)?.owner === nation)) { for (const u of units) u.supplied = true; continue; }
       const friendly = (p: number) => {
         const c = this.controller(p);
         return c === nation || (c !== undefined && this.allied(nation, c));
@@ -142,17 +146,24 @@ export class Military {
       const seeds: number[] = [];
       const home = homeOf(nation);
       if (home !== undefined && this.controller(home) === nation) seeds.push(home);
-      for (const [p] of this.buildings) if (this.built(p, 'port') && this.controller(p) === nation) seeds.push(p);
-      const reach = new Set<number>(seeds);
+      for (const [p] of this.buildings) if ((this.built(p, 'port') || this.built(p, 'depot')) && this.controller(p) === nation) seeds.push(p);
+      // hops beyond our own land: 0 on land we own and hold, +1 for each province beyond it
+      const dist = new Map<number, number>(seeds.map((p) => [p, 0]));
       const queue = [...seeds];
       while (queue.length) {
+        queue.sort((a, b) => dist.get(b)! - dist.get(a)!); // a small graph: cheapest last
         const p = queue.pop()!;
+        const d0 = dist.get(p)!;
         for (const q of this.provinces.get(p)!.adj) {
-          if (reach.has(q) || this.provinces.get(q)?.kind !== 'land' || !friendly(q)) continue;
-          reach.add(q);
+          const prov = this.provinces.get(q);
+          if (prov?.kind !== 'land' || !friendly(q)) continue;
+          const d = d0 + (prov.owner === nation && this.controller(q) === nation ? 0 : 1);
+          if (d > SUPPLY_HOPS || (dist.get(q) ?? Infinity) <= d) continue;
+          dist.set(q, d);
           queue.push(q);
         }
       }
+      const reach = new Set(dist.keys());
       for (const u of units) {
         const at = this.provinces.get(u.province);
         u.supplied = u.type === 'special_forces' || !seeds.length || at?.kind === 'sea' || reach.has(u.province) || !!at?.adj.some((q) => reach.has(q));
@@ -181,6 +192,7 @@ export class Military {
   canEnter(nation: number, p: number, domain: Domain = 'land') {
     const prov = this.provinces.get(p);
     if (!prov) return false;
+    if (prov.kind === 'land' && domain === 'land' && this.barred(nation, p)) return false;
     if (domain === 'sea') return prov.kind === 'sea';
     if (prov.kind === 'sea') return domain === 'land';
     const ctrl = this.controller(p);
@@ -364,8 +376,12 @@ export class Military {
 
   declareWar(a: number, b: number, day: number) {
     if (a === b || this.atWar(a, b)) return false;
-    this.wars.push({ a, b, since: day });
+    this.wars.push({ a, b, since: day, wins: [0, 0], lost: [0, 0] });
     return true;
+  }
+
+  warBetween(a: number, b: number) {
+    return this.wars.find((w) => (w.a === a && w.b === b) || (w.a === b && w.b === a));
   }
 
   /** End a war: occupied land goes back to its owner and units leave land they may no longer enter. */
@@ -660,17 +676,20 @@ export class Military {
   }
 
   /** Daily logistics for one nation: income, upkeep, production and reinforcement. */
-  logistics(nation: number, mil: NationMil, income: number, manpower: number, homeFor: (t: UnitType) => number | undefined, now = 0) {
+  logistics(nation: number, mil: NationMil, income: number, manpower: number, homeFor: (t: UnitType) => number | undefined, now = 0, equipmentMade = 0) {
     const mine = this.unitsOf(nation);
     const upkeep = mine.reduce((s, u) => s + UNIT_SPECS[u.type].upkeep, 0);
     mil.funds += (income - upkeep) / 365;
+    mil.equipment = Math.min(EQUIP_CAP, (mil.equipment ?? 300) + equipmentMade);
     const item = mil.queue[0];
     const where = item ? homeFor(item.type) : undefined;
     if (item && where !== undefined) {
       const spec = UNIT_SPECS[item.type];
       const daily = spec.cost / spec.days;
-      if (mil.funds >= daily) {
+      const kit = (spec.cost * EQUIP_PER_BN) / spec.days;
+      if (mil.funds >= daily && mil.equipment >= kit) {
         mil.funds -= daily;
+        mil.equipment -= kit;
         item.progress = Math.min(1, item.progress + (1 + this.bonus(nation, 'build')) / spec.days);
         if (item.progress >= 1) {
           mil.queue.shift();
@@ -683,8 +702,10 @@ export class Military {
     for (const u of mine) {
       if (u.strength >= 100 || !this.atHome(u)) continue;
       const cost = UNIT_SPECS[u.type].cost * 0.004;
-      if (mil.funds < cost || manpower <= 0) break;
+      const kit = cost * EQUIP_PER_BN;
+      if (mil.funds < cost || manpower <= 0 || (mil.equipment ?? 0) < kit) break;
       mil.funds -= cost;
+      mil.equipment = (mil.equipment ?? 0) - kit;
       u.strength = Math.min(100, u.strength + 3);
     }
     if (mil.funds < -5) for (const u of mine) u.strength = Math.max(10, u.strength - 0.5); // unpaid forces desert

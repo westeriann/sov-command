@@ -6,6 +6,11 @@ import { COMMODITIES, COMMODITY_INFO } from '../../shared/economy';
 import { ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, MAX_SPY_OPS, PACTS, PACT_INFO, PROPOSAL_DAYS, SPY_COST, SPY_MISSIONS, VOTE_DAYS } from '../../shared/diplomacy';
 import { DECREE_DISCOUNT, HIGH_TAX, HIGH_TAX_SUPPORT, LAWS, LAW_IDS, MAX_CAPITAL, WAR_SUPPORT } from '../../shared/politics';
 import { SPECIALTIES, SPECIALTY_LIST } from '../../shared/specialties';
+import { EQUIP_PER_BN, SUPPLY_HOPS, WAR_GOALS, type WarGoal } from '../../shared/military';
+import { DEMIL_YEARS, MAX_REPARATIONS, PEACE_COST, REPARATION_YEARS } from '../../shared/peace';
+import { EVENTS, EVENT_DAYS, type EventKey } from '../../shared/events';
+import { AUTONOMY_COST, CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST } from '../../shared/parties';
+import { MAX_NETWORKS, NETWORK_GROWTH } from '../../shared/diplomacy';
 import { UNIT_ROLE, UNIT_SPECS, UNIT_TYPES } from '../../shared/military';
 import { GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_DAYS, TECHS, TIER_COST } from '../../shared/research';
 
@@ -109,6 +114,10 @@ const CHAPTERS: Chapter[] = [
   {
     id: 'forces', title: 'Armed forces', html: () => `
       <p>Recruit in ${L('module:army', 'Ground forces')} (<kbd>F</kbd>), ${L('module:navy', 'Naval ops')} (<kbd>N</kbd>) and ${L('module:air', 'Air command')} (<kbd>B</kbd>). New units appear at your capital (land units march to your rally point if you set one).</p>
+      <h3>Equipment</h3>
+      <p>Every unit needs equipment: ${EQUIP_PER_BN} kit for each $1bn of its cost, drawn day by day while it is built, and more to bring damaged units back to strength. State arsenals make it from the defence budget; each factory complex adds 1.5 a day, if it has metals and electricity. Short of equipment, production and reinforcement stall: the Ground forces window shows what you make and use.</p>
+      <h3>Supply</h3>
+      <p>Your own land supplies your armies anywhere in it. Beyond it, supply reaches ${SUPPLY_HOPS} provinces from your capital, a port or a <b>supply depot</b> (build one in a province you hold, even an occupied one). Units out of supply fight weaker and lose strength every day.</p>
       <table class="man-table"><thead><tr><th>Unit</th><th>Attack</th><th>Defense</th><th>Speed / radius</th><th>Cost</th><th>Role</th></tr></thead><tbody>
         ${UNIT_TYPES.map((t) => { const s = UNIT_SPECS[t]; return `<tr><td>${esc(s.name)}</td><td>${s.attack}</td><td>${s.defense}</td><td>${s.range ? `${s.range} km` : `${s.speed} km/day`}</td><td>$${s.cost}bn</td><td>${esc(UNIT_ROLE[t] ?? '')}</td></tr>`; }).join('')}
       </tbody></table>
@@ -129,9 +138,11 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'war', title: 'War and peace', html: () => `
-      <p>Declare war from a nation's panel (click its land). Its allies may join against you, and yours with you. Your troops may enter its land; empty provinces you march into are occupied.</p>
-      <p>Peace needs both sides: <b>white peace</b> (everyone goes home), <b>ceding</b> the provinces you hold, or making the loser your <b>vassal</b> (it pays tribute). A nation that loses all its land is annexed. Occupied land can rise in revolt.</p>
-      <p>The ${L('module:army', 'Ground forces')} window lists your wars, what each side holds, and peace offers.</p>`,
+      <p>Declare war from a nation's panel or its Diplomacy page, and choose a <b>war goal</b>: terms that match it cost half at the peace table.</p>
+      <table class="man-table"><tbody>${(Object.keys(WAR_GOALS) as WarGoal[]).map((g) => `<tr><td>${WAR_GOALS[g].name}</td><td>${esc(WAR_GOALS[g].text)}</td></tr>`).join('')}</tbody></table>
+      <p>Its allies and guarantors join against you; breaking a non-aggression pact is remembered by every nation. Your troops may enter its land; empty provinces you march into are occupied.</p>
+      <h3>War score and the peace conference</h3>
+      <p>War score (−100 to +100) counts the share of their people under your occupation, battles won and divisions destroyed. At the <b>peace conference</b> you choose terms and pay for them with it: provinces (by their share of the loser's people), reparations of up to ${MAX_REPARATIONS * 100}% of their GDP a year for ${REPARATION_YEARS} years (${PEACE_COST.reparationsPerPct} per 1%), a demilitarised border for ${DEMIL_YEARS} years (${PEACE_COST.demilitarize}), a new government (${PEACE_COST.regime}) or vassalage (${PEACE_COST.puppet}). AI governments accept terms their war score can pay for, more readily as a war drags on; white peace ends any war. A nation that loses all its land is annexed. Ceded land is restless for a while.</p>`,
   },
   {
     id: 'diplomacy', title: 'Diplomacy', html: () => `
@@ -164,8 +175,24 @@ const CHAPTERS: Chapter[] = [
       </ul>
       <p><b>Demands</b>: parliament (or, under rule by decree, the unhappiest of the military, business and the public) asks something every few months: more welfare, research or defence spending, lower taxes, peace, a trade deal, or a law. Meet it within 90 days for <g>+15 capital and goodwill</g>; ignore or refuse it and <r>support and stability fall</r>.</p>
       <p><b>Emergency powers</b> suspend parliament's votes, at a cost to liberty and the public's mood. <b>Claims</b> come from demands other nations refuse, made in ${L('module:diplomacy', 'Diplomacy')}.</p>
+      <h3>Parties and elections</h3>
+      <p>Parliaments have four parties, each speaking for the military, business or the public, and each liberal or authoritarian, nationalist or internationalist. Their polls follow what the people believe, how their group feels, and, for the governing coalition, how the country is doing. Parliament's support follows the coalition's seats. Invite a party into government (${COALITION_COST} capital) if it is not too far from yours; a partner may walk out if support collapses. ${CAMPAIGN_DAYS} days before an election you can campaign (${CAMPAIGN_COST} capital). At the election seats follow the polls; if the coalition falls short of half, a new one forms, parliament blocks new wars for six months and repeals a law its voters dislike.</p>
+      <p><b>Address the nation</b> (50 capital): +6 stability.</p>
+      <h3>Separatism</h3>
+      <p>Conquered provinces are restless. A garrison and welfare calm them; <b>autonomy</b> (${AUTONOMY_COST} capital, from the province panel) halves unrest and stops revolts, but the province keeps a quarter of its output. Restless land goes back to its old nation if it can, or declares independence if that nation is gone.</p>
       <h3>Laws</h3>
       <table class="man-table"><tbody>${LAW_IDS.map((l) => `<tr><td>${LAWS[l].name}</td><td>${esc(LAWS[l].text)}</td><td>${LAWS[l].cost}</td></tr>`).join('')}</tbody></table>`,
+  },
+  {
+    id: 'decisions', title: 'Decisions', html: () => `
+      <p>Every month or two something happens to your nation and you choose how to answer. Each option lists its effects; unanswered, the first option is taken after ${EVENT_DAYS} days. Some lead to later events (a gold rush, then lawless boom towns). Decisions waiting show as a flag icon at the top.</p>
+      <table class="man-table"><tbody>${(Object.keys(EVENTS) as EventKey[]).map((k) => `<tr><td>${EVENTS[k].image} ${EVENTS[k].title}</td><td>${EVENTS[k].options.map((o) => esc(o.text)).join(' · ')}</td></tr>`).join('')}</tbody></table>`,
+  },
+  {
+    id: 'espionage', title: 'Espionage', html: () => `
+      <p>Open ${L('module:espionage', 'Espionage')} (<kbd>J</kbd>). Missions need an <b>agent network</b> in the target nation: recruit one (up to ${MAX_NETWORKS} at once, +${NETWORK_GROWTH} a day, paid from military funds). Idle networks fade slowly, and the target's counter-intelligence wears them down and catches agents: a caught spy ring damages relations and may hand the target a decision.</p>
+      <table class="man-table"><tbody>${Object.values(SPY_MISSIONS).map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.text)}</td><td>network ${m.need}</td></tr>`).join('')}</tbody></table>
+      <p><b>Counter-intelligence</b> (none to total) costs a share of GDP and protects your own nation.</p>`,
   },
   {
     id: 'specialties', title: 'Province specialties', html: () => `
@@ -209,7 +236,9 @@ const CHAPTERS: Chapter[] = [
         <tr><td><kbd>W A S D</kbd></td><td>Move the camera (Shift: faster)</td></tr>
         <tr><td><kbd>E</kbd> <kbd>X</kbd></td><td>Economy, Market</td></tr>
         <tr><td><kbd>F</kbd> <kbd>N</kbd> <kbd>B</kbd></td><td>Ground forces, Naval ops, Air command</td></tr>
-        <tr><td><kbd>P</kbd> <kbd>O</kbd> <kbd>R</kbd> <kbd>K</kbd></td><td>Diplomacy, Politics, R&amp;D, Rankings</td></tr>
+        <tr><td><kbd>P</kbd> <kbd>O</kbd> <kbd>J</kbd></td><td>Diplomacy, Politics, Espionage</td></tr>
+        <tr><td><kbd>R</kbd> <kbd>K</kbd> <kbd>V</kbd></td><td>R&amp;D, Rankings, Records</td></tr>
+        <tr><td><kbd>Space</kbd></td><td>Pause (single player) or vote to pause (shared worlds)</td></tr>
         <tr><td><kbd>M</kbd></td><td>Back to the map (close windows)</td></tr>
         <tr><td><kbd>Q</kbd> <kbd>H</kbd> <kbd>T</kbd> <kbd>L</kbd> <kbd>U</kbd> <kbd>Tab</kbd></td><td>Orders for selected units</td></tr>
         <tr><td><kbd>I</kbd></td><td>This manual</td></tr>
@@ -220,7 +249,10 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'music', title: 'Menu, music and settings', html: () => `
-      <p>The <b>main menu</b> (☰ in the top bar, or <kbd>Esc</kbd> with nothing open) holds single player, a new campaign, multiplayer (join a world server by its address), options for graphics, sound, interface and game speed, this manual and the credits. Single player pauses while it is open.</p>
+      <p>The <b>main menu</b> (☰ in the top bar, or <kbd>Esc</kbd> with nothing open) holds single player, save and load, a new campaign (optionally <b>Ironman</b>: one autosave, no going back), multiplayer, options for graphics, sound, interface and game speed, this manual and the credits. Single player pauses while it is open, and <kbd>Space</kbd> pauses it at any time.</p>
+      <h3>Multiplayer</h3>
+      <p>In the desktop app, <b>Host a game</b> runs a shared world on your computer: friends on your network join at the address it shows, in the game or a browser (for friends elsewhere, forward port 8787). Or join any world server by its address. In a shared world, pick a nation from the menu; <kbd>Space</kbd> votes to pause, and the world pauses when every leader online agrees (for up to ten minutes).</p>
+      <p>${L('module:records', 'Records')} (<kbd>V</kbd>) holds the ledger of every nation, sortable, and the full log of dispatches, filtered by kind.</p>
       <p>The ${L('do:music', 'music player')} (♪ in the top bar) plays the game's own soundtrack, any tracks placed in the game's <code>music</code> folder, and music files you add yourself. Sound effects are switched with <b>Sound on/off</b>.</p>
       <p>View settings on the left: borders, rivers, names, grid lines, colour-blind friendly colours, tilt, relief and 3D models. If the map runs slowly, turning off 3D models helps most.</p>`,
   },

@@ -17,7 +17,8 @@
     "test": "npm --prefix server test",
     "check": "cd client && npx tsc --noEmit && cd ../server && npx tsc --noEmit",
     "build:offline": "npm --prefix client run build:offline",
-    "desktop": "npm run build:offline && npm --prefix desktop install && npm --prefix desktop start",
-    "desktop:dist": "npm run build:offline && npm --prefix desktop install && npm --prefix desktop run dist"
+    "build:host": "npm run build && node tools/bundle-host.mjs",
+    "desktop": "npm run build:offline && npm run build:host && npm --prefix desktop install && npm --prefix desktop start",
+    "desktop:dist": "npm run build:offline && npm run build:host && npm --prefix desktop install && npm --prefix desktop run dist"
   }
 }

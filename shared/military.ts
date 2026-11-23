@@ -256,10 +256,30 @@ export interface UnitView {
 }
 
 export interface War {
-  a: number;
+  a: number; // the attacker
   b: number;
   since: number; // game day index
+  goal?: WarGoal; // what the attacker declared it was fighting for
+  wins?: [number, number]; // battles won by a and by b
+  lost?: [number, number]; // units destroyed of a and of b
 }
+
+/** What an attacker declares a war is for. Peace terms that match it cost half. */
+export type WarGoal = 'conquest' | 'subjugate' | 'regime' | 'reparations' | 'humiliate';
+export const WAR_GOALS: Record<WarGoal, { name: string; text: string }> = {
+  conquest: { name: 'Conquest', text: 'take land: provinces cost half at the peace table' },
+  subjugate: { name: 'Subjugation', text: 'make them a vassal at half the cost' },
+  regime: { name: 'Regime change', text: 'impose your form of government at half the cost' },
+  reparations: { name: 'Reparations', text: 'make them pay: reparations cost half' },
+  humiliate: { name: 'Humiliation', text: 'demilitarise their border at half the cost; others think less of them' },
+};
+
+/** Equipment: arsenals and factories make it; units need it to be built and reinforced. */
+export const EQUIP_PER_BN = 10; // kit per $bn of a unit's cost
+export const EQUIP_START = 300;
+export const EQUIP_CAP = 4000;
+/** Supply reaches this many provinces beyond your own land from a capital, port or depot. */
+export const SUPPLY_HOPS = 3;
 
 export interface QueueItem {
   type: UnitType;
@@ -280,4 +300,7 @@ export interface MilitaryPrivate {
   maxGenerals: number;
   rally?: number; // province new land units march to
   satellites: number;
+  equipment?: number; // kit in store
+  equipmentRate?: number; // kit made per game day
+  equipmentNeed?: number; // kit a day the production line wants
 }

@@ -187,7 +187,7 @@ export class DiplomacyPanel {
         <div class="actions-row">
           <button type="button" class="claim" data-d="denounce" data-nation="${id}" data-tip="${attr(tip('Denounce', ['−30 to their opinion; their allies sour too', 'bad'], ['Their enemies like you more; +5 political capital at home', 'good']))}">Denounce</button>
           <button type="button" class="claim" data-d="embargo" data-nation="${id}" data-on="${embargo ? 0 : 1}">${embargo ? 'Lift embargo' : 'Embargo'}</button>
-          ${atWar ? '' : `<button type="button" class="claim danger" data-d="war" data-nation="${id}">Declare war</button>`}
+          ${atWar ? `<a href="#" class="claim primary go-btn" data-go="peacecon:${id}">Peace conference…</a>` : `<a href="#" class="claim danger go-btn" data-go="war:${id}">Declare war…</a>`}
         </div>
       </section></div>`;
   }
@@ -240,9 +240,8 @@ export class DiplomacyPanel {
             ${wars.length ? wars.map((foe) => {
               const ours = held(me, foe), theirs = held(foe, me);
               return `<div class="war-row"><div><b>${this.name(foe)}</b><span class="mono">we hold ${ours} of theirs, they hold ${theirs} of ours</span></div>
-                <div class="actions-row"><button type="button" class="claim" data-d="white" data-nation="${foe}" ${sent(foe, 'peace') ? 'disabled' : ''}>White peace</button>
-                ${ours ? `<button type="button" class="claim primary" data-d="cede" data-nation="${foe}" ${sent(foe, 'peace') ? 'disabled' : ''}>Demand the ${ours} province${ours > 1 ? 's' : ''} we hold</button>
-                <button type="button" class="claim" data-d="puppet" data-nation="${foe}" ${sent(foe, 'peace') ? 'disabled' : ''}>Demand vassalage</button>` : ''}</div></div>`;
+                <div class="actions-row"><a href="#" class="claim primary go-btn" data-go="peacecon:${foe}">Peace conference… (score ${(mine.warScores?.[foe] ?? 0) > 0 ? '+' : ''}${mine.warScores?.[foe] ?? 0})</a>
+                <button type="button" class="claim" data-d="white" data-nation="${foe}" ${sent(foe, 'peace') ? 'disabled' : ''}>White peace</button></div></div>`;
             }).join('') : '<p class="hint">No wars.</p>'}
           </section>
           <section>

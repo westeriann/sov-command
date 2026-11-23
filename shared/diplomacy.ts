@@ -1,5 +1,6 @@
 // Diplomacy shared by server and client: treaties, proposals and peace terms.
 import type { Commodity } from './economy';
+import { treatyText, type PeaceTreaty } from './peace';
 
 /**
  * Standing agreements between two nations. A guarantee runs one way: `a`
@@ -28,11 +29,11 @@ export const MAX_ENVOYS = 2;
  * Peace terms. 'white': everyone goes home. 'cede': the proposer keeps the
  * other side's provinces it occupies; its own occupied land is returned.
  */
-export type PeaceTerms = 'white' | 'cede' | 'puppet'; // puppet: the loser becomes the winner's vassal
+export type PeaceTerms = 'white' | 'cede' | 'puppet' | 'treaty'; // puppet: the loser becomes the winner's vassal; treaty: terms chosen at a peace conference
 
 export type Deal =
   | { kind: 'alliance' } | { kind: 'trade' } | { kind: 'nap' } | { kind: 'access' } | { kind: 'research' } | { kind: 'guarantee' }
-  | { kind: 'peace'; terms: PeaceTerms } | { kind: 'bloc' }
+  | { kind: 'peace'; terms: PeaceTerms; treaty?: PeaceTreaty } | { kind: 'bloc' }
   | { kind: 'contract'; good: Commodity; amount: number; years: number; sell: boolean } // sell: the proposer delivers
   | { kind: 'gift'; amount: number } // $bn, always welcome
   | { kind: 'demand'; province?: number; tribute?: number }; // hand over a province, or pay $bn; refusing gives a claim
@@ -66,7 +67,7 @@ export const DEAL_NAMES: Record<DealKind, string> = {
 };
 
 export function dealText(d: Deal) {
-  if (d.kind === 'peace') return d.terms === 'cede' ? 'peace with territory ceded' : d.terms === 'puppet' ? 'peace as a vassal state' : 'white peace';
+  if (d.kind === 'peace') return d.terms === 'treaty' && d.treaty ? `peace: ${treatyText(d.treaty)}` : d.terms === 'cede' ? 'peace with territory ceded' : d.terms === 'puppet' ? 'peace as a vassal state' : 'white peace';
   if (d.kind === 'contract') return `${d.years}-year contract to ${d.sell ? 'sell' : 'buy'} ${d.good.replace('_', ' ')}`;
   if (d.kind === 'gift') return `a gift of $${d.amount}bn`;
   if (d.kind === 'demand') return d.province !== undefined ? 'a demand for a province' : `a demand for $${d.tribute}bn in tribute`;
@@ -102,15 +103,24 @@ export const VOTE_DAYS = 7;
 export const MAX_OPEN_RESOLUTIONS = 4;
 
 /** Covert operations. */
-export type SpyMission = 'steal' | 'sabotage' | 'recon' | 'unrest' | 'cyber_grid' | 'cyber_heist';
-export const SPY_MISSIONS: Record<SpyMission, { name: string; text: string }> = {
-  steal: { name: 'Steal technology', text: 'Gain 40% of a technology they have and you lack' },
-  sabotage: { name: 'Sabotage', text: 'Destroy a building or a share of their munitions' },
-  recon: { name: 'Reconnaissance', text: 'See all their forces for 30 game days' },
-  unrest: { name: 'Stir unrest', text: '−6 stability for them' },
-  cyber_grid: { name: 'Cyberattack: power grid', text: 'Knock out 15% of their grid (needs Digital government)' },
-  cyber_heist: { name: 'Cyberattack: treasury', text: 'Siphon off 1.5% of their reserves (needs Digital government)' },
+export type SpyMission = 'steal' | 'sabotage' | 'recon' | 'unrest' | 'cyber_grid' | 'cyber_heist' | 'blueprints' | 'rig_election' | 'back_coup';
+/** need: the agent network strength (0..100) the mission requires in the target nation. */
+export const SPY_MISSIONS: Record<SpyMission, { name: string; text: string; need: number }> = {
+  recon: { name: 'Reconnaissance', text: 'See all their forces for 30 game days', need: 10 },
+  unrest: { name: 'Stir unrest', text: '−6 stability for them', need: 20 },
+  steal: { name: 'Steal technology', text: 'Gain 40% of a technology they have and you lack', need: 30 },
+  sabotage: { name: 'Sabotage', text: 'Destroy a building or a share of their munitions', need: 30 },
+  blueprints: { name: 'Steal blueprints', text: 'Their arms designs: 150 equipment, and your next unit builds 30% faster', need: 40 },
+  cyber_grid: { name: 'Cyberattack: power grid', text: 'Knock out 15% of their grid (needs Digital government)', need: 40 },
+  cyber_heist: { name: 'Cyberattack: treasury', text: 'Siphon off 1.5% of their reserves (needs Digital government)', need: 40 },
+  rig_election: { name: 'Rig their politics', text: 'Their parliament turns on its government (−20 support); in an election year it may fall', need: 55 },
+  back_coup: { name: 'Back a coup', text: 'Arm their unhappy officers: if their stability is below 45 the government may fall to a junta', need: 70 },
 };
+/** Agent networks: built up day by day, worn down by the target's counter-intelligence. */
+export const NETWORK_GROWTH = 0.8; // points a game day while building
+export const NETWORK_COST = 0.02; // $bn of military funds a day while building
+export const MAX_NETWORKS = 4; // built up at the same time
+export const COUNTER_INTEL_COST = 0.0005; // share of GDP a year per level (0..3)
 export const SPY_COST = 2; // $bn of military funds
 export const SPY_DAYS = 5;
 export const MAX_SPY_OPS = 3;

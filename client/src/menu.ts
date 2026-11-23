@@ -7,15 +7,28 @@ export interface MenuActions {
   offline: boolean; // single-player build (the world runs in this window)
   desktop: boolean; // inside the desktop app
   continue(): void; // close the menu and play
-  newGame(): void; // delete the single-player world and start again
+  newGame(ironman: boolean): void; // delete the single-player world and start again
+  slots?: (msg: { t: 'slots' } | { t: 'save-slot'; name: string } | { t: 'load-slot'; name: string } | { t: 'delete-slot'; name: string }) => Promise<{ list: { name: string; info: string }[]; ironman: boolean; error?: string; saved?: string }>;
   manual(): void;
   pause(on: boolean): void;
   music: { level: number; on: boolean; setLevel(v: number): void; toggle(): void; play(): void; pause(): void };
+  /** Shared worlds: who leads what, to pick a nation from the menu. */
+  lobby?: () => { id: number; name: string; player?: string; online?: boolean; gdp: number }[];
+  claim?: (id: number) => void;
+  mineId?: () => number | undefined;
+}
+
+/** What the desktop app offers the page (see desktop/preload.cjs). */
+interface DesktopBridge {
+  host(): Promise<{ port: number; url: string; addresses: string[] }>;
+  stopHost(): Promise<boolean>;
+  hosting(): Promise<{ port: number; addresses: string[] } | null>;
+  singlePlayer(): Promise<boolean>;
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-type Page = 'main' | 'options' | 'multiplayer' | 'credits' | 'newgame';
+type Page = 'main' | 'options' | 'multiplayer' | 'credits' | 'newgame' | 'saves';
 
 export const MOTTO = 'Glory be to the victor and the spoils they shall have.';
 
@@ -61,6 +74,9 @@ export class MainMenu {
   private ready = false;
   private progressText = 'Charting the planet';
   private progress = 0;
+  private hostInfo: { url?: string; addresses: string[]; error?: string; busy?: boolean } | null = null;
+  private get bridge() { return (window as unknown as { sovDesktop?: DesktopBridge }).sovDesktop; }
+  private saves: { list: { name: string; info: string }[]; ironman: boolean; error?: string; saved?: string } | null = null;
   private tip = Math.floor(Math.random() * TIPS.length);
   private tipTimer = 0;
   isOpen = true;
@@ -146,11 +162,32 @@ export class MainMenu {
     if (!t) return;
     const m = t.dataset.m;
     if (m === 'play') this.close();
-    else if (m === 'page') { this.page = t.dataset.page as Page; this.render(); }
+    else if (m === 'page') {
+      this.page = t.dataset.page as Page;
+      if (this.page === 'saves') void this.a.slots?.({ t: 'slots' }).then((r) => { this.saves = r; this.render(); });
+      this.render();
+    }
     else if (m === 'back') { this.page = 'main'; this.render(); }
     else if (m === 'manual') { this.close(); this.a.manual(); }
-    else if (m === 'newgame-yes') this.a.newGame();
+    else if (m === 'newgame-yes') this.a.newGame(!!this.el.querySelector<HTMLInputElement>('#ironman')?.checked);
+    else if (m === 'save' || m === 'load' || m === 'delete') {
+      const name = m === 'save' ? (this.el.querySelector<HTMLInputElement>('#saveName')?.value ?? '') : t.dataset.name ?? '';
+      if (m === 'delete' && t.dataset.confirm !== '1') { t.dataset.confirm = '1'; t.textContent = 'Confirm delete'; return; }
+      if (m === 'load' && t.dataset.confirm !== '1') { t.dataset.confirm = '1'; t.textContent = 'Confirm: load (unsaved progress is lost)'; return; }
+      void this.a.slots?.({ t: m === 'save' ? 'save-slot' : m === 'load' ? 'load-slot' : 'delete-slot', name } as never).then((r) => { this.saves = r; this.render(); });
+    }
     else if (m === 'quit') window.close();
+    else if (m === 'host') {
+      const b = this.bridge;
+      if (!b) return;
+      this.hostInfo = { addresses: [], busy: true }; this.render();
+      b.host().then((r) => { this.hostInfo = { url: r.url, addresses: r.addresses }; this.render(); })
+        .catch((err: Error) => { this.hostInfo = { addresses: [], error: String(err.message ?? err) }; this.render(); });
+    }
+    else if (m === 'open-host' && this.hostInfo?.url) location.href = this.hostInfo.url;
+    else if (m === 'stop-host') { void this.bridge?.stopHost().then(() => this.bridge?.singlePlayer()); }
+    else if (m === 'single') void this.bridge?.singlePlayer();
+    else if (m === 'pick') { this.a.claim?.(Number(t.dataset.nation)); this.close(); }
     else if (m === 'join') {
       const input = this.el.querySelector<HTMLInputElement>('#mpUrl');
       let url = (input?.value ?? '').trim();
@@ -200,7 +237,7 @@ export class MainMenu {
       return;
     }
     const body = this.page === 'options' ? this.optionsHtml() : this.page === 'multiplayer' ? this.multiplayerHtml()
-      : this.page === 'credits' ? this.creditsHtml() : this.page === 'newgame' ? this.newGameHtml() : this.mainHtml();
+      : this.page === 'credits' ? this.creditsHtml() : this.page === 'newgame' ? this.newGameHtml() : this.page === 'saves' ? this.savesHtml() : this.mainHtml();
     this.el.innerHTML = `<div class="menu-shell">
       <div class="menu-brand">${EMBLEM}<h1>SOVEREIGN<span>COMMAND</span></h1><p class="motto">${MOTTO}</p></div>
       <div class="menu-body">${body}</div>
@@ -213,6 +250,7 @@ export class MainMenu {
     const btn = (m: string, label: string, sub: string, extra = '') => `<button type="button" class="menu-btn" data-m="${m}" ${extra}><b>${label}</b><span>${sub}</span></button>`;
     return `<nav class="menu-list">
       ${a.offline ? btn('play', 'Single player', 'Continue your campaign') : btn('play', 'Play', 'Return to the world')}
+      ${a.offline ? btn('page', 'Save and load', 'Keep your world under a name, or go back to one', 'data-page="saves"') : ''}
       ${a.offline ? btn('page', 'New campaign', 'Start a fresh world, from 1 January 2026', 'data-page="newgame"') : ''}
       ${btn('page', 'Multiplayer', a.offline ? 'Join a world server with other players' : 'You are playing on a shared world', 'data-page="multiplayer"')}
       ${btn('page', 'Options', 'Graphics, sound, interface and game speed', 'data-page="options"')}
@@ -225,17 +263,44 @@ export class MainMenu {
   private newGameHtml() {
     return `<h2>New campaign</h2>
       <p>This deletes your current single-player world and starts a new one on 1 January 2026, with every nation back to where it began. Your choices of graphics and sound are kept.</p>
+      <label class="check"><input type="checkbox" id="ironman">Ironman: a single autosave, no loading earlier saves. Every decision stands.</label>
       <div class="menu-row"><button type="button" class="claim danger" data-m="newgame-yes">Delete my world and start again</button><button type="button" class="claim" data-m="back">Keep playing my world</button></div>`;
+  }
+
+  private savesHtml() {
+    const s = this.saves;
+    if (!s) return '<h2>Save and load</h2><p class="hint">Reading your saves…</p>';
+    if (s.ironman) return `<h2>Save and load</h2><p>This is an <b>Ironman</b> campaign: the world saves itself every 20 seconds, and there is no going back to an earlier save.</p><div class="menu-row"><button type="button" class="claim" data-m="back">Back</button></div>`;
+    return `<h2>Save and load</h2>
+      <p class="hint">Your world also saves itself every 20 seconds, and whenever this menu opens.</p>
+      ${s.error ? `<p class="down">${esc(s.error)}</p>` : ''}${s.saved ? `<p class="up">Saved as “${esc(s.saved)}”.</p>` : ''}
+      <div class="menu-row"><input id="saveName" class="text-input" maxlength="40" placeholder="Name this save" aria-label="Save name"><button type="button" class="claim primary" data-m="save">Save</button></div>
+      <div class="save-list">${s.list.map((x) => `<div class="save-row"><div><b>${esc(x.name)}</b><span class="mono">${esc(x.info)}</span></div>
+        <button type="button" class="claim" data-m="load" data-name="${esc(x.name)}">Load</button><button type="button" class="claim danger" data-m="delete" data-name="${esc(x.name)}">Delete</button></div>`).join('') || '<p class="hint">No named saves yet.</p>'}</div>
+      <div class="menu-row"><button type="button" class="claim" data-m="back">Back</button></div>`;
   }
 
   private multiplayerHtml() {
     let last = '';
     try { last = localStorage.getItem('sov.server') ?? ''; } catch { /* storage blocked */ }
     if (!this.a.offline) {
-      return `<h2>Multiplayer</h2><p>You are on a shared world right now: every nation not led by a player is run by the AI, and the world keeps turning while you are away. Use <b>Worlds</b> in the top bar to see the other worlds on this server.</p>
-        <div class="menu-row"><button type="button" class="claim primary" data-m="play">Return to the world</button><button type="button" class="claim" data-m="back">Back</button></div>`;
+      // a shared world: pick a nation here, see who leads what
+      const list = (this.a.lobby?.() ?? []).sort((a, b) => Number(!!b.player) - Number(!!a.player) || b.gdp - a.gdp).slice(0, 60);
+      const me = this.a.mineId?.();
+      return `<h2>Multiplayer</h2><p>You are on a shared world: every nation not led by a player is run by the AI, and the world keeps turning while you are away. Press <b>Space</b> in the game to vote for a pause: it pauses when every leader online agrees.</p>
+        <span class="label">NATIONS · players first, then the largest economies</span>
+        <div class="save-list lobby">${list.map((n) => `<div class="save-row"><div><b>${esc(n.name)}</b><span class="mono">${n.player ? `led by ${esc(n.player)}${n.online ? ' · online' : ''}` : 'AI · free to lead'} · GDP $${Math.round(n.gdp).toLocaleString('en-US')}bn</span></div>
+          ${n.id === me ? '<span class="pill ok">yours</span>' : n.player ? '' : `<button type="button" class="claim primary" data-m="pick" data-nation="${n.id}">Lead it</button>`}<span></span></div>`).join('') || '<p class="hint">Sign in to see the nations.</p>'}</div>
+        <div class="menu-row"><button type="button" class="claim primary" data-m="play">Return to the world</button>${this.bridge ? '<button type="button" class="claim" data-m="single">Back to single player</button>' : ''}<button type="button" class="claim" data-m="back">Back</button></div>`;
     }
-    return `<h2>Multiplayer</h2>
+    const h = this.hostInfo;
+    const hosting = this.bridge ? `<span class="label">HOST A GAME ON THIS COMPUTER</span>
+      <p>Run a shared world here: you and friends on the same network join it in this game or any browser. For friends elsewhere, forward port 8787 on your router to this computer.</p>
+      ${h?.busy ? '<p class="hint">Starting the world server…</p>' : h?.error ? `<p class="down">${esc(h.error)}</p>` : h?.url ? `<p class="up">Your world is running. Friends join at:</p><ul class="credits">${h.addresses.map((a) => `<li class="mono">${esc(a)}</li>`).join('') || '<li>(no network found: only this computer can join)</li>'}</ul>
+        <div class="menu-row"><button type="button" class="claim primary" data-m="open-host">Enter my world</button><button type="button" class="claim danger" data-m="stop-host">Stop hosting</button></div>`
+        : '<div class="menu-row"><button type="button" class="claim primary" data-m="host">Host a game</button></div>'}
+      <span class="label">JOIN A WORLD</span>` : '';
+    return `<h2>Multiplayer</h2>${hosting}
       <p>Shared worlds run on a server: many players lead nations side by side, the AI runs the rest, and the world keeps turning while you are away. Enter the address of a world server (whoever runs it can tell you; the game's server starts with <span class="mono">npm start</span>).</p>
       <div class="menu-row"><input id="mpUrl" class="text-input" type="url" placeholder="https://play.example.com" value="${esc(last)}" aria-label="Server address">
       <button type="button" class="claim primary" data-m="join">Join</button></div>

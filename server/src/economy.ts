@@ -142,6 +142,7 @@ export interface DayInput {
   shortageFactor?: number; // rationing: shortages hurt less
   stockFactor?: number; // strategic reserves: larger stockpiles
   tradeGrowth?: number; // free trade: trade agreements give more growth
+  interest?: number; // a year, on debt: rises with debt and turmoil
 }
 
 /**
@@ -268,7 +269,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     // the grid grows with infrastructure spending, but slower than a booming economy needs
     e.grid *= 1 + (0.4 * Math.max(0, g) + (e.infra - 1) * 0.01 + (e.budget.infrastructure - 30) * 0.0004) / 365;
 
-    if (e.treasury < 0) e.treasury -= (-e.treasury * 0.04) / 365; // interest on debt
+    if (e.treasury < 0) e.treasury -= (-e.treasury * (n.interest ?? 0.04)) / 365; // interest on debt
     const stabTarget = Math.min(100, Math.max(0,
       50 + (e.budget.welfare - 30) * 0.6 - (n.tax - 25) * 0.9 - e.shortage * 80
       - Math.max(0, debtRatio - 0.6) * 30 + g * 300 + (n.focus === 'diplomacy' ? 3 : 0)

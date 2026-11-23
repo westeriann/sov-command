@@ -53,6 +53,8 @@ export interface HudActions {
   toggleResearch(): void;
   toggleRankings(): void;
   togglePolitics(): void;
+  toggleEspionage(): void;
+  toggleRecords(): void;
   worlds(): void;
   account(): void;
   customize(): void;
@@ -87,8 +89,10 @@ const MODULES: [string, string, string | null][] = [
   ['Air command', 'air', null],
   ['Diplomacy', 'diplomacy', null],
   ['Politics', 'politics', null],
+  ['Espionage', 'espionage', null],
   ['R&D', 'research', null],
   ['Rankings', 'rankings', null],
+  ['Records', 'records', null],
 ];
 
 /** What each window is for, shown when hovering its button. */
@@ -100,8 +104,10 @@ const MODULE_TIPS: Record<string, string> = {
   navy: tip('Naval ops', 'Build fleets and see where they are', 'Key: N'),
   air: tip('Air command', 'Raise air wings, satellites and strategic weapons', 'Key: B'),
   diplomacy: tip('Diplomacy', 'Relations with every nation; treaties, contracts, gifts, envoys, demands, spies and the world council', 'Key: P'),
+  espionage: tip('Espionage', 'Agent networks abroad, counter-intelligence, covert missions and reports', 'Key: J'),
   politics: tip('Politics', 'Political capital, laws, parliament (or rule by decree) and what it demands of you', 'Key: O'),
   research: tip('R&D and government', 'Technologies, the research queue, society and reforms', 'Key: R'),
+  records: tip('Records', 'The ledger of every nation side by side, and the full log of dispatches', 'Key: V'),
   rankings: tip('Rankings', 'Scores, leaderboards, comparisons and map replays', 'Key: K'),
 };
 const RESOURCE_TIPS: Record<string, string> = {
@@ -439,6 +445,8 @@ export class Hud {
     if (mod === 'research' || (mod === 'map' && this.openPanel === 'research')) { this.actions.toggleResearch(); return; }
     if (mod === 'rankings' || (mod === 'map' && this.openPanel === 'rankings')) { this.actions.toggleRankings(); return; }
     if (mod === 'politics' || (mod === 'map' && this.openPanel === 'politics')) { this.actions.togglePolitics(); return; }
+    if (mod === 'espionage' || (mod === 'map' && this.openPanel === 'espionage')) { this.actions.toggleEspionage(); return; }
+    if (mod === 'records' || (mod === 'map' && this.openPanel === 'records')) { this.actions.toggleRecords(); return; }
     if (mod === 'market' || (mod === 'map' && this.openPanel === 'market')) { this.actions.toggleMarket(); return; }
     if (mod === 'economy' || mod === 'map') {
       if (mod === 'economy' || (mod === 'map' && this.openPanel === 'economy')) this.actions.toggleEconomy();
@@ -474,6 +482,8 @@ export class Hud {
       else if (a === 'movehere') this.actions.moveHere(Number(act.dataset.province));
       else if (a === 'build') this.actions.build(Number(act.dataset.province), act.dataset.building as BuildingType);
       else if (a === 'repair') this.actions.order({ kind: 'repair', province: Number(act.dataset.province), building: act.dataset.building as BuildingType });
+      else if (a === 'network') this.actions.order({ kind: 'network', target: Number(act.dataset.nation), build: true });
+      else if (a === 'autonomy') this.actions.order({ kind: 'autonomy', province: Number(act.dataset.province) });
       else if (a === 'missile') this.actions.missile(Number(act.dataset.province));
       else if (a === 'embargo') this.actions.embargo(Number(act.dataset.nation), act.dataset.on === '1');
       else if (a === 'spy') this.actions.order({ kind: 'spy', target: Number(act.dataset.nation), mission: act.dataset.mission as SpyMission });
@@ -548,10 +558,10 @@ export class Hud {
     b.setAttribute('aria-pressed', String(on));
   }
 
-  private openPanel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'politics' | 'research' | 'rankings' | null = null;
+  private openPanel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'politics' | 'espionage' | 'records' | 'research' | 'rankings' | null = null;
 
   /** Highlight the module whose window is open (or the map when none is). */
-  setOpenPanel(panel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'politics' | 'research' | 'rankings' | null) {
+  setOpenPanel(panel: 'economy' | 'market' | 'army' | 'navy' | 'air' | 'diplomacy' | 'politics' | 'espionage' | 'records' | 'research' | 'rankings' | null) {
     this.openPanel = panel;
     this.root.querySelectorAll<HTMLElement>('[data-module]').forEach((b) => {
       const active = b.dataset.module === (panel ?? 'map');
@@ -834,8 +844,12 @@ export class Hud {
 
   private occupationHtml(p: Province) {
     const unrest = this.game.war.unrest[p.id];
-    const restless = unrest ? `<div class="controller enemy"><b>Unrest ${unrest}%</b><span class="mono">recently conquered · a garrison and welfare calm it</span></div>` : '';
-    return restless + this.occupationOnly(p);
+    const mine = this.game.mine, own = !!mine && p.nation === mine.id;
+    const auto = !!mine?.autonomy?.includes(p.id);
+    const restless = unrest ? `<div class="controller enemy"><b>Unrest ${unrest}%</b><span class="mono">recently conquered · a garrison and welfare calm it${unrest > 60 ? ' · separatists may break away' : ''}</span></div>` : '';
+    const autonomy = auto ? '<p class="hint">Self-governing: calmer, but keeps a quarter of its output.</p>'
+      : own && unrest ? `<div class="actions-row"><button type="button" class="claim" data-act="autonomy" data-province="${p.id}" data-tip="${attr(tip('Grant autonomy', ['Unrest halves now and falls much faster; no revolts', 'good'], ['The province keeps a quarter of its output', 'bad'], ['Costs 15 political capital', 'bad']))}">Grant autonomy · 15</button></div>` : '';
+    return restless + autonomy + this.occupationOnly(p);
   }
 
   private occupationOnly(p: Province) {
@@ -875,9 +889,10 @@ export class Hud {
     const mine = this.game.mine;
     if (!mine) return '';
     const busy = (mine.spyOps ?? 0) >= 3;
-    return `<details class="covert"><summary>Covert operations · $2bn · 5 days${busy ? ' (3 under way)' : ''}</summary>
-      <div class="actions-row">${(Object.keys(SPY_MISSIONS) as SpyMission[]).map((m) => `<button type="button" class="claim" data-act="spy" data-nation="${target}" data-mission="${m}" title="${SPY_MISSIONS[m].text}" ${busy ? 'disabled' : ''}>${SPY_MISSIONS[m].name}</button>`).join('')}</div>
-      <p class="hint">Results arrive as intelligence reports in Diplomacy. Agents may be caught.</p></details>`;
+    const net = mine.spy?.nets[target] ?? 0, building = mine.spy?.building.includes(target);
+    return `<details class="covert"><summary>Covert operations · agent network ${Math.round(net)}${building ? ' (recruiting)' : ''}${busy ? ' · 3 under way' : ''}</summary>
+      <div class="actions-row">${(Object.keys(SPY_MISSIONS) as SpyMission[]).map((m) => `<button type="button" class="claim" data-act="spy" data-nation="${target}" data-mission="${m}" data-tip="${attr(tip(SPY_MISSIONS[m].name, SPY_MISSIONS[m].text, `Needs a network of ${SPY_MISSIONS[m].need}`, ['$2bn · 5 days', 'bad']))}" ${busy || net < SPY_MISSIONS[m].need ? 'disabled' : ''}>${SPY_MISSIONS[m].name}</button>`).join('')}</div>
+      <p class="hint">${building ? '' : `<button type="button" class="link" data-act="network" data-nation="${target}">Recruit agents here</button> · `}Networks, counter-intelligence and reports are in <a href="#" class="go" data-go="module:espionage">Espionage</a> (J).</p></details>`;
   }
 
   /** Buildings here; build buttons in your own provinces. */
@@ -927,9 +942,8 @@ export class Hud {
         ${sats && mine.research?.done.includes('hypersonics') ? `<button type="button" class="claim" data-act="asat" data-nation="${n.id}">Shoot down a satellite ($4bn · they have ${sats})</button>` : ''}
         ${white ? `<p class="hint">They offer ${white.kind === 'peace' && white.terms === 'cede' ? `peace if you cede the ${lose} province${lose === 1 ? '' : 's'} they hold` : 'white peace'}. Answer in the Diplomacy window.</p>` : ''}
         ${sent ? '<p class="hint">Your peace proposal awaits their answer.</p>' : `<div class="actions-row">
-          <button type="button" class="claim" data-act="peace" data-nation="${n.id}">Offer white peace</button>
-          ${held ? `<button type="button" class="claim primary" data-act="cede" data-nation="${n.id}">Demand the ${held} province${held > 1 ? 's' : ''} we hold</button>
-          <button type="button" class="claim" data-act="puppet" data-nation="${n.id}">Demand vassalage</button>` : ''}</div>`}
+          <a href="#" class="claim primary go-btn" data-go="peacecon:${n.id}">Peace conference… (war score ${(mine.warScores?.[n.id] ?? 0) > 0 ? '+' : ''}${mine.warScores?.[n.id] ?? 0})</a>
+          <button type="button" class="claim" data-act="peace" data-nation="${n.id}">Offer white peace</button></div>`}
         ${this.covertHtml(n.id)}`;
     }
     const pact = (kind: 'alliance' | 'trade', label: string, max: number) => {
@@ -956,7 +970,7 @@ export class Hud {
           ${myBloc && !theirs ? `<div class="actions-row"><button type="button" class="claim" data-act="invite" data-nation="${n.id}">Invite to ${esc(myBloc.name)}</button></div>` : ''}`;
       })()}
       ${this.covertHtml(n.id)}
-      ${allied ? '' : `<button type="button" class="claim danger" data-act="war" data-nation="${n.id}">Declare war</button>`}`;
+      ${allied ? '' : `<a href="#" class="claim danger go-btn" data-go="war:${n.id}">Declare war…</a>`}`;
   }
 
   private landHtml(p: Province, n: Nation | undefined, s: Sample) {

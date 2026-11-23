@@ -113,6 +113,7 @@ const GLYPH: Record<BuildingType, string> = {
   air_defense: 'M6 20l6-8 6 8zM12 12a6 6 0 0 1 7-7l-3 3 2 2 3-3a6 6 0 0 1-7 7z',
   factory: 'M2 20V11l5 3v-3l5 3v-3l5 3V4h3v16z',
   mine: 'M5 20l7-15 7 15h-3l-4-9-4 9zM11 4h2v3h-2z',
+  depot: 'M2 20V9l10-5 10 5v11h-4v-7H6v7zM8 15h8v2H8zM8 18h8v2H8z',
   port: 'M11 3h2v3h3v2h-3v10a5 5 0 0 0 4-3l2 1a7 7 0 0 1-12 0l2-1a5 5 0 0 0 4 3V8H8V6h3z',
   airbase: 'M12 2l1.5 6 7.5 5v2l-7.5-2-.5 5 2.5 2v1.5L12 21l-3.5.5V20l2.5-2-.5-5-7.5 2v-2l7.5-5z',
   coal_plant: 'M3 20V12h5V6h3v6h2V4h3v8h5v8zM9 3a2 2 0 1 1 1 3z',

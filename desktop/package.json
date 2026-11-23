@@ -3,7 +3,7 @@
   "productName": "Sovereign Command",
   "version": "0.1.0",
   "private": true,
-  "description": "Sovereign Command: modern grand strategy on a 3D planet, single-player desktop edition.",
+  "description": "Sovereign Command: modern grand strategy on a 3D planet. Single player, or host a multiplayer world.",
   "author": "Sovereign Command",
   "main": "main.cjs",
   "scripts": {
@@ -27,12 +27,17 @@
     },
     "files": [
       "main.cjs",
+      "preload.cjs",
       "package.json"
     ],
     "extraResources": [
       {
         "from": "../client/dist-offline",
         "to": "game"
+      },
+      {
+        "from": "host",
+        "to": "host"
       }
     ],
     "linux": {

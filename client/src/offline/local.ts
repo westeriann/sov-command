@@ -57,9 +57,25 @@ export class LocalConnection extends Connection {
 
   stop() { /* the world keeps running in this tab */ }
 
-  /** Start over: delete the saved world and reload. */
-  newGame() {
+  /** Start over: delete the saved world and reload. Ironman: one autosave, no loading other saves. */
+  newGame(ironman = false) {
     this.worker.addEventListener('message', (e) => { if (e.data?.t === 'reset-done') location.reload(); });
-    this.worker.postMessage({ t: 'reset' });
+    this.worker.postMessage({ t: 'reset', ironman });
   }
+
+  /** Save slots: list them, save the world under a name, load one (reloads the page), delete one. */
+  slots(msg: { t: 'slots' } | { t: 'save-slot'; name: string } | { t: 'load-slot'; name: string } | { t: 'delete-slot'; name: string }) {
+    return new Promise<{ list: { name: string; info: string }[]; ironman: boolean; error?: string; saved?: string }>((res) => {
+      const on = (e: MessageEvent) => {
+        if (e.data?.t === 'reset-done') location.reload();
+        if (e.data?.t !== 'slots') return;
+        this.worker.removeEventListener('message', on);
+        res(e.data);
+      };
+      this.worker.addEventListener('message', on);
+      this.worker.postMessage(msg);
+    });
+  }
+
+  pause(on: boolean) { this.worker.postMessage({ t: 'pause', on }); }
 }

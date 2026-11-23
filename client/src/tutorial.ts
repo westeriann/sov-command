@@ -39,8 +39,27 @@ const STEPS: Step[] = [
   },
   {
     title: 'Diplomacy',
-    text: 'Trade agreements add growth; alliances defend each other and open borders. At war, offer white peace or demand the provinces you hold. A nation that loses all its land is annexed.',
+    text: 'Every nation has an opinion of you, from Bitter enemies to Devoted: hover a nation on the map to see it. Open its page (Nations tab) for every treaty: trade, alliances, non-aggression pacts, military access, research cooperation, guarantees, supply contracts, gifts, envoys and demands.',
     target: '[data-module="diplomacy"]',
+  },
+  {
+    title: 'War and peace',
+    text: 'Declare war with a war goal: conquest, subjugation, regime change, reparations or humiliation. Taking land, winning battles and destroying divisions earns war score, which pays for terms at the peace conference.',
+    target: '[data-module="army"]',
+  },
+  {
+    title: 'Politics',
+    text: 'Political capital pays for laws. In a democracy parliament votes on them, must back your wars and makes demands; parties rise and fall in the polls and elections can bring in a new coalition. Autocracies rule by decree, at a cost to public goodwill.',
+    target: '[data-module="politics"]',
+  },
+  {
+    title: 'Decisions',
+    text: 'Strikes, scandals, booms, droughts and plots arrive as decisions: choose an answer, each with effects you can read before you pick. Unanswered, the first option is taken after 30 days.',
+  },
+  {
+    title: 'Espionage',
+    text: 'Recruit agent networks in other nations, then use them: reconnaissance, theft, sabotage, rigging their politics, even backing a coup. Counter-intelligence wears down their agents in your own country.',
+    target: '[data-module="espionage"]',
   },
   {
     title: 'Research and government',
@@ -49,7 +68,7 @@ const STEPS: Step[] = [
   },
   {
     title: 'Dispatches and chat',
-    text: 'News from around the world arrives in Dispatches; talk to other leaders in Chat. That is everything: the i button in the header opens the manual, which explains every part of the game and can replay this tour.',
+    text: 'News arrives in the notifications under the date and in Dispatches; Records (V) keeps the full log and a ledger of every nation. Esc opens the main menu (options, save and load); Space pauses single player; the i button opens the manual, which explains everything and can replay this tour.',
     target: '[data-open="dispatches"]',
   },
 ];

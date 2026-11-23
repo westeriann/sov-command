@@ -3,7 +3,7 @@
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type {
-  ChatLine, ClientMsg, EconomyUpdate, ErrorCode, NationPrivate, NationPublic, ServerMsg, WarState, WorldEvent,
+  ClockInfo, ChatLine, ClientMsg, EconomyUpdate, ErrorCode, NationPrivate, NationPublic, ServerMsg, WarState, WorldEvent,
 } from '../../shared/protocol.ts';
 import type { UnitView } from '../../shared/military.ts';
 import type { Accounts, User } from './auth.ts';
@@ -62,6 +62,10 @@ export class Hub implements WorldListener {
 
   units(userId: number, units: UnitView[]) {
     this.toUser(userId, { t: 'units', units });
+  }
+
+  clock(c: ClockInfo) {
+    this.broadcast({ t: 'clock', clock: c });
   }
 
   war(state: WarState) {
