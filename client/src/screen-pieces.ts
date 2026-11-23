@@ -147,15 +147,15 @@ export function marketPiece(game: Game): Piece {
       const n = ticks.length;
       const cards = ticks.map((t, i) => {
         const a = -90 + (i / n) * 360;
-        const [x, y] = pt(50, 50, 39, a);
+        const cx = Math.cos(a * D), cy = Math.sin(a * D);
         const ch = `${t.change >= 0 ? '▲' : '▼'} ${Math.abs(t.change * 100).toFixed(1)}%`;
-        return `<button type="button" class="tick ${t.tone}${t.key === picked ? ' on' : ''}" data-good="${t.key}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%" aria-label="${esc(t.name)} ${esc(t.price)}, ${esc(t.trade)}">
+        return `<button type="button" class="tick ${t.tone}${t.key === picked ? ' on' : ''}" data-good="${t.key}" style="left:calc(50% + ${cx.toFixed(4)} * (50% - var(--tk-in)));top:calc(50% + ${cy.toFixed(4)} * (50% - var(--tk-in)))" aria-label="${esc(t.name)} ${esc(t.price)}, ${esc(t.trade)}">
           <span class="tk-head"><b>${esc(t.name)}</b><em class="${t.change >= 0 ? 'chg-up' : 'chg-down'}">${ch}</em></span>
           ${spark(t.series, 120, 34, t.tone)}<span class="tk-price mono">${esc(t.price)}</span></button>`;
       }).join('');
       const p = ticks.find((t) => t.key === picked) ?? ticks[0];
       el.innerHTML = `<div class="mk-ring">
-          <svg viewBox="0 0 100 100" class="mk-track" aria-hidden="true"><circle cx="50" cy="50" r="39"></circle><circle cx="50" cy="50" r="27" class="in"></circle></svg>
+          <i class="mk-orbit" aria-hidden="true"></i>
           ${cards}
           <div class="mk-core ${p.tone}"><span class="k2">${esc(p.name.toUpperCase())}</span><b class="mono">${esc(p.price)}</b>
             <em class="${p.change >= 0 ? 'chg-up' : 'chg-down'}">${p.change >= 0 ? '▲' : '▼'} ${Math.abs(p.change * 100).toFixed(2)}% this week</em>
