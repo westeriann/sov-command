@@ -87,8 +87,9 @@ async function start() {
   try { alerts = localStorage.getItem('sov.alerts') === 'on'; } catch { /* storage blocked */ }
   let tutorial: Tutorial | null = null;
   let citiesRef: Cities | null = null;
+  let modelsRef: Models3D | null = null;
   const hud = new Hud(hudRoot, world, pol, game, {
-    onMode: (m, opacity) => { gameMap.setMode(m, opacity); citiesRef?.setLights(m === 'lights'); },
+    onMode: (m, opacity) => { gameMap.setMode(m, opacity); citiesRef?.setLights(m === 'lights'); modelsRef?.setNight(m === 'lights'); },
     onOpacity: (v) => gameMap.setOverlayOpacity(v),
     onGrid: (on) => gameMap.setGrid(on),
     onBorders: (on) => gameMap.setBorders(on),
@@ -404,6 +405,8 @@ async function start() {
   forces.onSelectionChange = () => { hud.refreshSelection(); card.render(); };
   // 3D troops, cities and buildings once zoomed in; counters float above their models
   const models = new Models3D(map, game, pol, forces, cities.shapes);
+  modelsRef = models;
+  models.brightness = (nation) => cities.brightness(nation);
   models.onSize = (px) => { forces?.setLift(px ? px * 0.8 + 12 : 0); map.setLayoutProperty('buildings', 'visibility', px && models3dOn ? 'none' : 'visible'); };
   let models3dOn = true;
   try { models3dOn = localStorage.getItem('sov.models') !== 'off'; } catch { /* storage blocked */ }

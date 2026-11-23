@@ -171,12 +171,36 @@ export class Cities {
 
   /** Night lights: brightness by electricity supply (and wealth). */
   setLights(on: boolean) {
-    this.map.setLayoutProperty('city-lights', 'visibility', on ? 'visible' : 'none');
-    if (!on) return;
+    // these layers always stay switched on (a layer hidden when its data loads has nothing to draw
+    // when shown later); day and night differ only in opacity
+    this.night = on;
+    if (!on) {
+      this.map.setPaintProperty('city-lights', 'circle-opacity', 0);
+      this.map.setPaintProperty('city-lights-core', 'circle-opacity', 0);
+      this.map.setPaintProperty('city-night', 'fill-opacity', 0);
+      return;
+    }
+    this.map.setPaintProperty('city-lights', 'circle-opacity', 0.4);
+    this.map.setPaintProperty('city-lights-core', 'circle-opacity', 0.9);
+    // brightness by electricity supply (blackouts go dark) and a little by wealth
     const match: unknown[] = ['match', ['get', 'nation']];
-    for (const e of this.game.economy.values()) match.push(e.id, Math.max(0.05, (1 - (e.blackout ?? 0) * 3) * Math.min(1, 0.35 + Math.log10(Math.max(1000, e.gdppc)) / 8)));
-    match.push(0.5);
-    this.map.setPaintProperty('city-lights', 'circle-opacity', match as never);
+    for (const e of this.game.economy.values()) match.push(e.id, this.brightness(e.id));
+    match.push(0.6);
+    // per-feature circle opacity renders as nothing on the globe in this MapLibre, so the dots use a
+    // fixed brightness and nations in heavy blackout are filtered out (their cities go dark)
+    const dark = [...this.game.economy.values()].filter((e) => this.brightness(e.id) < 0.3).map((e) => e.id);
+    const lit: unknown = dark.length ? ['!', ['in', ['get', 'nation'], ['literal', dark]]] : ['literal', true];
+    this.map.setFilter('city-lights', lit as never);
+    this.map.setFilter('city-lights-core', lit as never);
+    this.map.setPaintProperty('city-night', 'fill-opacity', ['*', ['get', 'w'], match] as never);
+  }
+
+  night = false;
+  /** How brightly a nation's cities shine at night, 0..1. */
+  brightness(nation: number) {
+    const e = this.game.economy.get(nation);
+    if (!e) return 0.6;
+    return Math.max(0.05, (1 - (e.blackout ?? 0) * 3) * Math.min(1, 0.45 + Math.log10(Math.max(1000, e.gdppc)) / 9));
   }
 
   constructor(private map: MLMap, private pol: Political, private game: Game) {
@@ -213,9 +237,9 @@ export class Cities {
       const sprawl = `u-sprawl-${climateOf(p.terrain)}-${(p.id + 1) % VARIANTS}`;
       // a dense core, then thinner rings, so the city fades into the countryside
       // every shape is cut back to the shore, so cities follow the coast instead of spilling into the sea
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35 }, geometry: { type: 'Polygon', coordinates: [this.onLand(lon, lat, blob(lon, lat, km * 1.9, rand))] } });
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35, nation: p.nation ?? 0 }, geometry: { type: 'Polygon', coordinates: [this.onLand(lon, lat, blob(lon, lat, km * 1.9, rand))] } });
       const suburbs = this.onLand(lon, lat, blob(lon, lat, km * 1.35, rand));
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45 }, geometry: { type: 'Polygon', coordinates: [suburbs] } });
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45, nation: p.nation ?? 0 }, geometry: { type: 'Polygon', coordinates: [suburbs] } });
       const rings = [this.onLand(lon, lat, blob(lon, lat, km * 0.8, rand))];
       // suburbs and satellite towns around bigger cities
       const extra = Math.min(4, Math.floor(pop / 3e6) + (capital ? 1 : 0));
@@ -227,7 +251,7 @@ export class Cities {
         rings.push(this.onLand(sx, sy, blob(sx, sy, km * (0.25 + rand() * 0.3), rand)));
       }
       this.shapes.set(p.id, { at: [lon, lat], km, core: rings, suburbs, capital, pop, terrain: p.terrain });
-      rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8 }, geometry: { type: 'Polygon', coordinates: [r] } }));
+      rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8, nation: p.nation ?? 0 }, geometry: { type: 'Polygon', coordinates: [r] } }));
       cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1), nation: p.nation ?? 0 }, geometry: { type: 'Point', coordinates: [lon, lat] } });
     }
     map.addSource('cities', { type: 'geojson', data: { type: 'FeatureCollection', features: areas } });
@@ -253,14 +277,32 @@ export class Cities {
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0, 4.2, ['*', 0.55, ['get', 'w']], 6, ['*', 0.8, ['get', 'w']], 8, ['get', 'w']],
       },
     }, below);
-    // Night lights mode: every city glows unless its nation is in blackout
+    // Night lights mode: the built-up areas glow warm above the darkened land (same shapes as by day,
+    // cut to the coast), with a soft halo of light spilling round each city
     map.addLayer({
-      id: 'city-lights', type: 'circle', source: 'city-cores', layout: { visibility: 'none' },
+      id: 'city-night', type: 'fill', source: 'cities',
+      paint: { 'fill-color': '#ffc966', 'fill-opacity': 0, 'fill-antialias': true },
+    }, map.getLayer('rivers') ? 'rivers' : undefined);
+    map.addLayer({
+      id: 'city-lights', type: 'circle', source: 'city-cores',
       paint: {
-        'circle-color': '#ffd98a',
-        'circle-blur': 0.6,
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, ['*', 2.2, ['get', 'size']], 5, ['*', 9, ['get', 'size']]],
-        'circle-opacity': 0.85,
+        'circle-color': '#ffb347',
+        'circle-blur': 1,
+        'circle-radius': ['interpolate', ['exponential', 1.6], ['zoom'],
+          1, ['max', 6, ['*', 10, ['get', 'size']]], 4, ['max', 12, ['*', 34, ['get', 'size']]], 7, ['max', 40, ['*', 140, ['get', 'size']]]],
+        'circle-opacity': 0,
+        'circle-pitch-alignment': 'viewport',
+      },
+    });
+    // a bright point at each city's heart, so every city reads from orbit
+    map.addLayer({
+      id: 'city-lights-core', type: 'circle', source: 'city-cores',
+      paint: {
+        'circle-color': '#ffe7ad',
+        'circle-blur': 0.35,
+        'circle-radius': ['interpolate', ['exponential', 1.5], ['zoom'], 1, ['max', 2.2, ['*', 4, ['get', 'size']]], 4, ['max', 3.5, ['*', 10, ['get', 'size']]], 6, ['max', 5, ['*', 18, ['get', 'size']]]],
+        'circle-opacity': 0,
+        'circle-pitch-alignment': 'viewport',
       },
     });
     map.addLayer({

@@ -220,14 +220,76 @@ const GEOMETRY = {
   ]),
   radarBase: () => build([part(cyl(0.03, 0.05, 0.3, 6), STEEL, [0, 0.15, 0]), part(box(0.2, 0.08, 0.16), '#5f6a52', [0, 0.04, 0])]),
   radarDish: () => build([part(box(0.025, 0.12, 0.26), '#c9ccd0', [0, 0, 0], [0, 0, 0.2])]),
+  // --- night: lit towers (UVs kept for the window texture) and the ground glow
+  towerLit: () => new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
+  glow: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   // --- effects
   puff: () => build([part(new THREE.IcosahedronGeometry(1, 1), '#ffffff')]),
   flash: () => build([part(new THREE.IcosahedronGeometry(1, 1), '#ffffff')]),
 };
 type Kind = keyof typeof GEOMETRY;
 
+/** Office and flat windows at night: a facade texture, most windows lit warm, some cool, some dark. */
+function windowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#0d1014';
+  g.fillRect(0, 0, 128, 128);
+  const r = rng(99);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    const v = r();
+    if (v < 0.28) continue; // dark window
+    g.fillStyle = v < 0.85 ? `rgb(255, ${190 + Math.floor(r() * 40)}, ${90 + Math.floor(r() * 50)})` : '#cfe3ff';
+    g.fillRect(x * 16 + 4, y * 16 + 5, 8, 7);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** A soft round pool of light: warm, fading out, for the glow a city casts on land and water. */
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255, 200, 120, 0.9)');
+  grad.addColorStop(0.35, 'rgba(255, 170, 80, 0.45)');
+  grad.addColorStop(1, 'rgba(255, 140, 60, 0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Window size in metres: windows tile by the building's real size, never stretched. */
+const nightUniforms = { uWin: { value: 400 } };
+
 /** Effects use their own, unlit and see-through, materials. */
 const EFFECTS: Partial<Record<Kind, THREE.Material>> = {
+  towerLit: (() => {
+    const m = new THREE.MeshBasicMaterial({ map: windowTexture() });
+    // tile the windows by the instance's real width and height, and keep roofs dark
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uWin = nightUniforms.uWin;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uWin;\nvarying float vRoof;')
+        .replace('#include <uv_vertex>', `#include <uv_vertex>
+          #ifdef USE_INSTANCING
+            vec2 size = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));
+            vMapUv = uv * max(vec2(1.0), floor(size / uWin));
+          #endif
+          vRoof = abs(normal.y);`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vRoof;')
+        .replace('#include <map_fragment>', '#include <map_fragment>\n  if (vRoof > 0.5) diffuseColor.rgb = vec3(0.04, 0.05, 0.06);');
+    };
+    return m;
+  })(),
+  glow: new THREE.MeshBasicMaterial({ map: glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
   puff: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false }),
   flash: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
 };
@@ -275,6 +337,18 @@ export class Models3D implements CustomLayerInterface {
   /** Instances drawn last frame, by model (for tests). */
   counts = new Map<Kind, number>();
   private sun = new THREE.DirectionalLight('#fff4e0', 2.2);
+  private sky = new THREE.HemisphereLight('#e8eef2', '#3a3328', 1.1);
+  /** Night lights mode: moonlight, lit windows, cities glowing on the land and water. */
+  night = false;
+  /** How brightly a nation's cities shine at night (set by the map: blackouts go dark). */
+  brightness: (nation: number) => number = () => 1;
+  setNight(on: boolean) {
+    this.night = on;
+    this.sun.intensity = on ? 0.35 : 2.2;
+    this.sun.color.set(on ? '#9fb4d9' : '#fff4e0');
+    this.sky.intensity = on ? 0.22 : 1.1;
+    this.map.triggerRepaint();
+  }
   private cities: City[] = [];
   private cityById = new Map<number, City>();
   private enabled = true;
@@ -339,7 +413,7 @@ export class Models3D implements CustomLayerInterface {
   onAdd(map: MLMap, gl: WebGLRenderingContext | WebGL2RenderingContext) {
     this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
     this.renderer.autoClear = false;
-    this.scene.add(new THREE.HemisphereLight('#e8eef2', '#3a3328', 1.1));
+    this.scene.add(this.sky);
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
     const lit = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -458,6 +532,7 @@ export class Models3D implements CustomLayerInterface {
     const t = (performance.now() - this.start) / 1000;
     for (const k of this.meshes.keys()) this.counts.set(k, 0);
 
+    nightUniforms.uWin.value = Math.max(250, mpp * 3);
     this.drawCities(t, mpp);
     this.drawBuildings(t, mpp);
     this.drawForces(unit * 1.6, t, px * 1.6);
@@ -484,9 +559,18 @@ export class Models3D implements CustomLayerInterface {
       this.at(lon, lat, 1); // the city in real metres, on its flat picture
       // zoomed out, blocks swell in place (never move) so the city still reads; up close they are true to size
       const g = Math.min(2.5, Math.max(1, (4 * mpp) / city.size));
-      for (const b of city.towers) {
-        this.put('tower', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g, b.color);
-        if (b.h > b.w * 2.5) this.put('roofCap', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g);
+      if (this.night) {
+        const lit = this.brightness(this.pol.provinces.get(city.id)?.nation ?? 0);
+        const col = new THREE.Color(lit, lit, lit);
+        for (const b of city.towers) this.put('towerLit', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g, col);
+        // the city's light spilling onto the land and water around it
+        const r = city.size * 16 * g;
+        this.put('glow', 0, city.size * 0.05, 0, 0, r, 1, r, new THREE.Color(lit, lit * 0.9, lit * 0.75));
+      } else {
+        for (const b of city.towers) {
+          this.put('tower', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g, b.color);
+          if (b.h > b.w * 2.5) this.put('roofCap', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g);
+        }
       }
       if (city.capital) { const s = city.size * 2.2; this.put('dome', 0, 0, 0, 0.3, s, s, s); }
       if (city.pop > 4e6 && Math.sin(t * 3 + city.id) > 0.6) {
