@@ -238,6 +238,7 @@ const CHAPTERS: Chapter[] = [
         <tr><td><kbd>F</kbd> <kbd>N</kbd> <kbd>B</kbd></td><td>Ground forces, Naval ops, Air command</td></tr>
         <tr><td><kbd>P</kbd> <kbd>O</kbd> <kbd>J</kbd></td><td>Diplomacy, Politics, Espionage</td></tr>
         <tr><td><kbd>R</kbd> <kbd>K</kbd> <kbd>V</kbd></td><td>R&amp;D, Rankings, Records</td></tr>
+        <tr><td><kbd>Ctrl</kbd>-click</td><td>Shrink anything in the top bar to a small tab (click the tab to restore it)</td></tr>
         <tr><td><kbd>Space</kbd></td><td>Pause (single player) or vote to pause (shared worlds)</td></tr>
         <tr><td><kbd>M</kbd></td><td>Back to the map (close windows)</td></tr>
         <tr><td><kbd>Q</kbd> <kbd>H</kbd> <kbd>T</kbd> <kbd>L</kbd> <kbd>U</kbd> <kbd>Tab</kbd></td><td>Orders for selected units</td></tr>

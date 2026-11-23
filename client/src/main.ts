@@ -33,6 +33,7 @@ import { EspionagePanel } from './espionage-panel';
 import { RecordsPanel } from './records-panel';
 import { MainMenu } from './menu';
 import { HoverCard } from './hover-card';
+import { installMinimize } from './minimize';
 import { WarRoom } from './war-room';
 import { EventDialog } from './event-dialog';
 import { Manual } from './manual';
@@ -280,6 +281,7 @@ async function start() {
   const espionage = new EspionagePanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const records = new RecordsPanel(hudRoot, game, pol);
   const hoverCard = new HoverCard(hudRoot, game, pol);
+  installMinimize(hudRoot);
   const warRoom = new WarRoom(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const eventDialog = new EventDialog(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   eventDialog.onShow = () => sound.play('alert');

@@ -6,6 +6,7 @@ import {
 import { COMMODITIES, COMMODITY_INFO, type Commodity } from '../../shared/economy';
 import { attr, tip } from './tooltip';
 import { GOVERNMENT_INFO } from '../../shared/research';
+import { CHAMBER, blocsFor, chamberLegend, chamberSvg } from './chamber';
 import type { Order } from '../../shared/protocol';
 import type { Game } from './game';
 import type { Political } from './political';
@@ -163,6 +164,8 @@ export class DiplomacyPanel {
         <div><span>GDP</span><b>$${Math.round(gdp).toLocaleString('en-US')}bn</b><em>army ~${pub?.army ?? 0} divisions</em></div>
       </div>
       <div class="econ-cols"><section>
+        ${pub?.government ? `<span class="label">THEIR ${CHAMBER[pub.government].name.toUpperCase()}</span>
+          <div class="chamber-wrap small">${chamberSvg(pub.government, blocsFor(pub.government, pub.parties, n.color ?? '#8a8f96'), '#f0d48a')}${chamberLegend(pub.government, blocsFor(pub.government, pub.parties, n.color ?? '#8a8f96'))}</div>` : ''}
         <span class="label">TREATIES</span>${pacts}
         <p class="hint">AI governments answer at once, mostly by their opinion of you. Raise it with gifts, envoys, treaties and shared enemies; a Diplomacy focus helps everywhere.</p>
       </section><section>

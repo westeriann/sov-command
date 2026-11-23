@@ -679,6 +679,7 @@ export class World {
       government: n.gov?.government, techs: n.tech?.done.length, nuclear: (n.mil?.warheads ?? 0) > 0 || undefined,
       name: n.custom?.name, short: n.custom?.short, color: n.custom?.color, flag: n.custom?.flag, satellites: n.mil?.satellites || undefined,
       ideology: n.soc ? { liberty: Math.round(n.soc.ideology.liberty * 100) / 100, openness: Math.round(n.soc.ideology.openness * 100) / 100 } : undefined,
+      parties: n.parties?.map((x) => ({ name: x.name, colour: x.colour, seats: Math.round(x.seats * 1000) / 1000, gov: x.gov, liberty: x.liberty })),
       def: n.born ? { name: n.born.name, short: n.born.short, color: n.born.color, capital: n.born.capital, label: n.born.label } : undefined,
     };
     return n.controller === 'human'

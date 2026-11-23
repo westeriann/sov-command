@@ -10,6 +10,7 @@ import type { Political } from './political';
 import { keepScrollOn } from './keep-scroll';
 import { attr, effectLines, tip } from './tooltip';
 import { CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST } from '../../shared/parties';
+import { CHAMBER, blocsFor, chamberLegend, chamberSvg } from './chamber';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const LEG_NAME = { parliament: 'Parliament', council: 'Council of experts', decree: 'Rule by decree', junta: 'Military junta' } as const;
@@ -112,13 +113,21 @@ export class PoliticsPanel {
   }
 
   /** Parliament's parties: seats, polls, the governing coalition, and the next election. */
+  /** The legislature drawn as its chamber: a hemicycle, a horseshoe council, an assembly before a podium, or a junta's table. */
+  private chamberHtml() {
+    const mine = this.game.mine!, gov = mine.government ?? 'democracy';
+    const colour = this.pol.nations.get(mine.id)?.color ?? '#d9b45a';
+    const blocs = blocsFor(gov, mine.parties, colour);
+    return `<div class="chamber-wrap">${chamberSvg(gov, blocs, '#f0d48a')}<div><span class="label">${CHAMBER[gov].name.toUpperCase()} · ${CHAMBER[gov].seats} SEATS</span>
+      ${chamberLegend(gov, blocs)}<p class="hint">Bright seats are the government's; faded ones are the opposition. ${gov === 'autocracy' ? 'The assembly meets to approve what the leader decrees.' : gov === 'junta' ? 'The service chiefs decide together; nothing passes against the army.' : 'Seats change at elections, following the polls.'}</p></div></div>`;
+  }
+
   private partiesHtml() {
     const mine = this.game.mine!, ps = mine.parties;
-    if (!ps?.length) return '';
+    if (!ps?.length) return this.chamberHtml();
     const day = this.game.market?.day ?? 0;
     const gov = ps.filter((x) => x.gov), seats = gov.reduce((t, x) => t + x.seats, 0), poll = gov.reduce((t, x) => t + x.poll, 0);
     const toElection = mine.election !== undefined ? mine.election - day : undefined;
-    const bar = ps.map((x) => `<i style="width:${(x.seats * 100).toFixed(1)}%;background:${x.colour}" class="${x.gov ? 'gov' : ''}" data-tip="${attr(tip(x.name, `${Math.round(x.seats * 100)}% of seats · polling ${Math.round(x.poll * 100)}%`, x.gov ? ['In government', 'good'] : 'In opposition'))}"></i>`).join('');
     const rows = ps.map((x) => {
       const t = tip(x.name, `Speaks for ${x.base === 'public' ? 'the public' : x.base === 'military' ? 'the military' : 'business'}`, `${x.liberty > 0.2 ? 'Liberal' : x.liberty < -0.2 ? 'Authoritarian' : 'Centrist'}, ${x.openness > 0.2 ? 'internationalist' : x.openness < -0.2 ? 'nationalist' : 'moderate on the world'}`,
         'Polls follow how close it stands to what people believe, how its group feels, and for the government, how the country is doing');
@@ -128,8 +137,7 @@ export class PoliticsPanel {
           : `<button type="button" class="claim" data-pl="coalition" data-party="${esc(x.name)}" data-join="1" ${mine.politics!.capital < COALITION_COST ? 'disabled' : ''}>Invite · ${COALITION_COST}</button>`}</div>`;
     }).join('');
     const canCampaign = toElection !== undefined && toElection <= CAMPAIGN_DAYS;
-    return `<span class="label">PARLIAMENT · governing coalition ${Math.round(seats * 100)}% of seats, ${Math.round(poll * 100)}% in the polls${toElection !== undefined ? ` · election in ${toElection} days` : ''}</span>
-      <div class="hemicycle">${bar}</div>
+    return `${this.chamberHtml()}<span class="label">PARLIAMENT · governing coalition ${Math.round(seats * 100)}% of seats, ${Math.round(poll * 100)}% in the polls${toElection !== undefined ? ` · election in ${toElection} days` : ''}</span>
       <div class="parties">${rows}</div>
       ${toElection !== undefined ? `<div class="actions-row"><button type="button" class="claim${canCampaign ? ' primary' : ''}" data-pl="campaign" ${canCampaign && mine.politics!.capital >= CAMPAIGN_COST ? '' : 'disabled'}
         data-tip="${attr(tip('Campaign push', ['The governing parties gain in the polls until the election', 'good'], [`Costs ${CAMPAIGN_COST} political capital and 0.05% of GDP`, 'bad'], `Opens ${CAMPAIGN_DAYS} days before the election`))}">${canCampaign ? `Campaign · ${CAMPAIGN_COST}` : `Campaigning opens ${CAMPAIGN_DAYS} days before the election`}</button></div>` : ''}

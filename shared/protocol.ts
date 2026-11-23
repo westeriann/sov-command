@@ -63,6 +63,7 @@ export interface NationPublic {
   nuclear?: boolean; // holds nuclear warheads
   satellites?: number; // in orbit (launches are seen by everyone)
   ideology?: Ideology; // public opinion is no secret
+  parties?: { name: string; colour: string; seats: number; gov: boolean; liberty: number }[]; // parliament's make-up is public
   // nations born in revolts and civil wars: what the map file cannot know
   def?: { name: string; short: string; color: string; capital: number; label: number };
   // a player's own name, colour and flag for the nation (absent: the map's defaults)
