@@ -226,8 +226,21 @@ Command and control (desktop edition):
 - Hover tooltips everywhere, benefits in green and costs in red
 - A research queue of up to 8 technologies; AI nations research steadily
 - Windows keep their scroll position as the world updates
-- Keys: E economy, F ground forces, N naval ops, B air command, P diplomacy,
-  R research, K rankings, M map, C chat, G guide, ? all keys
+- Keys: E economy, X market, F ground forces, N naval ops, B air command,
+  P diplomacy, R research, K rankings, M map, I manual, C chat, ? all keys
+- Market window (X): local market (your goods and electricity, with charts
+  over time) and world market (prices, world supply and demand, price index)
+- In-game manual (i in the top bar, key I) explaining every system, with links
+  that open the windows, map modes and places it describes
+- Music player (note in the top bar): an original soundtrack composed live in
+  code, tracks listed in client/public/music/playlist.json, and your own files
+- Weather: satellite-style storm clouds, rain, lightning and thunder; rare
+  hurricanes over warm tropical seas that can damage buildings on landfall
+  (repair them from the province panel)
+- Night lights mode: every city glows by its power supply; 3D cities light up
+- The module menu folds away (arrow at its top); map modes and view settings
+  open from the MAP arrow at the bottom left
+- Biomes follow temperature, rainfall and height, with ragged, patchy edges
 
 ## Run it
 

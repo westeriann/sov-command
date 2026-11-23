@@ -14,8 +14,8 @@ const STEPS: Step[] = [
   },
   {
     title: 'The theatre map',
-    text: 'Drag to turn the globe and scroll to zoom. Click any land to inspect the province and its nation. Map modes on the left show politics, wealth, terrain and climate.',
-    target: '.panel.left .modes',
+    text: 'Drag to turn the globe, scroll to zoom, or use W A S D. Click any land to inspect the province and its nation. The MAP arrow at the bottom left opens map modes (politics, wealth, terrain, climate, night lights) and view settings.',
+    target: '.map-toggle',
   },
   {
     title: 'Take command',

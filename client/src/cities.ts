@@ -180,7 +180,7 @@ export class Cities {
       this.map.setPaintProperty('city-night', 'fill-opacity', 0);
       return;
     }
-    this.map.setPaintProperty('city-lights', 'circle-opacity', 0.4);
+    this.map.setPaintProperty('city-lights', 'circle-opacity', 0.3);
     this.map.setPaintProperty('city-lights-core', 'circle-opacity', 0.9);
     // brightness by electricity supply (blackouts go dark) and a little by wealth
     const match: unknown[] = ['match', ['get', 'nation']];
@@ -289,7 +289,7 @@ export class Cities {
         'circle-color': '#ffb347',
         'circle-blur': 1,
         'circle-radius': ['interpolate', ['exponential', 1.6], ['zoom'],
-          1, ['max', 6, ['*', 10, ['get', 'size']]], 4, ['max', 12, ['*', 34, ['get', 'size']]], 7, ['max', 40, ['*', 140, ['get', 'size']]]],
+          1, ['max', 3.5, ['*', 7, ['get', 'size']]], 4, ['max', 9, ['*', 26, ['get', 'size']]], 7, ['max', 36, ['*', 120, ['get', 'size']]]],
         'circle-opacity': 0,
         'circle-pitch-alignment': 'viewport',
       },

@@ -191,6 +191,22 @@ export class Hud {
     this.onGame(new Set<Change>(['status', 'me', 'mine', 'nations', 'events', 'chat', 'online']));
   }
 
+  // ---- the map drawer and the folding menu ---------------------------------------------
+  drawerOpen = false;
+  setDrawer(open: boolean) {
+    this.drawerOpen = open;
+    const d = this.root.querySelector<HTMLElement>('#mapDrawer');
+    const b = this.root.querySelector<HTMLElement>('[data-act="mapdrawer"]');
+    if (d) d.hidden = !open;
+    if (b) { b.setAttribute('aria-expanded', String(open)); b.textContent = `${open ? '▾' : '▴'} MAP`; }
+  }
+  setLeftCollapsed(folded: boolean) {
+    document.body.classList.toggle('left-collapsed', folded);
+    const b = this.root.querySelector<HTMLElement>('[data-act="collapse-left"]');
+    if (b) { b.setAttribute('aria-expanded', String(!folded)); b.textContent = folded ? '▸' : '◂'; }
+    try { localStorage.setItem('sov.leftFolded', folded ? '1' : '0'); } catch { /* storage blocked */ }
+  }
+
   /** Set by main: the 3D models switch in the View menu. */
   onModels: (on: boolean) => void = () => {};
   setModels(on: boolean) {
@@ -235,12 +251,17 @@ export class Hud {
       </header>
 
       <nav class="panel left" aria-label="Command modules">
-        <span class="label">MODULES</span>
+        <div class="left-head"><span class="label">MODULES</span>
+          <button type="button" class="collapse-btn" data-act="collapse-left" aria-expanded="true" data-tip="${attr(tip('Fold the menu', 'Keys still open every window'))}">◂</button></div>
         ${MODULES.map(([name, id, stage]) => `
           <button type="button" class="module${id === 'map' ? ' active' : ''}" data-module="${id}" data-tip="${attr(MODULE_TIPS[id] ?? '')}" ${stage ? 'disabled' : ''} ${id === 'map' ? 'aria-current="page"' : ''}>
             <span>${name.toUpperCase()}</span>${stage ? `<em>${stage}</em>` : ''}
           </button>`).join('')}
-        <span class="label sep">MAP MODE</span>
+      </nav>
+
+      <button type="button" class="panel map-toggle" data-act="mapdrawer" aria-expanded="false" aria-controls="mapDrawer" data-tip="${attr(tip('Map modes and view', 'Political, wealth, terrain, temperature, night lights; borders, 3D, relief'))}">▴ MAP</button>
+      <section class="panel map-drawer" id="mapDrawer" hidden aria-label="Map modes and view">
+        <span class="label">MAP MODE</span>
         <div class="modes" role="radiogroup" aria-label="Map mode">
           ${MODES.map(([id, label], i) => `
             <label class="radio"><input type="radio" name="mode" value="${id}" ${i === 0 ? 'checked' : ''}>${label}</label>`).join('')}
@@ -266,7 +287,7 @@ export class Hud {
           <button type="button" data-proj="globe" aria-pressed="true">Globe</button>
           <button type="button" data-proj="mercator" aria-pressed="false">Flat</button>
         </div>
-      </nav>
+      </section>
 
       <aside class="panel right" aria-live="polite">
         <section id="myNation" hidden></section>
@@ -457,6 +478,8 @@ export class Hud {
       else if (a === 'signout') this.actions.signOut();
       else if (a === 'guide') this.actions.guide();
       else if (a === 'manual') this.actions.manual();
+      else if (a === 'mapdrawer') this.setDrawer(!this.drawerOpen);
+      else if (a === 'collapse-left') this.setLeftCollapsed(!document.body.classList.contains('left-collapsed'));
       else if (a === 'music') this.actions.music();
       else if (a === 'worlds') this.actions.worlds();
       else if (a === 'account') this.actions.account();

@@ -235,7 +235,19 @@ def make_terrain(seed, dw):
     elev = np.where(lake, water["lake_surface"], elev).astype(np.float32)
 
     log("biomes")
-    t, m, e = temp, moist, elev
+    # The biome map reads a jittered copy of the climate, so boundaries are ragged and patchy
+    # (forest tongues into grassland, desert fingers into steppe) instead of following the smooth
+    # temperature and rainfall contours. The jitter is domain-warped, multi-scale noise, a few
+    # degrees and a little rain: it moves boundaries, it never puts desert in the tundra.
+    nb = [Perlin3(seed + 600 + i) for i in range(4)]
+
+    def biome_noise(p):
+        warp = np.stack([fbm(nb[0], p, 3, freq=4.0), fbm(nb[1], p, 3, freq=4.0, offset=(5.2, 1.3, 7.7)), fbm(nb[2], p, 3, freq=4.0, offset=(9.1, 3.3, 2.8))])
+        q = p + 0.22 * warp
+        return (fbm(nb[3], q, 6, freq=12.0, gain=0.6), fbm(nb[0], q, 6, freq=18.0, gain=0.6, offset=(3.7, 8.1, 1.9)))
+
+    jt, jm = field(lat, lon, biome_noise)
+    t, m, e = temp + 9.0 * jt, np.clip(moist + 0.2 * jm, 0, 1), elev
     sandy = vn > -0.05
     cls = np.select(
         [~land,

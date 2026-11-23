@@ -234,6 +234,7 @@ async function start() {
       } else if (kind === 'mode') {
         hudRoot.querySelector<HTMLInputElement>(`input[name="mode"][value="${a}"]`)?.click();
       } else if (kind === 'view') {
+        hud.setDrawer(true); // the View settings live in the map drawer
         // show the setting on the left: scroll to it and make it glow for a moment
         const el = hudRoot.querySelector<HTMLElement>(`#${a}`)?.closest<HTMLElement>('label, .slider');
         if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('glow'); setTimeout(() => el.classList.remove('glow'), 2400); }
@@ -284,6 +285,7 @@ async function start() {
     },
   });
   hud.setSound(sound.on);
+  try { if (localStorage.getItem('sov.leftFolded') === '1') hud.setLeftCollapsed(true); } catch { /* storage blocked */ }
   {
     const b = hudRoot.querySelector<HTMLElement>('#alertsBtn');
     if (b) { b.textContent = alerts ? 'Alerts on' : 'Alerts off'; b.setAttribute('aria-pressed', String(alerts)); }
