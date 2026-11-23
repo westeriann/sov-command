@@ -41,7 +41,7 @@ function lineChart(series: { name: string; values: number[]; color: string; dash
   const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => lo + f * (hi - lo));
   const grid = ticks.map((v) => `<path class="g" d="M${L} ${y(v).toFixed(1)}H${W - R}"/><text class="ax" x="${L - 6}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${esc(fmt(v))}</text>`).join('');
-  const weeks = `<text class="ax" x="${L}" y="${H - 6}">${n - 1} weeks ago</text><text class="ax" x="${W - R}" y="${H - 6}" text-anchor="end">now</text>`;
+  const weeks = `<text class="ax" x="${L}" y="${H - 6}">${n - 1} week${n - 1 === 1 ? "" : "s"} ago</text><text class="ax" x="${W - R}" y="${H - 6}" text-anchor="end">now</text>`;
   const zero = lo < 0 && hi > 0 ? `<path class="z" d="M${L} ${y(0).toFixed(1)}H${W - R}"/>` : '';
   const lines = series.map((s) => {
     const off = n - s.values.length;

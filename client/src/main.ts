@@ -28,6 +28,8 @@ import './styles.css';
 import './theme-command.css';
 import { EconomyPanel } from './economy-panel';
 import { MarketPanel } from './market-panel';
+import { Manual } from './manual';
+import { MusicPlayer } from './music';
 import { Forces } from './forces';
 import { Models3D } from './models3d';
 import { UnitCard } from './unit-card';
@@ -117,6 +119,8 @@ async function start() {
     },
     guide: () => tutorial?.start(),
     toggleSound: () => { sound.toggle(); return sound.on; },
+    manual: () => manual.toggle(),
+    music: () => music.toggle(),
     toggleMarket: () => {
       rankings?.close();
       forces?.close();
@@ -217,6 +221,30 @@ async function start() {
   let rankings: RankingsPanel | null = null;
   let lobby: Lobby | null = null;
   const market = new MarketPanel(hudRoot, game);
+  const music = new MusicPlayer(hudRoot, ASSET_BASE, () => hudRoot.querySelector('[data-act="music"]'));
+  const manual = new Manual(hudRoot, {
+    go: (target) => {
+      const [kind, a, b] = target.split(':');
+      const module = (id: string) => { if (!hudRoot.querySelector(`.left [data-module="${id}"].active`)) hudRoot.querySelector<HTMLElement>(`.left [data-module="${id}"]`)?.click(); };
+      if (kind === 'module') module(a);
+      else if (kind === 'market') {
+        module('market');
+        market.show(a === 'world' ? 'world' : 'local', b as never);
+      } else if (kind === 'mode') {
+        hudRoot.querySelector<HTMLInputElement>(`input[name="mode"][value="${a}"]`)?.click();
+      } else if (kind === 'view') {
+        // show the setting on the left: scroll to it and make it glow for a moment
+        const el = hudRoot.querySelector<HTMLElement>(`#${a}`)?.closest<HTMLElement>('label, .slider');
+        if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('glow'); setTimeout(() => el.classList.remove('glow'), 2400); }
+      } else if (kind === 'do') {
+        if (a === 'keys') shortcuts.hidden = false;
+        else if (a === 'guide') tutorial?.start();
+        else if (a === 'music') music.toggle();
+        else if (a === 'notices') { const h = hudRoot.querySelector<HTMLElement>('.notices-head'); if (h?.getAttribute('aria-expanded') === 'false') h.click(); }
+        else if (a === 'capital') { const n = game.mine && pol.nations.get(game.mine.id); const p = n && pol.provinces.get(n.capital); if (p) select(p.label[1], p.label[0], true); }
+      }
+    },
+  });
   const economy = new EconomyPanel(hudRoot, game, pol, {
     budget: (budget) => conn.send({ t: 'order', order: { kind: 'budget', budget } }),
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
@@ -270,6 +298,7 @@ async function start() {
     if (mod) { hudRoot.querySelector<HTMLElement>(`[data-module="${mod}"]`)?.click(); ev.preventDefault(); }
     else if (ev.key.toLowerCase() === 'c') hudRoot.querySelector<HTMLElement>('[data-open="chat"]')?.click();
     else if (ev.key.toLowerCase() === 'g') tutorial?.start();
+    else if (ev.key.toLowerCase() === 'i') manual.toggle();
     else if (ev.key === '?') shortcuts.hidden = !shortcuts.hidden;
     else if (ev.key === 'Escape') { shortcuts.hidden = true; economy.close(); market.close(); forces?.close(); diplomacy?.close(); research?.close(); rankings?.close(); hud.setOpenPanel(null); }
   });
@@ -279,7 +308,7 @@ async function start() {
   shortcuts.setAttribute('aria-label', 'Keyboard shortcuts');
   shortcuts.innerHTML = `<span class="label">KEYBOARD</span><dl>
     <dt>W A S D</dt><dd>Move the camera (Shift: faster)</dd><dt>E</dt><dd>Economy</dd><dt>X</dt><dd>Market</dd><dt>F</dt><dd>Ground forces</dd><dt>N</dt><dd>Naval ops</dd><dt>B</dt><dd>Air command</dd><dt>P</dt><dd>Diplomacy</dd><dt>R</dt><dd>Research &amp; government</dd>
-    <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd>
+    <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd><dt>I</dt><dd>Manual</dd>
     <dt>Q</dt><dd>Selected units: give an order, then click a province</dd><dt>H T L U</dt><dd>Selected units: halt, go to, appoint a general, stand down aircraft</dd><dt>Tab</dt><dd>Next army, fleet or air wing (Shift: back)</dd><dt>Esc</dt><dd>Cancel an order, close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
   hudRoot.appendChild(shortcuts);
   hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.module, .claim, [data-r], [data-d]')) sound.play('click'); });

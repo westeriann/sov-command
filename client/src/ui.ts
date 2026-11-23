@@ -40,6 +40,8 @@ export interface HudActions {
   signOut(): void;
   toggleEconomy(): void;
   toggleMarket(): void;
+  manual(): void;
+  music(): void;
   toggleForces(view?: 'land' | 'sea' | 'air'): void;
   toggleDiplomacy(): void;
   toggleResearch(): void;
@@ -226,6 +228,8 @@ export class Hud {
           <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
           <button type="button" class="link" data-act="guide">Guide</button>
+          <button type="button" class="icon-btn" data-act="manual" aria-label="Manual" data-tip="${attr(tip('Manual (I)', 'How everything in the game works, with links to each window'))}">i</button>
+          <button type="button" class="icon-btn" data-act="music" aria-label="Music player" data-tip="${attr(tip('Music', 'Play, pause and choose the soundtrack'))}">♪</button>
           <button type="button" class="link" data-act="sound" id="soundBtn" aria-pressed="true">Sound on</button>
           <span id="account"></span>
         </div>
@@ -452,6 +456,8 @@ export class Hud {
       else if (a === 'signin') this.actions.signIn();
       else if (a === 'signout') this.actions.signOut();
       else if (a === 'guide') this.actions.guide();
+      else if (a === 'manual') this.actions.manual();
+      else if (a === 'music') this.actions.music();
       else if (a === 'worlds') this.actions.worlds();
       else if (a === 'account') this.actions.account();
       else if (a === 'customize') this.actions.customize();
