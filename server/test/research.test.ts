@@ -9,7 +9,7 @@ const provinces: Province[] = Array.from({ length: 4 }, (_, i) => ({
   id: i + 1, kind: 'land' as const, label: [i, 0] as [number, number], terrain: 'grassland',
   adj: [i, i + 2].filter((x) => x >= 1 && x <= 4), owner: i < 2 ? 1 : 2, pop: 1e7, name: `P${i + 1}`,
 }));
-const seed = { pop: 2e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2 } };
+const seed = { pop: 2e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2, timber: 1 } };
 const defs: NationDef[] = [1, 2].map((id) => ({
   id, name: `Nation ${id}`, short: `N${id}`, capital: id * 2 - 1, neighbours: [3 - id], provinces: 2, pop: 2e7, area: 1e5, seed,
 }));
@@ -127,7 +127,7 @@ test('a research queue starts the next technology when one finishes, once its pr
   const { openDb } = await import('../src/db.ts');
   const { DAY } = await import('../../shared/clock.ts');
   const provinces = [1, 2].map((id) => ({ id, kind: 'land' as const, label: [id, 0] as [number, number], terrain: 'grassland', adj: [3 - id], owner: id, pop: 1e7, name: `P${id}` }));
-  const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2 } };
+  const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2, timber: 1 } };
   const w = new World(openDb(':memory:'), 1, [
     { id: 1, name: 'A', short: 'A', capital: 1, neighbours: [2], provinces: 1, pop: 4e7, area: 1e5, seed },
     { id: 2, name: 'B', short: 'B', capital: 2, neighbours: [1], provinces: 1, pop: 4e7, area: 1e5, seed },

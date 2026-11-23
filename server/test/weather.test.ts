@@ -12,7 +12,7 @@ const provinces: Province[] = [
   { id: 2, kind: 'sea', label: [2, 15], terrain: 'ocean', adj: [1], owner: undefined, pop: 0, name: 'Warm Sea' },
   { id: 3, kind: 'land', label: [-3, 15], terrain: 'grassland', adj: [1], owner: 1, pop: 1e7, name: 'Inland' },
 ] as Province[];
-const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2 } };
+const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2, timber: 1 } };
 const defs: NationDef[] = [{ id: 1, name: 'Republic of A', short: 'A', capital: 3, neighbours: [], provinces: 2, pop: 2e7, area: 1e5, seed }];
 
 test('a hurricane making landfall damages buildings, which work again only once repaired', () => {

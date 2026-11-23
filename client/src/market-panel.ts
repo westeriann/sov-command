@@ -19,7 +19,7 @@ function qty(v: number, unit: string) {
 /** Price per familiar unit: $/bbl, $/t, $/1000 m³, $k/t. */
 function priceLabel(c: Commodity, p: number) {
   const per = p * 1000;
-  return c === 'oil' ? `$${per.toFixed(1)}/bbl` : c === 'gas' ? `$${per.toFixed(0)}/1000 m³` : c === 'rare_earths' ? `$${per.toFixed(1)}k/t` : `$${per.toFixed(0)}/t`;
+  return c === 'oil' ? `$${per.toFixed(1)}/bbl` : c === 'gas' ? `$${per.toFixed(0)}/1000 m³` : c === 'rare_earths' ? `$${per.toFixed(1)}k/t` : c === 'timber' ? `$${per.toFixed(0)}/m³` : `$${per.toFixed(0)}/t`;
 }
 
 const COLORS = ['#d9b45a', '#6fa8dc', '#e06c5a', '#8fd17a', '#b58fd6', '#5fc9c0', '#e0a050'];

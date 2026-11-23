@@ -498,6 +498,10 @@ async function start() {
   map.on('click', (e) => {
     // an armed order (Q on the command card) goes where you click
     if (card.mapClick(pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng) ?? null)) return;
+    // a click on a 3D model: troops select their stack, a building opens its province
+    const hit = models.pick(e.point.x, e.point.y);
+    if (hit?.kind === 'stack') { forces?.clickStack(hit.key, (e.originalEvent as MouseEvent).shiftKey); return; }
+    if (hit?.kind === 'building') { const p = pol.provinces.get(hit.province); if (p) select(p.label[1], p.label[0]); return; }
     select(e.lngLat.lat, e.lngLat.wrap().lng);
   });
 

@@ -7,7 +7,7 @@ import { World, type NationDef } from '../src/world.ts';
 const defs: NationDef[] = [1, 2, 3, 4].map((id) => ({
   id, name: `Republic of N${id}`, short: `N${id}`, capital: id * 10,
   neighbours: [1, 2, 3, 4].filter((x) => x !== id), provinces: 5, pop: 1e6, area: 1e5,
-  seed: { pop: 1e6, coastal: 0.5, farm: 40, raw: { food: 2, oil: id === 1 ? 5 : 0.1, gas: 1, coal: 1, metals: 1, rare_earths: id === 2 ? 1 : 0 } },
+  seed: { pop: 1e6, coastal: 0.5, farm: 40, raw: { food: 2, oil: id === 1 ? 5 : 0.1, gas: 1, coal: 1, metals: 1, rare_earths: id === 2 ? 1 : 0, timber: 1 } },
 }));
 const alice = { id: 1, name: 'alice', guest: false };
 const bob = { id: 2, name: 'bob', guest: false };

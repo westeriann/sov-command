@@ -8,6 +8,7 @@ import { LIMITS } from '../../shared/protocol';
 import type { Change, Game } from './game';
 import type { Political } from './political';
 import { keepScrollOn } from './keep-scroll';
+import { attr, tip } from './tooltip';
 
 export interface EconomyActions {
   budget(b: Partial<Budget>): void;
@@ -161,6 +162,7 @@ export class EconomyPanel {
       warn('oil', 'Oil shortage: your forces fight weaker'),
       warn('metals', 'Metal shortage: units and munitions build slower, factories stall'),
       warn('rare_earths', 'Rare-earth shortage: research slows'),
+      warn('timber', 'Timber shortage: construction, repairs and infrastructure slow'),
       warn('coal', 'Coal shortage: coal power stations falter'),
       warn('gas', 'Gas shortage: gas power stations falter'),
     ].filter(Boolean).join('');
@@ -238,7 +240,7 @@ export class EconomyPanel {
             </div>`).join('')}
           <div class="kv mono">
             <span>Infrastructure</span><span>${(e.infra * 100).toFixed(0)}% of need</span>
-            <span>Research banked</span><span>${Math.round(e.research).toLocaleString('en-US')} pts</span>
+            <span data-tip="${attr(tip('Research banked', 'Points earned while nothing is being researched are saved here', ['Spent automatically: up to half again your research rate each day', 'good']))}">Research banked</span><span>${Math.round(e.research).toLocaleString('en-US')} pts</span>
             <span>Defence budget</span><span>${money(e.defence)}/yr</span>
             <span>Munitions</span><span>${e.munitions}% of reserve</span>
             <span>Reservists</span><span>${people(e.reservists)}</span>

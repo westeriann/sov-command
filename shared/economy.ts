@@ -2,8 +2,8 @@
 // US dollars ($bn); production and consumption are per game year; stocks are
 // in each good's unit.
 
-export type Commodity = 'food' | 'oil' | 'gas' | 'coal' | 'metals' | 'rare_earths';
-export const COMMODITIES: Commodity[] = ['food', 'oil', 'gas', 'coal', 'metals', 'rare_earths'];
+export type Commodity = 'food' | 'timber' | 'oil' | 'gas' | 'coal' | 'metals' | 'rare_earths';
+export const COMMODITIES: Commodity[] = ['food', 'timber', 'oil', 'gas', 'coal', 'metals', 'rare_earths'];
 
 export interface CommodityInfo {
   name: string;
@@ -15,6 +15,7 @@ export interface CommodityInfo {
 
 export const COMMODITY_INFO: Record<Commodity, CommodityInfo> = {
   food: { name: 'Food', unit: 'Mt', basePrice: 0.3, worldUse: 2_670 }, // $300/t
+  timber: { name: 'Timber', unit: 'Mm³', basePrice: 0.08, worldUse: 4_000 }, // $80/m³: construction, housing, paper
   oil: { name: 'Oil', unit: 'Mbbl', basePrice: 0.075, worldUse: 36_500 }, // $75/bbl
   gas: { name: 'Natural gas', unit: 'bcm', basePrice: 0.3, worldUse: 4_000 }, // $300 per 1000 m³
   coal: { name: 'Coal', unit: 'Mt', basePrice: 0.12, worldUse: 8_500 }, // $120/t

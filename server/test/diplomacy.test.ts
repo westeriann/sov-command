@@ -9,7 +9,7 @@ const provinces = (): Province[] => Array.from({ length: 9 }, (_, i) => ({
   id: i + 1, kind: 'land' as const, label: [i, 0] as [number, number], terrain: 'grassland',
   adj: [i, i + 2].filter((x) => x >= 1 && x <= 9), owner: Math.floor(i / 3) + 1, pop: 1e7, name: `P${i + 1}`,
 }));
-const seed = { pop: 3e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2 } };
+const seed = { pop: 3e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2, timber: 1 } };
 const defs: NationDef[] = [1, 2, 3].map((id) => ({
   id, name: `Nation ${id}`, short: `N${id}`, capital: id * 3 - 1, neighbours: [id - 1, id + 1].filter((x) => x >= 1 && x <= 3),
   provinces: 3, pop: 3e7, area: 1e5, seed,

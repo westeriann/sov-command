@@ -8,7 +8,7 @@ for (const count of [150, 1000, 5000]) {
   const defs: NationDef[] = Array.from({ length: count }, (_, i) => ({
     id: i + 1, name: `Nation ${i + 1}`, short: `N${i + 1}`, capital: i, provinces: 20, pop: 1e7, area: 1e5,
     neighbours: [((i + 1) % count) + 1, ((i + count - 1) % count) + 1, ((i + 7) % count) + 1],
-    seed: { pop: 1e7, coastal: (i % 10) / 10, farm: 30 + (i % 40), raw: { food: 1 + (i % 5), oil: i % 9 === 0 ? 4 : 0, gas: i % 4, coal: i % 3, metals: 1, rare_earths: i % 17 === 0 ? 1 : 0 } },
+    seed: { pop: 1e7, coastal: (i % 10) / 10, farm: 30 + (i % 40), raw: { food: 1 + (i % 5), oil: i % 9 === 0 ? 4 : 0, gas: i % 4, coal: i % 3, metals: 1, rare_earths: i % 17 === 0 ? 1 : 0, timber: 1 } },
   }));
   const world = new World(openDb(':memory:'), 1, defs, {
     speed: 24, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 50, autopilotAfterMs: DAY, releaseAfterMs: 14 * DAY,

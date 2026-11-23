@@ -25,7 +25,7 @@ const HISTORY_POINTS = 260;
 /** Largest price move per game day. Days are short (10 s), so prices move gently. */
 const PRICE_STEP = 0.005;
 const PRICE_FLOOR = 0.25, PRICE_CEIL = 4; // multiples of the base price
-const SHORTAGE_WEIGHT: Record<Commodity, number> = { food: 0.4, oil: 0.25, gas: 0.1, coal: 0.08, metals: 0.12, rare_earths: 0.05 };
+const SHORTAGE_WEIGHT: Record<Commodity, number> = { food: 0.4, timber: 0.06, oil: 0.25, gas: 0.1, coal: 0.08, metals: 0.12, rare_earths: 0.05 };
 
 /** Use per year: food scales with people, everything else with output. */
 export function usePerYear(c: Commodity, gdp: number, pop: number) {
@@ -136,6 +136,7 @@ export interface DayInput {
   factoryGrowth?: number; // growth from factories, if they get metals and electricity
   harvest?: number; // seasonal food output factor
   powerDemand?: number; // seasonal electricity demand factor
+  foodBonus?: number; // fisheries, breadbaskets, cattle: share more food
 }
 
 /**
@@ -157,7 +158,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     const e = n.econ;
     for (const c of COMMODITIES) {
       const use = ((usePerYear(c, e.gdp, e.pop) + (n.extraUse?.[c] ?? 0)) / 365) * thrift(c);
-      let net = (e.capacity[c] / 365) * utilisation(c) * (n.control ?? 1) * (c === 'food' ? n.harvest ?? 1 : 1) - use;
+      let net = (e.capacity[c] / 365) * utilisation(c) * (n.control ?? 1) * (c === 'food' ? (n.harvest ?? 1) * (1 + (n.foodBonus ?? 0)) : 1) - use;
       e.trade[c] = 0;
       e.short[c] = 0;
       if (net < 0) {
@@ -224,8 +225,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     e.shortage = COMMODITIES.reduce((a, c) => a + SHORTAGE_WEIGHT[c] * Math.min(1, e.short[c]), 0);
 
     const infraTarget = Math.min(1.6, Math.max(0.4, 0.55 + (share('infrastructure') / e.gdp) * 30));
-    e.infra += (infraTarget - e.infra) * 0.006;
-    e.research += share('research') / 365;
+    e.infra += (infraTarget - e.infra) * 0.006 * (1 - 0.6 * Math.min(1, e.short.timber ?? 0)); // building roads and housing needs timber
     // munitions need metals
     e.munitions = e.munitions * (1 - 0.0005) + (share('military') / 365) * 0.3 * (1 - 0.6 * Math.min(1, e.short.metals));
 

@@ -292,6 +292,9 @@ export class Forces {
     (this.map.getSource('routes') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features });
   }
 
+  /** Select a stack as if its counter were clicked (a click on its 3D model). */
+  clickStack(key: string, add = false) { this.clickMarker(key, add); }
+
   private clickMarker(key: string, add: boolean) {
     const m = this.markers.get(key);
     if (!m) return;

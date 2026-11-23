@@ -346,6 +346,9 @@ const WHITE = new THREE.Color('#ffffff');
 const _m = new THREE.Matrix4(), _l = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
 
 /** A city's buildings in metres from its centre (x east, z south), laid out once over its flat picture. */
+/** A model drawn last frame that a click can land on. */
+type Pick = { lon: number; lat: number; r: number } & ({ kind: 'stack'; key: string } | { kind: 'building'; province: number });
+
 interface City { id: number; at: Pos; pop: number; capital: boolean; size: number; towers: { x: number; z: number; w: number; d: number; h: number; color: THREE.Color }[] }
 
 function inRing(x: number, y: number, ring: Pos[]) {
@@ -387,6 +390,23 @@ export class Models3D implements CustomLayerInterface {
   private repaintQueued = false;
   /** Storms to draw (set by the game from the weather state); shown at every zoom, whatever the 3D switch. */
   weather: () => { clouds: { lon: number; lat: number; km: number; img: string; rot: number; part: string }[]; flashes: { lon: number; lat: number; km: number }[]; rainFrame: number } = () => ({ clouds: [], flashes: [], rainFrame: 0 });
+  /** What was drawn last frame and where, so a click on a model can select it. */
+  private picks: Pick[] = [];
+
+  /** The troop stack or building model under a screen point (troops win), if any. */
+  pick(x: number, y: number): { kind: 'stack'; key: string } | { kind: 'building'; province: number } | null {
+    let best: Pick | null = null, bestD = Infinity;
+    for (const p of this.picks) {
+      const q = this.map.project([p.lon, p.lat]);
+      // models stand up from their point: the hit area sits a little above it
+      const d = Math.hypot(q.x - x, q.y - p.r * 0.35 - y);
+      const score = d - (p.kind === 'stack' ? 6 : 0);
+      if (d < p.r && score < bestD) { best = p; bestD = score; }
+    }
+    if (!best) return null;
+    return best.kind === 'stack' ? { kind: 'stack', key: best.key } : { kind: 'building', province: best.province };
+  }
+
   /** Pixels a vehicle model spans on screen right now; 0 while models are hidden. */
   sizePx = 0;
   onSize: (px: number) => void = () => {};
@@ -565,6 +585,7 @@ export class Models3D implements CustomLayerInterface {
     const unit = px * mpp; // metres in one model unit
     const t = (performance.now() - this.start) / 1000;
     for (const k of this.meshes.keys()) this.counts.set(k, 0);
+    this.picks = [];
 
     nightUniforms.uWin.value = Math.max(250, mpp * 3);
     if (on) {
@@ -667,6 +688,7 @@ export class Models3D implements CustomLayerInterface {
           const lon = lon0 + (Math.cos(ang) * r) / kx, lat = lat0 + (Math.sin(ang) * r) / 110_540;
           if (k < 7 && this.pol.provinceAt(lat, lon)?.kind !== 'land' && type !== 'port') continue; // try another spot on land
           this.at(lon, lat, unitM * g);
+          this.picks.push({ kind: 'building', province: id, lon, lat, r: Math.max(10, (unitM * g * 0.7) / mpp) });
           this.drawBuilding(type, done.filter((x) => x === type).length, t, id * 31 + i);
           if (broken.has(type)) this.smoke(0, 0.3, 0, t, id * 7 + i, '#3a3634', 1.2); // storm damage smoulders until repaired
           break;
@@ -760,6 +782,7 @@ export class Models3D implements CustomLayerInterface {
       let [lon, lat] = s.at;
       if (s.slot) lon += (s.slot * slotKm) / (111_320 * Math.max(0.2, Math.cos(lat * RAD)));
       if (!this.visible(lon, lat)) continue;
+      this.picks.push({ kind: 'stack', key: s.key, lon, lat, r: px * 0.9 });
       const u0 = s.units[0];
       const sea = this.pol.provinces.get(u0.province)?.kind === 'sea';
       // facing: toward the next province, or toward the enemy's side of the map at rest

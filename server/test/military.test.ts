@@ -11,7 +11,7 @@ const provinces: Province[] = Array.from({ length: 8 }, (_, i) => ({
   id: i + 1, kind: 'land' as const, label: [i, 0] as [number, number], terrain: i === 2 ? 'mountain_wet' : 'grassland',
   adj: [i, i + 2].filter((x) => x >= 1 && x <= 8), owner: i < 4 ? 1 : 2, pop: 1e7, name: `P${i + 1}`,
 }));
-const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2 } };
+const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2, timber: 1 } };
 const defs: NationDef[] = [
   { id: 1, name: 'Republic of A', short: 'A', capital: 1, neighbours: [2], provinces: 4, pop: 4e7, area: 1e5, seed },
   { id: 2, name: 'Kingdom of B', short: 'B', capital: 8, neighbours: [1], provinces: 4, pop: 4e7, area: 1e5, seed },

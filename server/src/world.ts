@@ -30,6 +30,7 @@ import { ACHIEVEMENTS, MISSION_CASH, MISSION_KINDS, MISSION_REWARD_DAYS, type Ac
 import { EARNED_EMBLEMS } from '../../shared/flags.ts';
 import { HARVEST, WINTER_POWER, seasonAt } from '../../shared/seasons.ts';
 import { GOV_LIBERTY, PROPAGANDA_COST, type Faction, type Ideology, type PropagandaMode } from '../../shared/society.ts';
+import { specialtyBonus, specialtyOf, SPECIALTIES, type Specialty, type SpecialtyBonus } from '../../shared/specialties.ts';
 import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, REPAIR_COST_SHARE, REPAIR_TIME_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
@@ -107,7 +108,7 @@ export interface WorldListener {
 
 /** Province resource scores (0..100) feeding each good. */
 const RESOURCE_OF: Record<Commodity, string> = {
-  food: 'farmland', oil: 'oil', gas: 'gas', coal: 'coal', metals: 'ore', rare_earths: 'rare_earths',
+  food: 'farmland', timber: 'timber', oil: 'oil', gas: 'gas', coal: 'coal', metals: 'ore', rare_earths: 'rare_earths',
 };
 /** After downtime, simulate at most this many missed days (60 days ≈ 1.2 s of work). */
 const MAX_CATCH_UP_DAYS = 60;
@@ -199,6 +200,36 @@ export class World {
   private migrants = new Map<number, { in: number; out: number }>();
   storms: { lon: number; lat: number; r: number; vlon: number; vlat: number; until: number; kind?: 'storm' | 'hurricane'; cat?: number; name?: string; hit?: number[] }[] = [];
   private hurricaneCount = 0;
+  /** Each land province's specialty (from its climate and place). */
+  readonly specialty = new Map<number, Specialty>();
+  private specialtyCache = new Map<number, { own: Partial<Record<Specialty, number>>; shared: Specialty[]; bonus: SpecialtyBonus }>();
+
+  /** The specialties a nation holds (provinces it owns and controls), luxuries its trade partners share, and the bonus. */
+  specialties(nation: number) {
+    let c = this.specialtyCache.get(nation);
+    if (c) return c;
+    const own: Partial<Record<Specialty, number>> = {};
+    for (const [p, sp] of this.specialty) {
+      const prov = this.military.provinces.get(p);
+      if (prov?.owner === nation && this.military.controller(p) === nation) own[sp] = (own[sp] ?? 0) + 1;
+    }
+    const shared = new Set<Specialty>();
+    for (const partner of this.diplomacy.partners('trade', nation)) {
+      for (const [p, sp] of this.specialty) {
+        if (!SPECIALTIES[sp].luxury || own[sp] || shared.has(sp)) continue;
+        if (this.military.provinces.get(p)?.owner === partner && this.military.controller(p) === partner) shared.add(sp);
+      }
+    }
+    c = { own, shared: [...shared], bonus: specialtyBonus(own, [...shared]) };
+    this.specialtyCache.set(nation, c);
+    return c;
+  }
+
+  /** Whether a nation can draw on a specialty: its own provinces, or a trade partner's. */
+  hasAccess(nation: number, sp: Specialty) {
+    if (this.specialties(nation).own[sp]) return true;
+    return this.diplomacy.partners('trade', nation).some((x) => this.specialties(x).own[sp]);
+  }
   private stormy = new Set<number>();
   lanes: { a: number; b: number; path: number[]; raided: boolean }[] = [];
   private laneCache = new Map<string, number[] | null>();
@@ -279,6 +310,22 @@ export class World {
       this.dirty.add(d.id);
     }
     if (missing.length && !storedMarket) this.market.day = this.dayIndex();
+    // goods added since this world was saved (e.g. timber): seed them as a new world would
+    const newGoods = COMMODITIES.filter((c) => [...this.nations.values()].some((n) => n.econ && n.econ.capacity[c] === undefined));
+    if (newGoods.length) {
+      const fresh = initEconomies(new Map(defs.map((d) => [d.id, d.seed])), mulberry(seed + 77));
+      for (const n of this.nations.values()) {
+        const f = fresh.get(n.id);
+        for (const c of newGoods) {
+          const scale = f ? n.econ.gdp / Math.max(1e-6, f.gdp) : 1;
+          n.econ.capacity[c] = (f?.capacity[c] ?? usePerYear(c, n.econ.gdp, n.econ.pop)) * scale;
+          n.econ.stock[c] = (f?.stock[c] ?? 0) * scale;
+          n.econ.trade[c] = 0; n.econ.short[c] = 0;
+        }
+        this.dirty.add(n.id);
+      }
+      for (const c of newGoods) this.market.prices[c] ??= COMMODITY_INFO[c].basePrice;
+    }
 
     // land forces: the map, saved state, or fresh starting armies
     const provList = provinces ?? stubProvinces(defs);
@@ -295,6 +342,7 @@ export class World {
     const storedMil = getMeta(db, 'military');
     this.military = new Military(byId, storedMil ? JSON.parse(storedMil) : null, mulberry(seed + 99));
     this.military.allied = (a, b) => this.diplomacy.allied(a, b);
+    for (const p of byId.values()) { const sp = specialtyOf(p as never); if (sp) this.specialty.set(p.id, sp); }
     this.military.intelOn = (nation) => [
       ...Object.entries(this.nations.get(nation)?.intel ?? {}).filter(([, until]) => until >= this.market.day).map(([id]) => Number(id)),
       ...((this.nations.get(nation)?.mil.satellites ?? 0) > 0 ? this.military.enemiesOf(nation) : []), // satellites watch every enemy
@@ -366,6 +414,8 @@ export class World {
     e = effectsOf(n.gov.government, n.tech.done, n.gov.reformUntil !== undefined);
     if (n.gov.government === 'democracy' && this.military.enemiesOf(nation).length) e.stability -= 5; // war weariness
     if (n.policy.focus === 'military') { e.build += 0.2; e.manpower += 0.15; } // a war footing: faster arms output, more men called up
+    const sb = this.specialties(nation).bonus; // what the land is known for
+    e.stability += sb.stability; e.growth += sb.growth; e.research += sb.research; e.build += sb.build;
     if ((n.gov.oppositionUntil ?? -1) > this.market.day) { e.growth -= 0.002; e.stability += 3; } // a new government's honeymoon
     // society: how well the government suits the people, what the factions think, propaganda at home
     if (n.soc) {
@@ -580,6 +630,7 @@ export class World {
       society: n.soc ? { ...n.soc, fit: Math.round(this.fit(n) * 10) / 10 } : undefined,
       diplo: { incoming: this.diplomacy.incoming(n.id), outgoing: this.diplomacy.outgoing(n.id) },
       research: this.researchView(n),
+      specialties: { own: this.specialties(n.id).own, shared: this.specialties(n.id).shared },
       reports: (n.reports ?? []).slice(0, 12), spyOps: n.spyOps?.length ?? 0,
     };
   }
@@ -977,8 +1028,10 @@ export class World {
         if (spec.coastal && !p.adj.some((q) => this.military.provinces.get(q)?.kind === 'sea')) return fail('not_allowed', 'A port needs a coast.');
         const busy = [...this.military.buildings].filter(([q, list]) => this.military.provinces.get(q)?.owner === n.id && list.some((b) => b.progress < 1)).length;
         if (busy >= MAX_CONSTRUCTION) return fail('not_allowed', `At most ${MAX_CONSTRUCTION} projects at a time.`);
-        if (n.econ.treasury < spec.cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
-        n.econ.treasury -= spec.cost;
+        // uranium (ours or a trade partner's) makes nuclear power much cheaper
+        const cost = order.building === 'nuclear_plant' && this.hasAccess(n.id, 'uranium') ? spec.cost * 0.6 : spec.cost;
+        if (n.econ.treasury < cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
+        n.econ.treasury -= cost;
         this.military.buildings.set(p.id, [...here, { type: order.building, progress: 0 }]);
         if (actor === 'human') this.warChanged(); else this.warDirty = true; // AI projects go out with the daily update
         this.touch(n, false);
@@ -1041,6 +1094,7 @@ export class World {
       }
       case 'warhead': {
         if (!n.tech.done.includes('nuclear')) return fail('not_allowed', 'Research Nuclear deterrent first.');
+        if (!this.hasAccess(n.id, 'uranium')) return fail('not_allowed', 'Warheads need uranium: hold a uranium province, or sign a trade agreement with a nation that does.');
         if (n.mil.funds < WARHEAD_COST) return fail('no_funds', `A warhead costs ${WARHEAD_COST} bn of military funds.`);
         n.mil.funds -= WARHEAD_COST;
         n.mil.warheads = (n.mil.warheads ?? 0) + 1;
@@ -1393,6 +1447,7 @@ export class World {
       // occupation costs the owner output, revenue and stability
       if (this.diplomacy.expire(this.market.day)) this.warChanged();
       this.effectCache.clear();
+      this.specialtyCache.clear();
       this.constructionDay();
       this.unrestDay();
       const inputs = [...this.nations.values()].filter((n) => !n.annexedBy).map((n) => ({
@@ -1408,6 +1463,7 @@ export class World {
         extraUse: this.extraUse(n),
         ...this.seasonFactors(n),
         bonusStability: this.effects(n.id).stability,
+        foodBonus: this.specialties(n.id).bonus.food,
       }));
       runDay(inputs, this.market, this.market.day + 1);
       this.politicsDay(this.market.day);
@@ -2095,8 +2151,10 @@ export class World {
     for (const [p, list] of this.military.buildings) {
       const prov = this.military.provinces.get(p)!;
       for (const b of list) {
+        const builder = prov.owner !== undefined ? this.nations.get(prov.owner) : undefined;
+        const lumber = (1 - 0.6 * Math.min(1, builder?.econ.short.timber ?? 0)) * (1 + (builder ? this.specialties(builder.id).bonus.construct : 0)); // timber short: slower; quarries: faster
         if (b.progress < 1) {
-          b.progress = Math.min(1, b.progress + 1 / BUILDINGS[b.type].days);
+          b.progress = Math.min(1, b.progress + lumber / BUILDINGS[b.type].days);
           if (b.progress >= 1) this.finished(prov.owner, p, b.type);
         }
         if (b.damaged) {
@@ -2107,7 +2165,7 @@ export class World {
             b.repair = 0;
           }
           if (b.repair !== undefined) {
-            b.repair = Math.min(1, b.repair + 1 / Math.max(1, BUILDINGS[b.type].days * REPAIR_TIME_SHARE));
+            b.repair = Math.min(1, b.repair + lumber / Math.max(1, BUILDINGS[b.type].days * REPAIR_TIME_SHARE));
             if (b.repair >= 1) {
               b.damaged = undefined; b.repair = undefined;
               if (owner?.controller === 'human') this.event('politics', owner.id, `${this.defs.get(owner.id)!.short}: the ${BUILDINGS[b.type].name.toLowerCase()} in ${prov.name ?? 'a province'} is repaired.`);
@@ -2119,7 +2177,8 @@ export class World {
         if (b.progress >= 1 && b.type === 'factory' && prov.owner && this.military.controller(p) === prov.owner) {
           this.factories.set(prov.owner, (this.factories.get(prov.owner) ?? 0) + 1);
         }
-        const share = POWER_SHARE[b.type];
+        let share = POWER_SHARE[b.type];
+        if (share && b.type === 'renewables' && prov.owner !== undefined && this.hasAccess(prov.owner, 'lithium')) share *= 1.5; // batteries store wind and sun
         if (b.progress >= 1 && share && prov.owner && this.military.controller(p) === prov.owner) {
           const t = this.plants.get(prov.owner) ?? { share: 0, thermal: 0, coal: 0, gas: 0 };
           t.share += share;
@@ -2128,6 +2187,14 @@ export class World {
           this.plants.set(prov.owner, t);
         }
       }
+    }
+    // geothermal springs add steady power on top of any stations
+    for (const n of this.nations.values()) {
+      const geo = this.specialties(n.id).bonus.power;
+      if (!geo) continue;
+      const t = this.plants.get(n.id) ?? { share: 0, thermal: 0, coal: 0, gas: 0 };
+      t.share += geo;
+      this.plants.set(n.id, t);
     }
   }
 
@@ -2150,12 +2217,17 @@ export class World {
     this.spyDay(day);
     for (const n of this.nations.values()) {
       if (n.annexedBy) continue;
+      n.econ.treasury += (n.econ.gdp * this.specialties(n.id).bonus.treasury) / 365; // gold fields and gem mines
       const name = this.defs.get(n.id)!.name;
       const human = n.controller === 'human';
       const cur = n.tech.current;
+      const rate = this.researchRate(n);
+      if (!cur) n.econ.research = Math.min(TIER_COST[3] * 2, n.econ.research + rate); // nothing under way: bank the points
       if (cur) {
         const t = TECH_BY_ID.get(cur)!;
-        const p = (n.tech.partial[cur] ?? 0) + this.researchRate(n);
+        const fromBank = Math.min(n.econ.research, rate * 0.5);
+        n.econ.research -= fromBank;
+        const p = (n.tech.partial[cur] ?? 0) + rate + fromBank;
         if (p >= TIER_COST[t.tier]) {
           n.tech.done.push(cur);
           delete n.tech.partial[cur];

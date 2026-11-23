@@ -9,6 +9,7 @@ import type { MilitaryPrivate, Mission, UnitType, UnitView, War } from './milita
 import type { Bloc, Deal, DealKind, Pact, Proposal, Resolution, ResolutionKind, SpyMission, Treaty } from './diplomacy';
 import type { Government, ResearchPrivate, TechId } from './research';
 import type { BuildingState, BuildingType } from './buildings';
+import type { Specialty } from './specialties';
 import type { FlagSpec } from './flags';
 import type { AchievementKey, SeasonMission } from './goals';
 import type { Ideology, PropagandaMode, SocietyPrivate } from './society';
@@ -75,6 +76,8 @@ export interface NationPrivate extends NationPublic {
   mil?: MilitaryPrivate;
   diplo?: { incoming: Proposal[]; outgoing: Proposal[] };
   research?: ResearchPrivate;
+  /** specialties held (provinces of each) and luxuries reaching us through trade partners */
+  specialties?: { own: Partial<Record<Specialty, number>>; shared: Specialty[] };
   reports?: string[]; // intelligence reports, newest first
   spyOps?: number; // operations under way
   openBorders?: boolean;

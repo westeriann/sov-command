@@ -12,7 +12,7 @@ const provinces = (): Province[] => [
   })),
   { id: 9, kind: 'sea' as const, label: [-1, 0] as [number, number], terrain: 'ocean', adj: [1], pop: 0, name: 'Sea' },
 ];
-const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2 } };
+const seed = { pop: 4e7, coastal: 0.5, farm: 50, raw: { food: 2, oil: 1, gas: 1, coal: 1, metals: 1, rare_earths: 0.2, timber: 1 } };
 const defs: NationDef[] = [
   { id: 1, name: 'Republic of A', short: 'A', capital: 1, neighbours: [2], provinces: 4, pop: 4e7, area: 1e5, seed },
   { id: 2, name: 'Kingdom of B', short: 'B', capital: 8, neighbours: [1], provinces: 4, pop: 4e7, area: 1e5, seed },
@@ -84,6 +84,10 @@ test('missiles need research, war and range; nuclear strikes devastate and isola
   assert.equal(w.submit(1, { kind: 'missile', province: 6 }, 'human').ok, false, 'one salvo a day');
 
   assert.equal(w.submit(1, { kind: 'nuke', province: 7 }, 'human').ok, false, 'no warheads');
+  // warheads need uranium: give nation 1 a uranium province
+  const owned = [...w.military.provinces.values()].find((p) => p.owner === 1)!;
+  w.specialty.set(owned.id, 'uranium');
+  (w as unknown as { specialtyCache: Map<number, unknown> }).specialtyCache.clear();
   assert.equal(w.submit(1, { kind: 'warhead' }, 'human').ok, true);
   assert.equal(w.publicView(a).nuclear, true, 'nuclear status is public');
   const gdp = w.nations.get(2)!.econ.gdp;
