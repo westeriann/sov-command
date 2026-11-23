@@ -26,6 +26,8 @@ Outputs (world/, regenerated, not committed)
   world.json       seed, sizes, biome names, sea level, land fraction
 """
 import argparse
+import multiprocessing
+import os
 import json
 import sys
 import time
@@ -447,10 +449,45 @@ def make_texture(terrain, seed, ow, dw):
     lake_ice = smooth(-terrain["temp"], 6, 12).astype(np.float32)
     dryness = (1 - terrain["moist"]).astype(np.float32)
 
+    _CTX.update(dict(oh=oh, ow=ow, rs=rs, weights=weights, bombers=bombers, coslat=coslat, tone=tone, shade=shade,
+                     sea_depth=sea_depth, terrain=terrain, lat_o=lat_o, lon_o=lon_o, n_coast=n_coast, n_micro=n_micro,
+                     upland=upland, riparian=riparian, dryness=dryness, height=height, lake_soft=lake_soft,
+                     lake_ice=lake_ice, river_px=river_px))
     img = np.empty((oh, ow, 3), np.uint8)
-    strip = 256
-    for r0 in range(0, oh, strip):
-        ys = np.arange(r0, min(oh, r0 + strip))
+    starts = list(range(0, oh, STRIP))
+    # every strip of rows is painted on its own, so the work splits across processor
+    # cores (forked workers share the inputs) and the picture is the same either way
+    jobs = max(1, min(JOBS, len(starts)))
+    if jobs > 1:
+        log(f"painting on {jobs} cores")
+        with multiprocessing.get_context("fork").Pool(jobs) as pool:
+            for i, (r0, rows) in enumerate(pool.imap(_paint_strip, starts)):
+                img[r0:r0 + len(rows)] = rows
+                if i % 8 == 0:
+                    log(f"texture rows {r0}/{oh}")
+    else:
+        for i, r0 in enumerate(starts):
+            _, rows = _paint_strip(r0)
+            img[r0:r0 + len(rows)] = rows
+            if i % 8 == 0:
+                log(f"texture rows {r0}/{oh}")
+    return img
+
+
+STRIP = 256
+JOBS = 1
+_CTX = {}
+
+
+def _paint_strip(r0):
+    """Paint output rows r0..r0+STRIP from the shared inputs in _CTX."""
+    c = _CTX
+    oh, ow, rs, bombers, coslat, terrain = c["oh"], c["ow"], c["rs"], c["bombers"], c["coslat"], c["terrain"]
+    weights, tone, shade, sea_depth = c["weights"], c["tone"], c["shade"], c["sea_depth"]
+    lat_o, lon_o, n_coast, n_micro, upland = c["lat_o"], c["lon_o"], c["n_coast"], c["n_micro"], c["upland"]
+    riparian, dryness, height, lake_soft, lake_ice, river_px = c["riparian"], c["dryness"], c["height"], c["lake_soft"], c["lake_ice"], c["river_px"]
+    if True:
+        ys = np.arange(r0, min(oh, r0 + STRIP))
         sl = slice(r0, r0 + len(ys))
         ws = {b: rs(w, ys) for b, w in weights.items()}
         total = sum(ws.values()) + 1e-6
@@ -487,10 +524,7 @@ def make_texture(terrain, seed, ow, dw):
             out = out * (1 - la) + lake_col * la
         rv = (river_px[sl].astype(np.float32) / 255)[..., None] * a * 0.9
         out = out * (1 - rv) + np.array([30, 62, 82], np.float32) * rv
-        img[sl] = np.clip(out, 0, 255).astype(np.uint8)
-        if (r0 // strip) % 8 == 0:
-            log(f"texture rows {r0}/{oh}")
-    return img
+        return r0, np.clip(out, 0, 255).astype(np.uint8)
 
 
 def main():
@@ -498,7 +532,10 @@ def main():
     ap.add_argument("--seed", type=int, default=300)
     ap.add_argument("--width", type=int, default=32768, help="colour map width (power of two): 32768 is about 1.2 km a pixel")
     ap.add_argument("--data-width", type=int, default=4096, help="elevation/climate grid width")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="processor cores to paint the texture on")
     args = ap.parse_args()
+    global JOBS
+    JOBS = args.jobs
     OUT.mkdir(exist_ok=True)
 
     terrain = make_terrain(args.seed, args.data_width)

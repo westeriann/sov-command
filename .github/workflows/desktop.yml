@@ -22,7 +22,15 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.13' }
       - run: npm run setup
-      - run: npm run world
+      # the planet is the same every time for the same generator: keep it between
+      # builds and only generate it again when tools/worldgen or its photos change
+      - uses: actions/cache@v4
+        id: world
+        with:
+          path: client/public/world
+          key: world-${{ hashFiles('tools/worldgen/**', 'assets/samples/**') }}
+      - if: steps.world.outputs.cache-hit != 'true'
+        run: npm run world
       - run: npm run build:offline
       # the multiplayer website and the bundled server, for "Host a game"
       - run: npm run build
