@@ -333,7 +333,34 @@ export class GameMap {
       return;
     }
     this.map.setLayoutProperty('hillshade', 'visibility', 'visible');
-    this.map.setTerrain({ source: 'relief', exaggeration: exaggeration(this.map.getZoom(), this.relief) });
+    const want = exaggeration(this.map.getZoom(), this.relief);
+    if (!this.setExaggeration(want)) this.map.setTerrain({ source: 'relief', exaggeration: want });
+  }
+
+  /**
+   * Change how high the mountains stand without rebuilding the terrain. setTerrain()
+   * destroys the 3D terrain and the textures the map is drawn into, so calling it while
+   * zooming blanked the globe (or half of it, or the rivers) for a frame.
+   */
+  private setExaggeration(v: number) {
+    type Live = {
+      exaggeration: number; options: { exaggeration?: number }; coverage?: { exaggeration: number };
+      resetElevationCache?: () => void;
+    };
+    const m = this.map as unknown as {
+      terrain?: Live | null; painter?: { markTerrainDepthDirty?: () => void };
+      _camera?: { applyTerrainChange?: () => void };
+    };
+    const t = m.terrain;
+    if (!t || typeof t.exaggeration !== 'number') return false;
+    t.exaggeration = v;
+    t.options.exaggeration = v;
+    if (t.coverage) t.coverage.exaggeration = v;
+    t.resetElevationCache?.();
+    m.painter?.markTerrainDepthDirty?.();
+    m._camera?.applyTerrainChange?.();
+    this.map.triggerRepaint();
+    return true;
   }
 
   private followZoom() {

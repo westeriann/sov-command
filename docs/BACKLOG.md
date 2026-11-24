@@ -28,7 +28,10 @@ until the go-ahead; interface work can go first.
 8. **Sounds**: a province click plays an ambience for its type (city bustle, farm animals,
    mountain wind and rarely a goat, forest birds, desert wind, coast waves and gulls,
    arctic wind, industry, bases); a small sound on hovering the Economy rings. Sourced and
-   shown for review before adding.
+   shown for review before adding. Each sound gets a small matching scene on the map that
+   fades in, plays briefly and fades out so the map never clutters: birds or gulls fly a
+   short way, farm animals, a goat on a ridge, and so on for what the province is known
+   for (items 26 to 28 cover the look).
 9. **No emojis anywhere**: province specialty icons become drawn icons in the theme.
 10. **Nation quick card**: clicking a nation's name in any tab opens a small card with key
    figures (country, economy, military, diplomacy) and a Zoom to button, instead of
@@ -50,7 +53,8 @@ until the go-ahead; interface work can go first.
     - Water should deepen gradually from the shore out to the ocean floor and look natural.
 15. **Political colours vs imagery**: in many places the province colour and borders stop
     while the satellite land carries on (or the colour spills over water), leaving jagged,
-    blocky edges. Colours and borders must follow the imagery's coastline.
+    blocky edges. Colours and borders must follow the imagery's coastline. The province
+    highlight (hover and selection) sometimes follows neither the imagery nor the colour.
 16. **Bright cup under the globe**: a large, slightly bright shading cups the bottom of the
     globe. Fix together with the **poles**, which are a void and should be ice caps you
     cannot enter.
@@ -76,6 +80,11 @@ until the go-ahead; interface work can go first.
     slow build (about 25 min), then the saved planet is reused.
 25. **Storms**: 3D clouds and hurricanes from real imagery; rain falls from the cloud base
     instead of laying over it.
+26. **Realistic lighting**: realistic shaders across the globe, lit by a distant, realistic
+    sun (soft day and night edge, atmosphere scattering, specular glint on water).
+27. **Realistic oceans**: up close, moving waves and sea life (fish shoals, whales,
+    dolphins) that fade in and out.
+28. **Province vignettes**: the short scenes from item 8 drawn on the map, fading in and out.
 
 ## Globe notes (keep for any rebuild of the planet)
 
