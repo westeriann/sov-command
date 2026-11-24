@@ -593,15 +593,19 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
         # the province's cells as one block, across the date line if it straddles it
         if gx.max() - gx.min() > W // 2:
             gx = np.where(gx < W // 2, gx + W, gx)
-        x0, x1 = gx.min() - 2, gx.max() + 3
-        y0, y1 = max(0, gy.min() - 2), min(H, gy.max() + 3)
+        x0, x1 = gx.min() - 4, gx.max() + 5
+        y0, y1 = max(0, gy.min() - 4), min(H, gy.max() + 5)
         if x1 - x0 > W // 2 + P:  # too wide to window (a huge province): skip, the raster draws it
             continue
         win = np.zeros((y1 - y0 + 2, x1 - x0 + 2), np.float32)
         sub = wide[y0:y1, x0 + P:x1 + P] if x1 + P <= wide.shape[1] else np.take(lab, np.arange(x0, x1) % W, axis=1)[y0:y1]
         win[1:-1, 1:-1] = sub == pid
+        # softened exactly as the photo's shore is, then traced a hair inside the halfway line so
+        # neighbours overlap a touch instead of leaving pinholes where three provinces meet
+        from scipy import ndimage as ndi
+        win = ndi.gaussian_filter(win, 0.85, mode="constant")
         rings = []
-        for c in measure.find_contours(win, 0.5):
+        for c in measure.find_contours(win, 0.47):
             if len(c) < 4:
                 continue
             yy, xx = c[:, 0] - 1 + y0, c[:, 1] - 1 + x0

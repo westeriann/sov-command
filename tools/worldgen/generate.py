@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_DIR = ROOT / "assets" / "samples"
 OUT = ROOT / "world"
 EARTH_KM = 40075.0
+OUTLINE_SIGMA = 0.85  # cells: how much the land outline is softened (shared with provinces.py)
 
 BIOMES = [
     "ocean", "ice", "tundra", "boreal", "temperate_forest", "grassland", "steppe",
@@ -466,8 +467,10 @@ def make_texture(terrain, seed, ow, dw):
     _wide = np.concatenate([terrain["land"][:, -_pad:], terrain["land"], terrain["land"][:, :_pad]], axis=1)
     _shore = np.clip(ndimage.distance_transform_edt(_wide)[:, _pad:-_pad] / 3.0, 0, 1).astype(np.float32)
     shade = 1 + (shade - 1) * (_shore * _shore * (3 - 2 * _shore))
-    land_f = (terrain["land"] & ~terrain["lake"]).astype(np.float32)
-    lake_f = terrain["lake"].astype(np.float32)
+    # the land outline softened by about a cell, so the shore is a smooth curve rather than the
+    # grid's stairs; the province outlines are traced on exactly the same softened field
+    land_f = ndimage.gaussian_filter((terrain["land"] & ~terrain["lake"]).astype(np.float32), OUTLINE_SIGMA, mode=("nearest", "wrap"))
+    lake_f = ndimage.gaussian_filter(terrain["lake"].astype(np.float32), OUTLINE_SIGMA, mode=("nearest", "wrap"))
     nvar = Perlin3(seed + 50)
     (tone,) = field(terrain["lat"], grid(dw, dw // 2)[1], lambda p: (fbm(nvar, p, 4, freq=5.0),))
     # water colour comes from a softened depth map so shallows have no stair-steps
