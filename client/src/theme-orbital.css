@@ -774,3 +774,10 @@ body.build-mode .lens, body.road-mode .lens { display: none; }
 .prov-scene.march svg { width: 4px; animation: walk 4.8s steps(16) var(--d) forwards; }
 .prov-scene.leap svg { width: 18px; animation: leap 1.6s ease-in-out var(--d) 2; }
 @keyframes leap { 0%, 100% { transform: translate(0, 6px) rotate(20deg); opacity: 0; } 30% { opacity: 1; } 50% { transform: translate(14px, -10px) rotate(-10deg); } 80% { transform: translate(26px, 4px) rotate(30deg); } }
+
+/* ---- Back to my nation ---- */
+.home-btn { position: absolute; left: calc(var(--gap) + 96px); bottom: max(var(--gap), env(safe-area-inset-bottom, 0px)); width: 36px; height: 36px; padding: 0;
+  display: grid; place-items: center; border-radius: 50%; color: var(--cyan); cursor: pointer; }
+.home-btn svg.art { width: 20px; height: 20px; }
+.home-btn:hover { border-color: var(--cyan); color: #fff; box-shadow: var(--glow); }
+@media (max-width: 760px) { .home-btn { bottom: 72px; } }

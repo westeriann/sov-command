@@ -26,6 +26,8 @@ const RAD = Math.PI / 180;
 
 /** Zoom where models start to appear, and where they are fully grown. */
 export const MODELS_FROM = 3.3;
+/** A building's size on the ground, metres: big enough to read from the zoom models appear at. */
+const BUILDING_M = 9000;
 const MODELS_FULL = 3.8;
 
 // ---- geometry -------------------------------------------------------------------
@@ -306,7 +308,7 @@ const EFFECTS: Partial<Record<Kind, THREE.Material>> = {
   rain0: sheet(rainImage(0), false, 0.8), rain1: sheet(rainImage(1), false, 0.8), rain2: sheet(rainImage(2), false, 0.8),
   bolt: sheet(flashImage(), true, 1),
   towerLit: (() => {
-    const m = new THREE.MeshBasicMaterial({ map: windowTexture() });
+    const m = new THREE.MeshBasicMaterial({ map: windowTexture(), side: THREE.DoubleSide });
     // tile the windows by the instance's real width and height, and keep roofs dark
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uWin = nightUniforms.uWin;
@@ -438,7 +440,7 @@ export class Models3D implements CustomLayerInterface {
     const big = c.pop > 4e6 || c.capital;
     const arid = ['desert_sand', 'desert_rock', 'savanna', 'shrubland', 'steppe'].includes(c.terrain);
     const tones = arid ? ['#c9b48f', '#d8c7a5', '#b59f7c', '#e2d6bd'] : ['#a9a59e', '#bdb8ae', '#8f949a', '#cfc8ba', '#9aa3ab'];
-    const block = c.km * 1000 * 0.16; // footprint of one block: chunky, sized to the city
+    const block = c.km * 1000 * 0.3; // footprint of one block: chunky, sized to the city
     const towers: City['towers'] = [];
     const sample = (ring: Pos[], n: number, place: (x: number, z: number, centrality: number) => void) => {
       const xs = ring.map((q) => q[0]), ys = ring.map((q) => q[1]);
@@ -473,7 +475,8 @@ export class Models3D implements CustomLayerInterface {
     this.scene.add(this.sky);
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
-    const lit = new THREE.MeshLambertMaterial({ vertexColors: true });
+    // both faces: seen from low down, tall towers' sides were dropped and only their roofs were left
+    const lit = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     for (const kind of Object.keys(GEOMETRY) as Kind[]) {
       const mesh = new THREE.InstancedMesh(GEOMETRY[kind](), EFFECTS[kind] ?? lit, MAX_INSTANCES);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -567,7 +570,7 @@ export class Models3D implements CustomLayerInterface {
     const z = this.map.getZoom();
     const grow = Math.min(1, Math.max(0, (z - MODELS_FROM) / (MODELS_FULL - MODELS_FROM)));
     const on = this.enabled && grow > 0;
-    const px = on ? Math.min(66, 30 + (z - MODELS_FULL) * 11) * grow : 0;
+    const px = on ? Math.min(44, 30 + (z - MODELS_FULL) * 4) * grow : 0; // troops grow only a little as you zoom in
     if (Math.abs(px - this.sizePx) > 0.5) { this.sizePx = px; this.onSize(px); }
     const sky = this.weather();
     if (!on && !sky.clouds.length) return;
@@ -594,7 +597,7 @@ export class Models3D implements CustomLayerInterface {
     nightUniforms.uWin.value = Math.max(250, mpp * 3);
     if (on) {
       this.drawCities(t, mpp);
-      this.drawBuildings(t, mpp, unit * 1.6 * 0.75); // buildings: three quarters of a unit model
+      this.drawBuildings(t, mpp, BUILDING_M); // buildings: a fixed size on the ground, in fixed places
       this.drawForces(unit * 1.6, t, px * 1.6);
     }
     this.drawWeather(sky, z);
@@ -642,13 +645,13 @@ export class Models3D implements CustomLayerInterface {
       if (!this.visible(lon, lat)) continue;
       this.at(lon, lat, 1); // the city in real metres, on its flat picture
       // zoomed out, blocks swell in place (never move) so the city still reads; up close they are true to size
-      const g = Math.min(2.5, Math.max(1, (4 * mpp) / city.size));
+      const g = Math.min(3.5, Math.max(1, (5 * mpp) / city.size));
       if (this.night) {
         const lit = this.brightness(this.pol.provinces.get(city.id)?.nation ?? 0);
         const col = new THREE.Color(lit, lit, lit);
         for (const b of city.towers) this.put('towerLit', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g, col);
         // the city's light spilling onto the land and water around it
-        const r = city.size * 16 * g;
+        const r = city.size * 9 * g;
         this.put('glow', 0, city.size * 0.05, 0, 0, r, 1, r, new THREE.Color(lit, lit * 0.9, lit * 0.75));
       } else {
         for (const b of city.towers) {
@@ -664,7 +667,7 @@ export class Models3D implements CustomLayerInterface {
     }
   }
 
-  /** Buildings are drawn at a steady size on screen, a quarter smaller than unit models, so they read at every zoom. */
+  /** Buildings stand at a fixed size on the ground in fixed places: they neither drift nor swell as the camera moves. */
   private drawBuildings(t: number, mpp: number, size: number) {
     const unitM = size, g = 1;
     for (const [pid, list] of Object.entries(this.game.war.buildings)) {
@@ -678,7 +681,7 @@ export class Models3D implements CustomLayerInterface {
       const [lon0, lat0] = city?.at ?? p.label;
       if (!this.visible(lon0, lat0)) continue;
       // a ring just outside the built-up area, in fixed metres, on land
-      const ring = (city ? city.size / 0.16 * 0.9 : 0) + unitM * 1.2;
+      const ring = (city ? city.size / 0.3 * 0.9 : 0) + unitM * 1.2;
       const types = [...new Set(done)];
       const kx = 111_320 * Math.max(0.2, Math.cos(lat0 * RAD));
       types.forEach((type, i) => {

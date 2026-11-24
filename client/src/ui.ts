@@ -297,6 +297,7 @@ export class Hud {
       </nav>
 
       <button type="button" class="panel map-toggle" data-act="mapdrawer" aria-expanded="false" aria-controls="mapDrawer" data-tip="${attr(tip('Map modes and view', 'Political, wealth, terrain, temperature, night lights; borders, 3D, relief'))}">▴ MAP</button>
+      <button type="button" class="panel home-btn" data-go="do:capital" aria-label="Back to my nation" data-tip="${attr(tip('Back to my nation (Home key)', 'Fly the camera back to your capital'))}">${art('home')}</button>
       <section class="panel map-drawer" id="mapDrawer" hidden aria-label="Map modes and view">
         <details class="drawer-sec" data-sec="mode" open><summary class="label">MAP MODE</summary>
         <div class="modes" role="radiogroup" aria-label="Map mode">

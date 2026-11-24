@@ -57,52 +57,84 @@ function climateOf(terrain: string): Climate {
 
 /**
  * A tile of city seen from orbit, on a transparent background so the land
- * shows through: roofs and streets only, laid out as an old organic town, a
- * planned grid, or loose sprawl.
+ * shows through: a street network first (pale, thin), then blocks of roofs
+ * with a darker shaded edge, some green space, laid out as an old organic
+ * town, a planned grid, or loose sprawl. Drawn large and anti-aliased so it
+ * stays clean over the sharper satellite terrain.
  */
 function urbanTexture(style: Style, climate: Climate, seed: number): ImageData {
-  const S = 128, c = document.createElement('canvas');
+  const S = 256, c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d')!;
   const rand = rng(seed * 131 + STYLES.indexOf(style) * 17 + 3);
   const colors = PALETTE[climate];
-  const roof = (alpha: number) => { g.globalAlpha = alpha; g.fillStyle = colors[Math.floor(rand() * colors.length)]; };
+  const green = climate === 'arid' ? '#8d8360' : climate === 'cold' ? '#5e6a5e' : '#4f6446';
   // tiles repeat: draw anything that crosses an edge on the other side too
-  const rect = (x: number, y: number, w: number, h: number) => {
-    for (const dx of [0, -S]) for (const dy of [0, -S]) g.fillRect(x + dx, y + dy, w, h);
-    g.fillRect(x, y, w, h);
-  };
+  const wrap = (draw: (dx: number, dy: number) => void) => { for (const dx of [0, -S, S]) for (const dy of [0, -S, S]) draw(dx, dy); };
+  const block = (x: number, y: number, w: number, h: number, a: number) => wrap((dx, dy) => {
+    g.globalAlpha = a * 0.55; g.fillStyle = '#2a2724'; g.fillRect(x + dx + 0.8, y + dy + 0.8, w, h); // the shaded side
+    g.globalAlpha = a; g.fillStyle = colors[Math.floor(rand() * colors.length)]; g.fillRect(x + dx, y + dy, w, h);
+  });
+  const street = (path: () => void, width: number, a: number) => wrap((dx, dy) => {
+    g.save(); g.translate(dx, dy); g.globalAlpha = a; g.strokeStyle = '#d8d2c6'; g.lineWidth = width; g.lineCap = 'round';
+    g.beginPath(); path(); g.stroke(); g.restore();
+  });
   if (style === 'grid') {
-    const step = 9 + Math.floor(rand() * 5);
+    const step = 14 + Math.floor(rand() * 6), skew = (rand() - 0.5) * 0.08;
+    g.setTransform(1, skew, -skew, 1, 0, 0);
     for (let y = 0; y < S; y += step) for (let x = 0; x < S; x += step) {
-      if (rand() < 0.1) continue; // empty lot
-      roof(0.28 + rand() * 0.3);
-      rect(x + 1, y + 1, step - 3 - Math.floor(rand() * 3), step - 3 - Math.floor(rand() * 3));
+      if (rand() < 0.08) { g.globalAlpha = 0.28; g.fillStyle = green; g.fillRect(x + 2, y + 2, step - 4, step - 4); continue; } // a park
+      const split = rand() < 0.5;
+      const w = step - 4, h = step - 4;
+      if (split) { block(x + 2, y + 2, w / 2 - 1, h, 0.42 + rand() * 0.25); block(x + 2 + w / 2 + 1, y + 2, w / 2 - 1, h, 0.42 + rand() * 0.25); }
+      else block(x + 2, y + 2, w, h, 0.42 + rand() * 0.25);
     }
-    g.globalAlpha = 0.22; g.strokeStyle = '#d9d2c4'; g.lineWidth = 1;
-    for (let i = 0; i < S; i += step * 3) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, S); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(S, i); g.stroke(); }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    for (let i = 0; i < S; i += step * 4) { street(() => { g.moveTo(i, 0); g.lineTo(i, S); }, 1.6, 0.32); street(() => { g.moveTo(0, i); g.lineTo(S, i); }, 1.6, 0.32); }
   } else if (style === 'old') {
-    for (let i = 0; i < 520; i++) {
-      roof(0.22 + rand() * 0.32);
-      rect(rand() * S, rand() * S, 2 + rand() * 5, 2 + rand() * 4);
+    // winding streets first, blocks packed between them
+    for (let i = 0; i < 7; i++) {
+      const x0 = rand() * S, x1 = rand() * S, x2 = rand() * S, x3 = rand() * S;
+      street(() => { g.moveTo(x0, 0); g.bezierCurveTo(x1, S * 0.33, x2, S * 0.66, x3, S); }, 1.3, 0.3);
     }
-    g.globalAlpha = 0.2; g.strokeStyle = '#d6cfc0'; g.lineWidth = 1.2;
-    for (let i = 0; i < 6; i++) {
-      g.beginPath();
-      g.moveTo(rand() * S, 0);
-      g.bezierCurveTo(rand() * S, S * 0.33, rand() * S, S * 0.66, rand() * S, S);
-      g.stroke();
-    }
+    for (let i = 0; i < 900; i++) block(rand() * S, rand() * S, 3 + rand() * 6, 3 + rand() * 5, 0.32 + rand() * 0.3);
+    for (let i = 0; i < 6; i++) { g.globalAlpha = 0.24; g.fillStyle = green; g.beginPath(); g.arc(rand() * S, rand() * S, 4 + rand() * 7, 0, 7); g.fill(); }
   } else {
-    for (let i = 0; i < 260; i++) {
-      roof(0.18 + rand() * 0.25);
-      rect(rand() * S, rand() * S, 2 + rand() * 3, 2 + rand() * 3);
+    // loose sprawl: houses along a few roads, fields and gardens between
+    for (let i = 0; i < 26; i++) { g.globalAlpha = 0.22; g.fillStyle = green; g.fillRect(rand() * S, rand() * S, 10 + rand() * 18, 8 + rand() * 14); }
+    for (let r = 0; r < 5; r++) {
+      const y0 = rand() * S, y1 = rand() * S;
+      street(() => { g.moveTo(0, y0); g.lineTo(S, y1); }, 1.2, 0.28);
+      for (let k = 0; k < 60; k++) {
+        const t = rand(), x = t * S, y = y0 + (y1 - y0) * t + (rand() - 0.5) * 16;
+        block(x, y, 3 + rand() * 3, 3 + rand() * 3, 0.3 + rand() * 0.25);
+      }
     }
-    g.globalAlpha = 0.18; g.fillStyle = climate === 'arid' ? '#9a8a64' : '#56664a'; // gardens, fields between houses
-    for (let i = 0; i < 18; i++) rect(rand() * S, rand() * S, 5 + rand() * 9, 4 + rand() * 8);
-    g.globalAlpha = 0.16; g.strokeStyle = '#d6cfc0';
-    for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, rand() * S); g.lineTo(S, rand() * S); g.stroke(); }
   }
+  g.globalAlpha = 1;
+  return g.getImageData(0, 0, S, S);
+}
+
+/** City lights from orbit: warm specks strung along streets, densest at the centre of the tile. */
+function lightsTexture(seed: number): ImageData {
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const rand = rng(seed * 977 + 11);
+  const dot = (x: number, y: number, r: number, a: number, col: string) => {
+    for (const dx of [0, -S, S]) for (const dy of [0, -S, S]) {
+      const grd = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
+      grd.addColorStop(0, col); grd.addColorStop(1, 'rgba(255,180,90,0)');
+      g.globalAlpha = a; g.fillStyle = grd; g.beginPath(); g.arc(x + dx, y + dy, r, 0, 7); g.fill();
+    }
+  };
+  // a few roads of lights
+  for (let r = 0; r < 9; r++) {
+    const x0 = rand() * S, y0 = rand() * S, ang = rand() * Math.PI, len = 60 + rand() * 200;
+    for (let k = 0; k < len; k += 2 + rand() * 4) dot(x0 + Math.cos(ang) * k, y0 + Math.sin(ang) * k, 1.3 + rand() * 1.4, 0.5 + rand() * 0.5, rand() < 0.15 ? '#fff6dc' : '#ffcf7a');
+  }
+  // and the scattered glow of streets and windows in between
+  for (let i = 0; i < 700; i++) dot(rand() * S, rand() * S, 0.8 + rand() * 1.6, 0.25 + rand() * 0.45, rand() < 0.1 ? '#fff2cf' : '#ffbf66');
   g.globalAlpha = 1;
   return g.getImageData(0, 0, S, S);
 }
@@ -179,10 +211,12 @@ export class Cities {
       this.map.setPaintProperty('city-lights', 'circle-opacity', 0);
       this.map.setPaintProperty('city-lights-core', 'circle-opacity', 0);
       this.map.setPaintProperty('city-night', 'fill-opacity', 0);
+      this.map.setPaintProperty('rural-lights', 'circle-opacity', 0);
       return;
     }
-    this.map.setPaintProperty('city-lights', 'circle-opacity', 0.3);
-    this.map.setPaintProperty('city-lights-core', 'circle-opacity', 0.9);
+    this.map.setPaintProperty('city-lights', 'circle-opacity', 0.14);
+    this.map.setPaintProperty('city-lights-core', 'circle-opacity', 0.75);
+    this.map.setPaintProperty('rural-lights', 'circle-opacity', 0.6);
     // brightness by electricity supply (blackouts go dark) and a little by wealth
     const match: unknown[] = ['match', ['get', 'nation']];
     for (const e of this.game.economy.values()) match.push(e.id, this.brightness(e.id));
@@ -193,7 +227,8 @@ export class Cities {
     const lit: unknown = dark.length ? ['!', ['in', ['get', 'nation'], ['literal', dark]]] : ['literal', true];
     this.map.setFilter('city-lights', lit as never);
     this.map.setFilter('city-lights-core', lit as never);
-    this.map.setPaintProperty('city-night', 'fill-opacity', ['*', ['get', 'w'], match] as never);
+    this.map.setFilter('rural-lights', lit as never);
+    this.map.setPaintProperty('city-night', 'fill-opacity', ['min', 1, ['*', 1.25, ['get', 'w'], match]] as never);
   }
 
   night = false;
@@ -208,6 +243,7 @@ export class Cities {
     for (const st of STYLES) for (const cl of Object.keys(PALETTE) as Climate[]) for (let v = 0; v < VARIANTS; v++) {
       map.addImage(`u-${st}-${cl}-${v}`, urbanTexture(st, cl, v), { pixelRatio: 2 });
     }
+    for (let v = 0; v < VARIANTS; v++) map.addImage(`u-lights-${v}`, lightsTexture(v), { pixelRatio: 2 });
     for (const t of Object.keys(GLYPH) as BuildingType[]) map.addImage(`b-${t}`, buildingIcon(t), { pixelRatio: 2 });
 
     const capitals = new Set([...pol.nations.values()].map((n) => n.capital));
@@ -238,9 +274,9 @@ export class Cities {
       const sprawl = `u-sprawl-${climateOf(p.terrain)}-${(p.id + 1) % VARIANTS}`;
       // a dense core, then thinner rings, so the city fades into the countryside
       // every shape is cut back to the shore, so cities follow the coast instead of spilling into the sea
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35, nation: p.nation ?? 0 }, geometry: { type: 'Polygon', coordinates: [this.onLand(lon, lat, blob(lon, lat, km * 1.9, rand))] } });
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35, nation: p.nation ?? 0, li: `u-lights-${p.id % VARIANTS}` }, geometry: { type: 'Polygon', coordinates: [this.onLand(lon, lat, blob(lon, lat, km * 1.9, rand))] } });
       const suburbs = this.onLand(lon, lat, blob(lon, lat, km * 1.35, rand));
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45, nation: p.nation ?? 0 }, geometry: { type: 'Polygon', coordinates: [suburbs] } });
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45, nation: p.nation ?? 0, li: `u-lights-${p.id % VARIANTS}` }, geometry: { type: 'Polygon', coordinates: [suburbs] } });
       const rings = [this.onLand(lon, lat, blob(lon, lat, km * 0.8, rand))];
       // suburbs and satellite towns around bigger cities
       const extra = Math.min(4, Math.floor(pop / 3e6) + (capital ? 1 : 0));
@@ -252,9 +288,23 @@ export class Cities {
         rings.push(this.onLand(sx, sy, blob(sx, sy, km * (0.25 + rand() * 0.3), rand)));
       }
       this.shapes.set(p.id, { at: [lon, lat], km, core: rings, suburbs, capital, pop, terrain: p.terrain });
-      rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8, nation: p.nation ?? 0 }, geometry: { type: 'Polygon', coordinates: [r] } }));
+      rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8, nation: p.nation ?? 0, li: `u-lights-${(p.id + i) % VARIANTS}` }, geometry: { type: 'Polygon', coordinates: [r] } }));
       cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1), nation: p.nation ?? 0 }, geometry: { type: 'Point', coordinates: [lon, lat] } });
     }
+    const rural: GeoJSON.Feature[] = [];
+    for (const p of pol.provinces.values()) {
+      if (p.kind !== 'land' || !(p.pop ?? 0) || p.terrain === 'ice') continue;
+      const rand = rng(p.id * 104729 + 5);
+      const n = Math.max(1, Math.min(7, Math.round((p.pop ?? 0) / 350_000)));
+      const spread = Math.sqrt(p.area) / 111 * 0.45, cos = Math.max(0.2, Math.cos((p.label[1] * Math.PI) / 180));
+      for (let i = 0, tries = 0; i < n && tries < n * 6; tries++) {
+        const lon = p.label[0] + ((rand() - 0.5) * 2 * spread) / cos, lat = p.label[1] + (rand() - 0.5) * 2 * spread;
+        if (pol.provinceAt(lat, lon)?.id !== p.id) continue;
+        rural.push({ type: 'Feature', properties: { nation: p.nation ?? 0, r: 0.6 + rand() * 0.8 }, geometry: { type: 'Point', coordinates: [lon, lat] } });
+        i++;
+      }
+    }
+    map.addSource('rural-lights', { type: 'geojson', data: { type: 'FeatureCollection', features: rural } });
     map.addSource('cities', { type: 'geojson', data: { type: 'FeatureCollection', features: areas } });
     map.addSource('city-cores', { type: 'geojson', data: { type: 'FeatureCollection', features: cores } });
     map.addSource('buildings', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -274,7 +324,7 @@ export class Cities {
       id: 'cities', type: 'fill', source: 'cities', minzoom: 3,
       paint: {
         'fill-pattern': ['get', 'pat'],
-        'fill-antialias': false,
+        'fill-antialias': true,
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0, 4.2, ['*', 0.55, ['get', 'w']], 6, ['*', 0.8, ['get', 'w']], 8, ['get', 'w']],
       },
     }, below);
@@ -282,7 +332,7 @@ export class Cities {
     // cut to the coast), with a soft halo of light spilling round each city
     map.addLayer({
       id: 'city-night', type: 'fill', source: 'cities',
-      paint: { 'fill-color': '#ffc966', 'fill-opacity': 0, 'fill-antialias': true },
+      paint: { 'fill-pattern': ['get', 'li'] as never, 'fill-opacity': 0, 'fill-antialias': true },
     }, map.getLayer('rivers') ? 'rivers' : undefined);
     map.addLayer({
       id: 'city-lights', type: 'circle', source: 'city-cores',
@@ -290,7 +340,7 @@ export class Cities {
         'circle-color': '#ffb347',
         'circle-blur': 1,
         'circle-radius': ['interpolate', ['exponential', 1.6], ['zoom'],
-          1, ['max', 3.5, ['*', 7, ['get', 'size']]], 4, ['max', 9, ['*', 26, ['get', 'size']]], 7, ['max', 36, ['*', 120, ['get', 'size']]]],
+          1, ['max', 2.5, ['*', 4, ['get', 'size']]], 4, ['max', 5, ['*', 12, ['get', 'size']]], 7, ['max', 14, ['*', 40, ['get', 'size']]]],
         'circle-opacity': 0,
         'circle-pitch-alignment': 'viewport',
       },
@@ -301,11 +351,22 @@ export class Cities {
       paint: {
         'circle-color': '#ffe7ad',
         'circle-blur': 0.35,
-        'circle-radius': ['interpolate', ['exponential', 1.5], ['zoom'], 1, ['max', 2.2, ['*', 4, ['get', 'size']]], 4, ['max', 3.5, ['*', 10, ['get', 'size']]], 6, ['max', 5, ['*', 18, ['get', 'size']]]],
+        'circle-radius': ['interpolate', ['exponential', 1.5], ['zoom'], 1, ['max', 1.2, ['*', 2.2, ['get', 'size']]], 4, ['max', 1.8, ['*', 4, ['get', 'size']]], 5.5, 0],
         'circle-opacity': 0,
         'circle-pitch-alignment': 'viewport',
       },
     });
+    // towns and villages: small, sparse specks across the countryside at night
+    map.addLayer({
+      id: 'rural-lights', type: 'circle', source: 'rural-lights', minzoom: 2.4,
+      paint: {
+        'circle-color': '#ffd59a',
+        'circle-blur': 0.7,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 2.4, ['*', 0.8, ['get', 'r']], 7, ['*', 2.4, ['get', 'r']]],
+        'circle-opacity': 0,
+        'circle-pitch-alignment': 'map',
+      },
+    }, 'city-night');
     map.addLayer({
       id: 'buildings', type: 'symbol', source: 'buildings', minzoom: 3.8,
       layout: {

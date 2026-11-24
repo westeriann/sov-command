@@ -464,6 +464,7 @@ let soundRef: Sound | null = null;
     else if (ev.key.toLowerCase() === 'c') hudRoot.querySelector<HTMLElement>('[data-open="chat"]')?.click();
     else if (ev.key.toLowerCase() === 'g') tutorial?.start();
     else if (ev.key.toLowerCase() === 'i') manual.toggle();
+    else if (ev.key === 'Home') go('do:capital'); // back to my nation
     else if (ev.key === '?') shortcuts.hidden = !shortcuts.hidden;
     else if (ev.key === 'Escape' && ![economy.isOpen, market.isOpen, forces?.isOpen, diplomacy?.isOpen, research?.isOpen, rankings?.isOpen, politics.isOpen, espionage.isOpen, records.isOpen, !shortcuts.hidden].some(Boolean) && !(forces?.selected.size)
       && !document.querySelector('.unit-card:not([hidden]), .music-panel:not([hidden]), .manual-backdrop:not([hidden])')) mainMenu.open(); // nothing to close: the main menu
