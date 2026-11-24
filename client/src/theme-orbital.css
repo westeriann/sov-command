@@ -575,3 +575,34 @@ input[type="range"] { filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5)); }
 .chamber .seat.picked { stroke: #fff; stroke-width: 1.4; transform: scale(1.4); filter: drop-shadow(0 0 4px var(--cyan)); fill-opacity: 1; }
 .chamber .head { filter: drop-shadow(0 0 4px rgba(124, 196, 255, 0.8)); }
 .seat-readout { min-height: 1.5em; margin: 6px 0 0; font-size: 12px; text-align: center; color: var(--text); }
+
+/* ---- Bottom bar: lens and comms buttons centred; the forces count small, just above ---- */
+.taskbar { padding: 4px; gap: 0; overflow: visible; }
+.taskbar .lens-tag { margin-left: 12px; margin-right: 4px; }
+.forces-chip { position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); max-width: min(560px, 92vw);
+  padding: 3px 12px; border-radius: 12px; font-size: 10.5px; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: rgba(7, 17, 34, 0.82); border: 1px solid var(--edge-soft); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); pointer-events: none; transition: opacity 0.15s ease; }
+.forces-chip .tag { font-size: 8.5px; color: #8fb2d6; letter-spacing: 0.22em; }
+body.lens-open .forces-chip { opacity: 0; }
+.lens-forces { margin: 2px 0 6px; font-size: 11px; color: var(--muted); }
+.lens-forces .tag { font-size: 8.5px; color: #8fb2d6; letter-spacing: 0.22em; }
+
+/* ---- Map drawer: sections fold away ---- */
+.drawer-sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+.drawer-sec > summary::-webkit-details-marker { display: none; }
+.drawer-sec > summary::after { content: ''; width: 6px; height: 6px; margin-left: auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg); transition: transform 0.15s ease; opacity: 0.7; }
+.drawer-sec:not([open]) > summary::after { transform: rotate(-45deg); }
+.drawer-sec > summary:hover { color: var(--cyan); }
+.drawer-sec.sep { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--edge-soft); }
+
+/* ---- Drawn icons (no emoji) ---- */
+svg.art { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
+.icon-btn svg.art, .pause-btn svg.art { width: 16px; height: 16px; vertical-align: middle; }
+.sp-ico { display: inline-grid; place-items: center; width: 1.7em; height: 1.7em; border-radius: 50%; color: var(--cyan);
+  background: rgba(124, 196, 255, 0.08); border: 1px solid var(--edge-soft); vertical-align: middle; }
+.sp-ico svg.art { width: 1.1em; height: 1.1em; vertical-align: 0; }
+.spec-card .sp-ico { width: 2.2em; height: 2.2em; font-size: 15px; }
+.event-art { display: grid; place-items: center; color: var(--cyan); }
+.event-art svg.art { width: 64px; height: 64px; stroke-width: 1.3; filter: drop-shadow(0 0 10px rgba(124, 196, 255, 0.45)); }
+.star svg.art, .badge svg.art { color: var(--amber); }

@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 // The Market window: every good your nation makes and uses, electricity included,
 // against the world market. Local market: your output, use, trade and stocks, with
 // charts over time. World market: prices and the world's supply and demand.
@@ -127,8 +128,8 @@ export class MarketPanel {
       const how = state === 'own' ? `${count} province${count === 1 ? '' : 's'} · ${Math.round(strength * 100)}% strength (each more adds less, up to 200%)`
         : state === 'shared' ? 'Through a trade partner · 50% strength'
         : info.luxury ? 'Win a province with it, or sign a trade agreement with a holder to share it' : 'Win a province with it';
-      const t = tip(`${info.icon} ${info.name}`, state === 'missing' ? info.effect : [info.effect, 'good'], how);
-      return `<div class="spec-card ${state}" data-tip="${attr(t)}"><span class="sp-ico">${info.icon}</span><div><b>${info.name}</b>
+      const t = tip(info.name, state === 'missing' ? info.effect : [info.effect, 'good'], how);
+      return `<div class="spec-card ${state}" data-tip="${attr(t)}"><span class="sp-ico">${art(s)}</span><div><b>${info.name}</b>
         <em>${state === 'own' ? `×${count}` : state === 'shared' ? 'shared' : ''}</em><span>${esc(info.effect)}</span>
         ${state === 'missing' ? `<span class="muted">Held by ${who(s)}</span>` : ''}</div></div>`;
     };

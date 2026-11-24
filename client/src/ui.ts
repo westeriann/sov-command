@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO, TECHS, TIER_COST } from '../../shared/research';
 import { HARVEST, SEASON_NAMES, coldLand, seasonAt } from '../../shared/seasons';
@@ -210,7 +211,7 @@ export class Hud {
   private legend!: HTMLElement;
   private comms!: HTMLElement;
   private toastEl!: HTMLElement;
-  private opacityByMode = { ...DEFAULT_OPACITY };
+  private opacityByMode: Record<MapMode, number> = { ...DEFAULT_OPACITY, ...(() => { try { return JSON.parse(localStorage.getItem('sov.map.strength') ?? '{}') as Partial<Record<MapMode, number>>; } catch { return {}; } })() };
   private selected: { p: Province; s: Sample } | null = null;
   private commsTab: 'dispatches' | 'chat' = 'dispatches';
   private policyTimer = 0;
@@ -274,13 +275,13 @@ export class Hud {
           <button type="button" class="status mono" id="status"></button>
           <span class="mono date" id="clock"></span>
           <span class="speed mono" id="speed" title="The world clock never pauses"></span>
-          <span class="speed-ctl offline-only" role="group" aria-label="Game speed"><button type="button" data-act="pause" class="pause-btn" aria-pressed="false" data-tip="${attr(tip('Pause (Space)', 'Stop the clock; press again to resume', 'Single player only'))}">❚❚</button>${[1, 5, 10, 20].map((x) => `<button type="button" data-act="speed" data-x="${x}" aria-pressed="false" title="${x === 1 ? 'A game day every 10 seconds' : `${x} times faster`}">${x}×</button>`).join('')}</span>
+          <span class="speed-ctl offline-only" role="group" aria-label="Game speed"><button type="button" data-act="pause" class="pause-btn" aria-pressed="false" data-tip="${attr(tip('Pause (Space)', 'Stop the clock; press again to resume', 'Single player only'))}">${art('pause')}</button>${[1, 5, 10, 20].map((x) => `<button type="button" data-act="speed" data-x="${x}" aria-pressed="false" title="${x === 1 ? 'A game day every 10 seconds' : `${x} times faster`}">${x}×</button>`).join('')}</span>
           <button type="button" class="link offline-only" data-act="newgame">New game</button>
           <button type="button" class="link" data-act="worlds">Worlds</button>
           <button type="button" class="link" data-act="alerts" id="alertsBtn" aria-pressed="false" title="Browser notifications when something happens to your nation while this tab is in the background">Alerts off</button>
-          <button type="button" class="icon-btn" data-act="mainmenu" aria-label="Main menu" data-tip="${attr(tip('Main menu (Esc)', 'Options, multiplayer, a new campaign, the manual', 'Single player pauses while it is open'))}">☰</button>
+          <button type="button" class="icon-btn" data-act="mainmenu" aria-label="Main menu" data-tip="${attr(tip('Main menu (Esc)', 'Options, multiplayer, a new campaign, the manual', 'Single player pauses while it is open'))}">${art('menu')}</button>
           <button type="button" class="icon-btn" data-act="manual" aria-label="Manual" data-tip="${attr(tip('Manual (I)', 'How everything in the game works, with links to each window'))}">i</button>
-          <button type="button" class="icon-btn" data-act="music" aria-label="Music player" data-tip="${attr(tip('Music', 'Play, pause and choose the soundtrack'))}">♪</button>
+          <button type="button" class="icon-btn" data-act="music" aria-label="Music player" data-tip="${attr(tip('Music', 'Play, pause and choose the soundtrack'))}">${art('music')}</button>
           <button type="button" class="link" data-act="sound" id="soundBtn" aria-pressed="true">Sound on</button>
           <span id="account"></span>
         </div>
@@ -297,18 +298,18 @@ export class Hud {
 
       <button type="button" class="panel map-toggle" data-act="mapdrawer" aria-expanded="false" aria-controls="mapDrawer" data-tip="${attr(tip('Map modes and view', 'Political, wealth, terrain, temperature, night lights; borders, 3D, relief'))}">▴ MAP</button>
       <section class="panel map-drawer" id="mapDrawer" hidden aria-label="Map modes and view">
-        <span class="label">MAP MODE</span>
+        <details class="drawer-sec" data-sec="mode" open><summary class="label">MAP MODE</summary>
         <div class="modes" role="radiogroup" aria-label="Map mode">
           ${MODES.map(([id, label], i) => `
             <label class="radio"><input type="radio" name="mode" value="${id}" ${i === 0 ? 'checked' : ''}>${label}</label>`).join('')}
-        </div>
+        </div></details>
         <div class="mode-options" id="modeOptions" hidden></div>
         <div class="slider" id="opacityRow">
-          <label for="opacity"><span>OVERLAY</span><output id="opacityOut">${DEFAULT_OPACITY.political}%</output></label>
-          <input id="opacity" type="range" min="0" max="100" value="${DEFAULT_OPACITY.political}">
+          <label for="opacity" data-tip="${attr(tip('Colour strength', 'How strongly the map mode is painted over the satellite imagery. Lower it to let the land show through.'))}"><span>COLOUR STRENGTH</span><output id="opacityOut">${this.opacityByMode.political}%</output></label>
+          <input id="opacity" type="range" min="0" max="100" value="${this.opacityByMode.political}">
         </div>
         <div class="legend" id="legend" hidden></div>
-        <span class="label sep">VIEW</span>
+        <details class="drawer-sec sep" data-sec="view" open><summary class="label">VIEW</summary>
         <label class="check"><input type="checkbox" id="borders" checked>Borders</label>
         <label class="check"><input type="checkbox" id="rivers" checked>Rivers</label>
         <label class="check"><input type="checkbox" id="labels" checked>Names</label>
@@ -323,7 +324,7 @@ export class Hud {
         <div class="seg" role="group" aria-label="Projection">
           <button type="button" data-proj="globe" aria-pressed="true">Globe</button>
           <button type="button" data-proj="mercator" aria-pressed="false">Flat</button>
-        </div>
+        </div></details>
       </section>
 
       <aside class="panel right" aria-live="polite">
@@ -368,8 +369,7 @@ export class Hud {
       </section>
 
       <footer class="panel taskbar" aria-label="Forces and communications">
-        <span class="mono tag">FORCES</span>
-        <span class="empty" id="forcesSummary">Take command of a nation to raise armies.</span>
+        <div class="forces-chip mono"><span class="tag">FORCES</span> <span id="forcesSummary">Take command of a nation to raise armies.</span></div>
         <span class="mono tag lens-tag">LENSES</span>
         <button type="button" data-lens="military" aria-pressed="false" data-tip="${attr(tip('Military lens', 'Wars, forces, production and supply at a glance, with advice', 'Click again to close'))}">MILITARY</button>
         <button type="button" data-lens="eco" aria-pressed="false" data-tip="${attr(tip('Eco lens', 'Treasury, taxes, shortages, power and construction at a glance, with advice', 'Click again to close'))}">ECO</button>
@@ -419,6 +419,7 @@ export class Hud {
     opacity.addEventListener('input', () => {
       this.opacityByMode[mode] = Number(opacity.value);
       opacityOut.value = `${opacity.value}%`;
+      try { localStorage.setItem('sov.map.strength', JSON.stringify(this.opacityByMode)); } catch { /* storage blocked */ }
       this.events.onOpacity(Number(opacity.value) / 100);
     });
     const toggle = (id: string, fn: (on: boolean) => void) =>
@@ -446,6 +447,14 @@ export class Hud {
     );
 
     this.root.addEventListener('click', (e) => this.onClick(e));
+    // map drawer sections fold away to save space; remember which
+    for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.drawer-sec[data-sec]')) if (this.secClosed.has(d.dataset.sec!)) d.open = false;
+    this.root.addEventListener('toggle', (e) => {
+      const d = e.target as HTMLDetailsElement;
+      if (!d.matches?.('.drawer-sec[data-sec]')) return;
+      if (d.open) this.secClosed.delete(d.dataset.sec!); else this.secClosed.add(d.dataset.sec!);
+      try { localStorage.setItem('sov.drawer.closed', JSON.stringify([...this.secClosed])); } catch { /* storage blocked */ }
+    }, true);
     this.root.addEventListener('input', (e) => this.onInput(e));
     this.root.addEventListener('change', (e) => {
       const t = e.target as HTMLInputElement;
@@ -796,6 +805,10 @@ export class Hud {
 
   private resourceKey = 'farmland';
   diploShown = new Set<DiploCat>(DIPLO_CATS.map(([k]) => k));
+  /** The colour strength (0..1) the player chose for a map mode. */
+  strength(mode: MapMode) { return this.opacityByMode[mode] / 100; }
+  /** Map drawer sections the player folded away (kept between sessions). */
+  private secClosed = new Set<string>((() => { try { return JSON.parse(localStorage.getItem('sov.drawer.closed') ?? '[]') as string[]; } catch { return []; } })());
 
   /** Extra controls for some map modes: which resource, which relationships. */
   private renderModeOptions(mode: MapMode) {
@@ -805,7 +818,7 @@ export class Hud {
       el.innerHTML = `<label class="mode-pick">Show <select id="resPick">${(Object.keys(RESOURCE_NAMES) as ResourceId[]).map((k) => `<option value="${k}"${k === this.resourceKey ? ' selected' : ''}>${RESOURCE_NAMES[k]}</option>`).join('')}
         <option value="specialty"${this.resourceKey === 'specialty' ? ' selected' : ''}>Province specialties</option></select></label>`;
     } else if (mode === 'diplomatic') {
-      el.innerHTML = `<span class="label">SHOW</span><div class="diplo-filter">${DIPLO_CATS.map(([k, l, c]) => `<label class="check plain"><input type="checkbox" data-cat="${k}" ${this.diploShown.has(k) ? 'checked' : ''}><i style="background:${c}"></i>${esc(l)}</label>`).join('')}</div>`;
+      el.innerHTML = `<details class="drawer-sec" data-sec="show"${this.secClosed.has('show') ? '' : ' open'}><summary class="label">SHOW</summary><div class="diplo-filter">${DIPLO_CATS.map(([k, l, c]) => `<label class="check plain"><input type="checkbox" data-cat="${k}" ${this.diploShown.has(k) ? 'checked' : ''}><i style="background:${c}"></i>${esc(l)}</label>`).join('')}</div></details>`;
     }
   }
 
@@ -821,7 +834,7 @@ export class Hud {
               ? WEALTH_STOPS.map(([v, c]) => [c, `$${v.toLocaleString('en-US')} per person`] as [string, string])
               : mode === 'resource'
                 ? (this.resourceKey === 'specialty'
-                  ? SPECIALTY_LIST.map((s) => [SPECIALTY_COLOURS[s], `${SPECIALTIES[s].icon} ${SPECIALTIES[s].name}`] as [string, string])
+                  ? SPECIALTY_LIST.map((s) => [SPECIALTY_COLOURS[s], SPECIALTIES[s].name] as [string, string])
                   : RESOURCE_STOPS.map(([v, c]) => [c, v <= 1 ? 'A little' : v >= 100 ? 'Very rich' : `${v} of 100`] as [string, string]))
                 : [];
     this.legend.hidden = items.length === 0;
@@ -879,9 +892,9 @@ export class Hud {
       : shared ? 'Already reaches you through a trade partner (half strength)'
       : s.luxury ? 'Win this province, or sign a trade agreement with its owner to share it at half strength'
       : 'Win this province to gain it';
-    const t = tip(`${s.icon} ${s.name}`, 'Known for it from its climate and place', [s.effect, 'good'], how, 'Click for your specialties in the Market');
+    const t = tip(s.name, 'Known for it from its climate and place', [s.effect, 'good'], how, 'Click for your specialties in the Market');
     return `<div class="specialty" data-tip="${attr(t)}"><span class="label">SPECIALTY</span>
-      ${go('market:local:spec', `<span class="sp-ico">${s.icon}</span> <b>${s.name}</b>`)} <span class="muted">${esc(s.effect)}</span></div>`;
+      ${go('market:local:spec', `<span class="sp-ico">${art(sp)}</span> <b>${s.name}</b>`)} <span class="muted">${esc(s.effect)}</span></div>`;
   }
 
   private econRows(id: number) {

@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 import { domainOf } from '../../shared/military';
 import type { AuthResponse } from '../../shared/protocol';
 import { DiplomacyPanel } from './diplomacy-panel';
@@ -506,7 +507,7 @@ let soundRef: Sound | null = null;
   };
   game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
   game.on((c) => { if (c.has('mine') || c.has('status')) sound.loop('amb_command', game.mine ? 0.6 : 0); });
-  gameMap.setMode('political', 0.72);
+  gameMap.setMode('political', hud.strength('political'));
   gameMap.addNationLabels();
   /** Browser notifications while the tab is in the background (opt-in). */
   const notify = (title: string, body: string) => {
@@ -696,7 +697,7 @@ let soundRef: Sound | null = null;
     pauseBadge.hidden = !userPaused;
     localWorld?.postMessage({ t: 'pause', on: userPaused });
     const b = hudRoot.querySelector<HTMLElement>('[data-act="pause"]');
-    if (b) { b.setAttribute('aria-pressed', String(userPaused)); b.textContent = userPaused ? '▶' : '❚❚'; }
+    if (b) { b.setAttribute('aria-pressed', String(userPaused)); b.innerHTML = art(userPaused ? 'play' : 'pause'); }
   };
   hudRoot.addEventListener('click', (e) => { if (localWorld && (e.target as HTMLElement).closest('[data-act="pause"]')) togglePause(); });
   menuNewGame = (iron) => (conn as LocalConnection).newGame(iron);

@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 // A decision: an event happened to your nation; choose how to answer. The
 // dialog can be set aside and reopened from the alert icon; unanswered, the
 // first option is taken when time runs out.
@@ -44,7 +45,7 @@ export class EventDialog {
     const left = Math.max(0, EVENT_DAYS - ((this.game.market?.day ?? ev.day) - ev.day));
     const about = ev.about !== undefined ? this.pol.nations.get(ev.about)?.name : undefined;
     this.el.innerHTML = `<div class="panel modal event-card" role="dialog" aria-label="${esc(def.title)}">
-      <div class="event-art" aria-hidden="true">${def.image}</div>
+      <div class="event-art" aria-hidden="true">${art(ev.key)}</div>
       <span class="label">DECISION · ${left} days to answer</span>
       <h2>${esc(def.title)}</h2>
       <p>${esc(def.text)}${about ? ` <b>(${esc(about)})</b>` : ''}</p>

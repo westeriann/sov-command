@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 // The command card: when you select your own units, a panel above the forces
 // bar shows what you have selected and every order you can give it, each with
 // its own key. Q arms an order: the next left-click on the map is where it goes.
@@ -155,7 +156,7 @@ export class UnitCard {
     const html = `
       <div class="uc-head">
         <div class="uc-types">${counts.map(([t, c]) => `<span data-tip="${attr(tip(UNIT_SPECS[t].name, `Attack ${UNIT_SPECS[t].attack}, defense ${UNIT_SPECS[t].defense}`))}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${c}</span>`).join('')}</div>
-        <div class="uc-info"><b>${sel.length} unit${sel.length > 1 ? 's' : ''} selected</b><span>${status}${general ? ` · ★ ${esc(general.name)}` : ''}${cut ? ` · <span class="bad">${cut} out of supply</span>` : ''}</span></div>
+        <div class="uc-info"><b>${sel.length} unit${sel.length > 1 ? 's' : ''} selected</b><span>${status}${general ? ` · ${art('star')} ${esc(general.name)}` : ''}${cut ? ` · <span class="bad">${cut} out of supply</span>` : ''}</span></div>
         <div class="uc-str" data-tip="${attr(tip('Strength', [`${strength}% on average`, strength >= 60 ? 'good' : 'bad'], 'Units recover at home, in supply'))}"><div class="bar"><i style="width:${strength}%"></i></div><span class="mono">${strength}%</span></div>
       </div>
       <div class="uc-orders">${this.orders().filter((o) => o.show).map((o) => `<button type="button" class="claim${o.on ? ' primary' : ''}" data-order="${o.code}" data-tip="${attr(o.tip)}"><kbd>${o.key}</kbd>${o.label}</button>`).join('')}</div>

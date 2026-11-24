@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 // Rankings: the season leaderboard, a chart of the leaders' scores, the hall of
 // fame, a replay of how the map changed, and a nation's history.
 import type { Game } from './game';
@@ -81,7 +82,7 @@ export class RankingsPanel {
             <div class="table-wrap"><table class="league"><thead><tr><th>#</th><th>Nation</th><th>Leader</th><th>Score</th><th>Power</th></tr></thead><tbody>
               ${s.leaders.map((l, i) => `<tr${l.nation === this.game.mine?.id ? ' class="mine-row"' : ''}><td>${i + 1}</td>
                 <th scope="row"><button type="button" class="link flag-link" data-k="goto" data-nation="${l.nation}">${this.pol.nations.get(l.nation) ? flagSvg(flagOf(this.pol.nations.get(l.nation)!), 18) : ''}${name(l.nation)}</button></th>
-                <td>${player(l.nation) ? `${esc(player(l.nation)!)}${l.badges ? ` <span class="badge" title="${l.badges} achievement${l.badges > 1 ? 's' : ''}">★${l.badges}</span>` : ''}` : '<span class="muted">AI</span>'}</td><td class="mono">${l.score.toLocaleString('en-US')}</td><td class="mono">${l.power}%</td></tr>`).join('')}
+                <td>${player(l.nation) ? `${esc(player(l.nation)!)}${l.badges ? ` <span class="badge" title="${l.badges} achievement${l.badges > 1 ? 's' : ''}">${art('star')}${l.badges}</span>` : ''}` : '<span class="muted">AI</span>'}</td><td class="mono">${l.score.toLocaleString('en-US')}</td><td class="mono">${l.power}%</td></tr>`).join('')}
             </tbody></table></div>
           </section>
           <section>
@@ -136,7 +137,7 @@ export class RankingsPanel {
     return `<div class="econ-cols">
       <section>
         <span class="label">YOUR SEASON MISSIONS</span>
-        ${mine.missions.map((m) => `<div class="war-row"><div><b class="${m.done ? 'up' : ''}">${m.done ? '✓ ' : ''}${esc(m.text)}</b></div></div>`).join('')}
+        ${mine.missions.map((m) => `<div class="war-row"><div><b class="${m.done ? 'up' : ''}">${m.done ? `${art('check')} ` : ''}${esc(m.text)}</b></div></div>`).join('')}
         <p class="hint">Each mission completed is worth ${MISSION_REWARD_DAYS} game days of your normal scoring, plus 2% of GDP in cash. New missions come with each season.</p>
       </section>
       <section>

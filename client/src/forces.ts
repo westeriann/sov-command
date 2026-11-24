@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 // Land forces on the client: unit markers that glide between provinces in game
 // time, selection and move orders, route lines, battles, and the Forces window.
 import { Marker, type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
@@ -201,7 +202,7 @@ export class Forces {
       const inner = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[lead]}</svg>`
         + (units.length > 1 ? `<b>${units.length}</b>` : '')
         + (extras.length ? `<span class="mini">${extras.map(([t]) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>`).join('')}</span>` : '')
-        + (general ? `<span class="star" aria-hidden="true">${'★'.repeat(Math.min(3, general.skill))}</span>` : '')
+        + (general ? `<span class="star" aria-hidden="true">${art('star').repeat(Math.min(3, general.skill))}</span>` : '')
         + `<i style="width:${strength}%"></i>`
         + (this.openStack === key && side === 'own' ? `<span class="stack-list" role="menu">${counts.map(([t, c]) => `<span role="menuitem" tabindex="0" data-pick="${t}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[t]}</svg>${c} × ${UNIT_SPECS[t].name}</span>`).join('')}</span>` : '');
       if (m.html !== inner) { m.html = inner; m.el.innerHTML = inner; } // redraw only what changed
@@ -468,7 +469,7 @@ export class Forces {
             const gens = sel.filter((u) => u.general);
             const candidate = sel.find((u) => domainOf(u.type) === 'land' && !u.general);
             const cut = sel.filter((u) => u.supplied === false).length;
-            return `${gens.map((u) => `<p class="hint">★ ${esc(u.general!.name)} · skill ${u.general!.skill} of 5 · ${u.general!.xp} xp</p>`).join('')}
+            return `${gens.map((u) => `<p class="hint">${art('star')} ${esc(u.general!.name)} · skill ${u.general!.skill} of 5 · ${u.general!.xp} xp</p>`).join('')}
               ${cut ? `<p class="hint down">${cut} unit${cut > 1 ? 's are' : ' is'} out of supply: weaker in battle and losing strength each day. Reconnect to your territory, or capture a port.</p>` : ''}
               ${candidate && mil.generals < mil.maxGenerals ? `<button type="button" class="claim" data-f="general" data-unit="${candidate.id}">Appoint a general · $1bn (${mil.generals}/${mil.maxGenerals})</button>` : ''}`;
           })()}

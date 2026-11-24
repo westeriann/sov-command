@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 // The in-game manual: every system explained, with links that open the window,
 // map mode or place being described. Tables of units, buildings, technologies and
 // governments are built from the game's own data, so they never go out of date.
@@ -195,7 +196,7 @@ const CHAPTERS: Chapter[] = [
   {
     id: 'decisions', title: 'Decisions', html: () => `
       <p>Every month or two something happens to your nation and you choose how to answer. Each option lists its effects; unanswered, the first option is taken after ${EVENT_DAYS} days. Some lead to later events (a gold rush, then lawless boom towns). Decisions waiting show as a flag icon at the top.</p>
-      <table class="man-table"><tbody>${(Object.keys(EVENTS) as EventKey[]).map((k) => `<tr><td>${EVENTS[k].image} ${EVENTS[k].title}</td><td>${EVENTS[k].options.map((o) => esc(o.text)).join(' · ')}</td></tr>`).join('')}</tbody></table>`,
+      <table class="man-table"><tbody>${(Object.keys(EVENTS) as EventKey[]).map((k) => `<tr><td><span class="sp-ico">${art(k)}</span> ${EVENTS[k].title}</td><td>${EVENTS[k].options.map((o) => esc(o.text)).join(' · ')}</td></tr>`).join('')}</tbody></table>`,
   },
   {
     id: 'espionage', title: 'Espionage', html: () => `
@@ -207,7 +208,7 @@ const CHAPTERS: Chapter[] = [
     id: 'specialties', title: 'Province specialties', html: () => `
       <p>Every land province is known for one specialty, decided by its climate and place: its terrain, how near the poles or the equator it lies, its height, its coast and its rivers. The province panel shows it; ${L('market:local:spec', 'the Market')} lists yours, the luxuries your trade partners share, and who holds the rest.</p>
       <p>Each province with a specialty adds its bonus, each one less than the last (up to twice the first). <b>Luxuries</b> reach your trade partners at half strength, and theirs reach you: a reason to trade with nations unlike your own.</p>
-      <table class="man-table"><tbody>${SPECIALTY_LIST.map((k) => `<tr><td>${SPECIALTIES[k].icon} ${SPECIALTIES[k].name}</td><td>${esc(SPECIALTIES[k].effect)}</td></tr>`).join('')}</tbody></table>`,
+      <table class="man-table"><tbody>${SPECIALTY_LIST.map((k) => `<tr><td><span class="sp-ico">${art(k)}</span> ${SPECIALTIES[k].name}</td><td>${esc(SPECIALTIES[k].effect)}</td></tr>`).join('')}</tbody></table>`,
   },
   {
     id: 'research', title: 'Research and government', html: () => `
@@ -248,7 +249,7 @@ const CHAPTERS: Chapter[] = [
         <tr><td><kbd>P</kbd> <kbd>O</kbd> <kbd>J</kbd></td><td>Diplomacy, Politics, Espionage</td></tr>
         <tr><td><kbd>R</kbd> <kbd>K</kbd> <kbd>V</kbd></td><td>R&amp;D, Rankings, Records</td></tr>
         <tr><td><kbd>Ctrl</kbd>-click</td><td>Shrink anything in the top bar to a small tab (click the tab to restore it)</td></tr>
-        <tr><td><kbd>Space</kbd></td><td>Pause (single player; also the ❚❚ button by the speeds) or vote to pause (shared worlds)</td></tr>
+        <tr><td><kbd>Space</kbd></td><td>Pause (single player; also the ${art('pause')} button by the speeds) or vote to pause (shared worlds)</td></tr>
         <tr><td><kbd>M</kbd></td><td>Back to the map (close windows)</td></tr>
         <tr><td><kbd>Q</kbd> <kbd>H</kbd> <kbd>T</kbd> <kbd>L</kbd> <kbd>U</kbd> <kbd>Tab</kbd></td><td>Orders for selected units</td></tr>
         <tr><td><kbd>I</kbd></td><td>This manual</td></tr>
@@ -259,11 +260,11 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'music', title: 'Menu, music and settings', html: () => `
-      <p>The <b>main menu</b> (☰ in the top bar, or <kbd>Esc</kbd> with nothing open) holds single player, save and load, a new campaign (optionally <b>Ironman</b>: one autosave, no going back), multiplayer, options for graphics, sound, interface and game speed, this manual and the credits. Single player pauses while it is open, and <kbd>Space</kbd> pauses it at any time.</p>
+      <p>The <b>main menu</b> (${art('menu')} in the top bar, or <kbd>Esc</kbd> with nothing open) holds single player, save and load, a new campaign (optionally <b>Ironman</b>: one autosave, no going back), multiplayer, options for graphics, sound, interface and game speed, this manual and the credits. Single player pauses while it is open, and <kbd>Space</kbd> pauses it at any time.</p>
       <h3>Multiplayer</h3>
       <p>In the desktop app, <b>Host a game</b> runs a shared world on your computer: friends on your network join at the address it shows, in the game or a browser (for friends elsewhere, forward port 8787). Or join any world server by its address. In a shared world, pick a nation from the menu; <kbd>Space</kbd> votes to pause, and the world pauses when every leader online agrees (for up to ten minutes).</p>
       <p>${L('module:records', 'Records')} (<kbd>V</kbd>) holds the ledger of every nation, sortable, and the full log of dispatches, filtered by kind.</p>
-      <p>The ${L('do:music', 'music player')} (♪ in the top bar) plays the game's own soundtrack, any tracks placed in the game's <code>music</code> folder, and music files you add yourself. Sound effects are switched with <b>Sound on/off</b>.</p>
+      <p>The ${L('do:music', 'music player')} (${art('music')} in the top bar) plays the game's own soundtrack, any tracks placed in the game's <code>music</code> folder, and music files you add yourself. Sound effects are switched with <b>Sound on/off</b>.</p>
       <p>View settings on the left: borders, rivers, names, grid lines, colour-blind friendly colours, tilt, relief and 3D models. If the map runs slowly, turning off 3D models helps most.</p>`,
   },
 ];

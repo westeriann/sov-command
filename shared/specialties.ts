@@ -16,27 +16,26 @@ export interface SpecialtySpec {
   luxury?: boolean;
   /** Effect per province held (diminishing). */
   per: Partial<SpecialtyBonus>;
-  icon: string; // one character for compact display
 }
 
 export const SPECIALTIES: Record<Specialty, SpecialtySpec> = {
-  fish: { name: 'Fisheries', effect: '+3% food output', per: { food: 0.03 }, icon: '🐟' },
-  grain: { name: 'Breadbasket', effect: '+3% food output', per: { food: 0.03 }, icon: '🌾' },
-  cattle: { name: 'Cattle ranges', effect: '+2% food output, +0.5 stability', per: { food: 0.02, stability: 0.5 }, icon: '🐄' },
-  wine: { name: 'Vineyards', effect: '+1.5 stability (luxury)', luxury: true, per: { stability: 1.5 }, icon: '🍇' },
-  spices: { name: 'Spice gardens', effect: '+1 stability, +0.05% growth (luxury)', luxury: true, per: { stability: 1, growth: 0.0005 }, icon: '🌶' },
-  coffee: { name: 'Coffee and tea', effect: '+1 stability, research 2% faster (luxury)', luxury: true, per: { stability: 1, research: 0.02 }, icon: '☕' },
-  furs: { name: 'Fur trapping', effect: '+1 stability (luxury)', luxury: true, per: { stability: 1 }, icon: '🦊' },
-  gems: { name: 'Gem mines', effect: '+1 stability (luxury), +0.05% of GDP a year to the treasury', luxury: true, per: { stability: 1, treasury: 0.0005 }, icon: '💎' },
-  cotton: { name: 'Cotton fields', effect: '+0.1% growth (textiles)', per: { growth: 0.001 }, icon: '☁' },
-  rubber: { name: 'Rubber plantations', effect: 'units built 4% faster', per: { build: 0.04 }, icon: '⚫' },
-  gold: { name: 'Gold fields', effect: '+0.1% of GDP a year to the treasury', per: { treasury: 0.001 }, icon: '🪙' },
-  uranium: { name: 'Uranium', effect: 'nuclear power stations cost 40% less; nuclear warheads need it (or a trade partner with it)', per: {}, icon: '☢' },
-  lithium: { name: 'Lithium flats', effect: 'research 3% faster; wind and solar farms give 50% more power', per: { research: 0.03 }, icon: '🔋' },
-  marble: { name: 'Stone quarries', effect: 'buildings and repairs 5% faster', per: { construct: 0.05 }, icon: '🏛' },
-  geothermal: { name: 'Geothermal springs', effect: '+2% electricity supply', per: { power: 0.02 }, icon: '♨' },
-  salt: { name: 'Salt works', effect: 'food shortages hurt stability less', per: { stability: 0.5 }, icon: '🧂' },
-  resorts: { name: 'Resorts', effect: '+0.08% growth (tourism)', per: { growth: 0.0008 }, icon: '🏖' },
+  fish: { name: 'Fisheries', effect: '+3% food output', per: { food: 0.03 } },
+  grain: { name: 'Breadbasket', effect: '+3% food output', per: { food: 0.03 } },
+  cattle: { name: 'Cattle ranges', effect: '+2% food output, +0.5 stability', per: { food: 0.02, stability: 0.5 } },
+  wine: { name: 'Vineyards', effect: '+1.5 stability (luxury)', luxury: true, per: { stability: 1.5 } },
+  spices: { name: 'Spice gardens', effect: '+1 stability, +0.05% growth (luxury)', luxury: true, per: { stability: 1, growth: 0.0005 } },
+  coffee: { name: 'Coffee and tea', effect: '+1 stability, research 2% faster (luxury)', luxury: true, per: { stability: 1, research: 0.02 } },
+  furs: { name: 'Fur trapping', effect: '+1 stability (luxury)', luxury: true, per: { stability: 1 } },
+  gems: { name: 'Gem mines', effect: '+1 stability (luxury), +0.05% of GDP a year to the treasury', luxury: true, per: { stability: 1, treasury: 0.0005 } },
+  cotton: { name: 'Cotton fields', effect: '+0.1% growth (textiles)', per: { growth: 0.001 } },
+  rubber: { name: 'Rubber plantations', effect: 'units built 4% faster', per: { build: 0.04 } },
+  gold: { name: 'Gold fields', effect: '+0.1% of GDP a year to the treasury', per: { treasury: 0.001 } },
+  uranium: { name: 'Uranium', effect: 'nuclear power stations cost 40% less; nuclear warheads need it (or a trade partner with it)', per: {} },
+  lithium: { name: 'Lithium flats', effect: 'research 3% faster; wind and solar farms give 50% more power', per: { research: 0.03 } },
+  marble: { name: 'Stone quarries', effect: 'buildings and repairs 5% faster', per: { construct: 0.05 } },
+  geothermal: { name: 'Geothermal springs', effect: '+2% electricity supply', per: { power: 0.02 } },
+  salt: { name: 'Salt works', effect: 'food shortages hurt stability less', per: { stability: 0.5 } },
+  resorts: { name: 'Resorts', effect: '+0.08% growth (tourism)', per: { growth: 0.0008 } },
 };
 export const SPECIALTY_LIST = Object.keys(SPECIALTIES) as Specialty[];
 

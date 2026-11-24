@@ -1,3 +1,4 @@
+import { art } from './art-icons';
 import { ASSET_BASE } from './config';
 
 // The splash screen and the main menu. The splash shows while the planet and the
@@ -354,7 +355,7 @@ export class MainMenu {
           ${(this.a.sfx?.groups ?? []).map(([g, label]) => { const v = Math.round((this.a.sfx!.get(g)) * 100); return `<div class="slider"><label for="sfx-${g}"><span>${label.toUpperCase()}</span><output>${v}%</output></label><input id="sfx-${g}" type="range" min="0" max="100" value="${v}" data-sfx="${g}"></div>`; }).join('')}
           <button type="button" class="claim${this.a.music.on ? ' primary' : ''}" data-m="music">Music: ${this.a.music.on ? 'playing' : 'off'}</button>
           <div class="slider"><label><span>MUSIC VOLUME</span><output>${vol}%</output></label><input id="mVol" type="range" min="0" max="100" value="${vol}"></div>
-          <p class="hint">Add your own tracks from the ♪ player in the top bar.</p>
+          <p class="hint">Add your own tracks from the ${art('music')} player in the top bar.</p>
         </section>
         <section><span class="label">INTERFACE</span>
           ${check('Colour-blind friendly colours', 'colorBlind', 'Blue and orange instead of green and red')}

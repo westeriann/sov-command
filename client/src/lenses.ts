@@ -35,13 +35,14 @@ export class Lenses {
       else if (k === 'recruit') this.order({ kind: 'recruit', unit: a.dataset.unit as UnitType });
       else if (k === 'tax' && e2) this.order({ kind: 'policy', policy: { tax: Math.max(LIMITS.taxMin, Math.min(LIMITS.taxMax, (this.game.mine!.tax ?? 25) + Number(a.dataset.d))) } });
     });
-    game.on((c: Set<Change>) => { if (this.open && (c.has('mine') || c.has('units') || c.has('war') || c.has('economy'))) this.render(); });
+    game.on((c: Set<Change>) => { if (this.open && (c.has('mine') || c.has('units') || c.has('war') || c.has('economy'))) queueMicrotask(() => this.render()); });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.open) { this.toggle(this.open); } });
   }
 
   toggle(l: Lens) {
     this.open = this.open === l ? null : l;
     this.el.hidden = !this.open;
+    document.body.classList.toggle('lens-open', !!this.open);
     document.querySelectorAll<HTMLElement>('[data-lens]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lens === this.open)));
     this.html = '';
     if (this.open) this.render();
@@ -50,7 +51,9 @@ export class Lenses {
   private render() {
     const mine = this.game.mine;
     const body = !mine ? '<p class="hint">Take command of a nation first.</p>' : this.open === 'military' ? this.military() : this.eco();
-    const html = `<div class="row-between"><span class="label">LENS · ${this.open === 'military' ? 'MILITARY' : 'ECONOMY'}</span><button type="button" class="link" data-ln="close">Close</button></div>${body}`;
+    // the forces count moves from above the lens buttons to the top of the open lens
+    const forces = document.getElementById('forcesSummary')?.textContent ?? '';
+    const html = `<div class="row-between"><span class="label">LENS · ${this.open === 'military' ? 'MILITARY' : 'ECONOMY'}</span><button type="button" class="link" data-ln="close">Close</button></div>${mine && forces ? `<p class="lens-forces mono"><span class="tag">FORCES</span> ${esc(forces)}</p>` : ''}${body}`;
     if (html !== this.html) { this.html = html; this.el.innerHTML = html; }
   }
 

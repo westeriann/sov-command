@@ -8,7 +8,7 @@ export type EventKey =
   | 'oil_find' | 'famine' | 'coup_plot' | 'protests' | 'campaign' | 'investment' | 'storm_damage' | 'spy_caught';
 
 export interface EventOption { text: string; effects: [string, 'good' | 'bad' | 'info'][] }
-export interface EventDef { title: string; text: string; options: EventOption[]; image: string }
+export interface EventDef { title: string; text: string; options: EventOption[] }
 
 const G = (t: string): [string, 'good'] => [t, 'good'];
 const B = (t: string): [string, 'bad'] => [t, 'bad'];
@@ -16,7 +16,7 @@ const I = (t: string): [string, 'info'] => [t, 'info'];
 
 export const EVENTS: Record<EventKey, EventDef> = {
   strike: {
-    title: 'General strike', image: '✊',
+    title: 'General strike',
     text: 'The unions have called a general strike over wages. Ports are idle and factories silent.',
     options: [
       { text: 'Meet their demands', effects: [B('−0.3% of GDP from the treasury'), G('+5 stability'), G('the public is pleased'), B('business is not')] },
@@ -25,7 +25,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   scandal: {
-    title: 'Corruption scandal', image: '🗞',
+    title: 'Corruption scandal',
     text: 'Reporters have uncovered a minister taking bribes from a defence contractor.',
     options: [
       { text: 'Sack the minister', effects: [B('−20 political capital'), G('+2 stability')] },
@@ -34,7 +34,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   boom: {
-    title: 'Investment boom', image: '📈',
+    title: 'Investment boom',
     text: 'Foreign money is pouring in and building cranes crowd the skyline.',
     options: [
       { text: 'Let it run', effects: [G('+0.6% GDP at once'), B('−2 stability from rising rents')] },
@@ -42,7 +42,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   drought: {
-    title: 'Severe drought', image: '🌵',
+    title: 'Severe drought',
     text: 'The rains have failed across the farm belt and reservoirs are running dry.',
     options: [
       { text: 'Buy food abroad', effects: [B('−0.3% of GDP from the treasury'), G('the harvest loss is covered')] },
@@ -50,7 +50,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   refugees: {
-    title: 'Refugees at the border', image: '⛺',
+    title: 'Refugees at the border',
     text: 'Thousands fleeing the war next door are gathering at our border posts.',
     options: [
       { text: 'Take them in', effects: [G('+0.4% population'), B('−2 stability'), G('the world thinks better of us')] },
@@ -58,7 +58,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   breakthrough: {
-    title: 'Laboratory breakthrough', image: '🔬',
+    title: 'Laboratory breakthrough',
     text: 'A national laboratory reports a result that could change a whole field.',
     options: [
       { text: 'Pour it into current research', effects: [G('+500 research points on the current technology (or banked)')] },
@@ -66,7 +66,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   gold_rush: {
-    title: 'Gold rush', image: '🪙',
+    title: 'Gold rush',
     text: 'Prospectors have struck a rich seam. Fortune seekers are flooding into the gold fields.',
     options: [
       { text: 'Let the prospectors in', effects: [G('+0.4% of GDP to the treasury'), B('boom towns may turn lawless')] },
@@ -74,7 +74,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   boomtown: {
-    title: 'Lawless boom towns', image: '🤠',
+    title: 'Lawless boom towns',
     text: 'The gold towns have no police, no courts and too much whisky.',
     options: [
       { text: 'Send in the police', effects: [B('−2 stability'), G('order restored')] },
@@ -82,7 +82,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   oil_find: {
-    title: 'Oil discovery', image: '🛢',
+    title: 'Oil discovery',
     text: 'Survey crews have found a large oil field.',
     options: [
       { text: 'Develop it ourselves', effects: [B('−0.2% of GDP from the treasury'), G('oil output +12%')] },
@@ -90,7 +90,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   famine: {
-    title: 'Famine', image: '🥣',
+    title: 'Famine',
     text: 'Food has run short and queues stretch round the block.',
     options: [
       { text: 'Food aid at any price', effects: [B('−0.4% of GDP from the treasury'), G('+3 stability')] },
@@ -99,7 +99,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   coup_plot: {
-    title: 'Plot in the barracks', image: '🎖',
+    title: 'Plot in the barracks',
     text: 'Intelligence reports that senior officers are discussing a coup.',
     options: [
       { text: 'Purge the officers', effects: [B('the military is furious'), B('land forces fight 10% weaker for a while'), G('+3 stability')] },
@@ -108,7 +108,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   protests: {
-    title: 'Mass protests', image: '📢',
+    title: 'Mass protests',
     text: 'Crowds fill the main squares demanding the government listen.',
     options: [
       { text: 'Listen and promise reform', effects: [B('−15 political capital'), G('the public is pleased'), G('+2 stability')] },
@@ -117,7 +117,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   campaign: {
-    title: 'Election campaign', image: '🗳',
+    title: 'Election campaign',
     text: 'The election is near. What will the governing parties campaign on?',
     options: [
       { text: 'Tax cuts', effects: [G('the government gains in the polls'), B('voters will expect taxes cut by 3 points')] },
@@ -126,7 +126,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   investment: {
-    title: 'Foreign investment offer', image: '🤝',
+    title: 'Foreign investment offer',
     text: 'A trade partner\'s companies want to build plants here, if we open our markets a little further.',
     options: [
       { text: 'Welcome them', effects: [G('+0.4% GDP'), G('the partner likes us more'), I('our people grow more open')] },
@@ -134,7 +134,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   storm_damage: {
-    title: 'Storm damage', image: '🌀',
+    title: 'Storm damage',
     text: 'The hurricane has left buildings wrecked along the coast.',
     options: [
       { text: 'Rebuild at once', effects: [B('costs the full repair bill now'), G('every damaged building is repaired')] },
@@ -142,7 +142,7 @@ export const EVENTS: Record<EventKey, EventDef> = {
     ],
   },
   spy_caught: {
-    title: 'Foreign agents caught', image: '🕵',
+    title: 'Foreign agents caught',
     text: 'Counter-intelligence has arrested a ring of foreign agents.',
     options: [
       { text: 'Expel their diplomats', effects: [B('they think much less of us'), G('their network here is wiped out')] },
