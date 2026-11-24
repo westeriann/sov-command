@@ -89,6 +89,26 @@ until the go-ahead; interface work can go first.
     dolphins) that fade in and out.
 28. **Province vignettes**: the short scenes from item 8 drawn on the map, fading in and out.
 
+## Third testing round
+
+1. Day/night shading blinks across the globe at speed: remove it.
+2. Still laggy at speed.
+3. The northern ice cap shows through the globe from the far side.
+4. Political colours are blocky while the photo's coast is smooth: give the political map the
+   photo's borders. Lakes and inland seas get painted as land (the "paint over nothing").
+5. Clouds all look like crosses: vary their shapes.
+6. Espionage: the stack is cut off at the top, and its three tiles cannot be clicked.
+7. Mountainsides meeting the coast still look bad.
+8. Deserts: far smaller and rarer.
+9. Naval Ops: the destroyer's gun floats free of the ship.
+10. Ground Forces: the special forces helicopter flies in backwards.
+11. Remove the empty ring under every screen's centrepiece.
+12. Budget sliders: move freely, then a Finalize budget button confirms (no automatic
+    rebalancing of the other sliders).
+13. A star on the map at every capital, coloured by form of government.
+14. Cities placed by their surroundings within their province (shores, lakes, rivers, the foot
+    of mountains, valleys) instead of at its centre; same provinces and names.
+
 ## Fixed after the preview round
 
 - **Lag at high game speed** (worst while moving): every game tick re-sent all trade lanes
