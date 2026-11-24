@@ -14,6 +14,7 @@ const CAT_NAME = Object.fromEntries(DIPLO_CATS.map(([k, n]) => [k, n])) as Recor
 const CAT_COL = Object.fromEntries(DIPLO_CATS.map(([k, , c]) => [k, c])) as Record<DiploCat, string>;
 const D = Math.PI / 180;
 const HOLO: [number, number, number] = [124, 196, 255];
+const ZOOM_MAX = 4;
 
 export class HoloGlobe {
   readonly el: HTMLDivElement;
@@ -41,6 +42,9 @@ export class HoloGlobe {
   private dirty = true;
   private facing?: number;
   private target?: [number, number];
+  private zoom = 1; // 1 = the whole globe; up to ZOOM_MAX times closer
+  private zoomFor = 0; // the zoom the per-pixel directions were worked out for
+  private over = false; // the pointer is on the globe: hold still so what you aim at stays put
   private still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   onPick?: (nation: number) => void;
 
@@ -48,12 +52,20 @@ export class HoloGlobe {
     this.el = document.createElement('div');
     this.el.className = 'orb';
     this.el.innerHTML = `<div class="orb-stage"><canvas aria-label="Live globe: nations coloured by how they stand with you. Drag to turn it, click a nation to open its page."></canvas><i class="orb-base"></i></div>
-      <div class="orb-readout mono">drag to turn · click a nation</div><div class="orb-legend"></div>`;
+      <div class="orb-readout mono">drag to turn · scroll to zoom · click a nation</div><div class="orb-legend"></div>`;
     this.canvas = this.el.querySelector('canvas')!;
     this.ctx = this.canvas.getContext('2d')!;
     this.readout = this.el.querySelector('.orb-readout')!;
     this.legend = this.el.querySelector('.orb-legend')!;
     const c = this.canvas;
+    c.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.zoom = Math.max(1, Math.min(ZOOM_MAX, this.zoom * Math.exp(-e.deltaY * 0.0015)));
+      this.idleSince = performance.now();
+      this.dirty = true;
+    }, { passive: false });
+    c.addEventListener('dblclick', () => { this.zoom = 1; this.dirty = true; });
+    c.addEventListener('pointerenter', () => { this.over = true; });
     c.addEventListener('pointerdown', (e) => {
       c.setPointerCapture(e.pointerId);
       this.drag = { x: e.clientX, y: e.clientY, lon: this.lon0, lat: this.lat0, moved: false };
@@ -62,7 +74,7 @@ export class HoloGlobe {
       if (this.drag) {
         const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
         if (Math.abs(dx) + Math.abs(dy) > 3) this.drag.moved = true;
-        const k = 180 / c.clientWidth;
+        const k = 180 / c.clientWidth / this.zoom;
         this.lon0 = this.drag.lon - dx * k;
         this.lat0 = Math.max(-75, Math.min(75, this.drag.lat + dy * k));
         this.idleSince = performance.now();
@@ -74,11 +86,11 @@ export class HoloGlobe {
       const d = this.drag;
       this.drag = undefined;
       if (d && !d.moved) {
-        const id = this.nationAtEvent(e);
+        const id = this.nationAtEvent(e, true);
         if (id !== undefined && id !== this.game.mine?.id) this.onPick?.(id);
       }
     });
-    c.addEventListener('pointerleave', () => { this.readout.textContent = 'drag to turn · click a nation'; });
+    c.addEventListener('pointerleave', () => { this.over = false; this.idleSince = performance.now(); this.readout.textContent = 'drag to turn · scroll to zoom · click a nation'; });
   }
 
   /** Put the globe inside an element (the screen's stage) and keep it turning while it shows. */
@@ -120,7 +132,10 @@ export class HoloGlobe {
       this.lon0 += dl * k; this.lat0 += db * k; dl *= 1 - k;
       if (Math.abs(dl) < 0.2 && Math.abs(db * (1 - k)) < 0.2) { this.target = undefined; this.idleSince = t + 6000; }
       this.dirty = true;
-    } else if (!this.drag && !this.still && t - this.idleSince > 4000) { this.lon0 += 4 * dt; this.dirty = true; }
+    } else if (!this.drag && !this.over && !this.still && t - this.idleSince > 4000) { this.lon0 += 4 * dt / this.zoom; this.dirty = true; }
+    // the sun moves with the game clock every frame, so day and night sweep smoothly instead of jumping
+    if (this.sunAt(t)) this.dirty = true;
+    if (this.zoomFor !== this.zoom) this.directions();
     if (this.dirty) { this.draw(); this.dirty = false; }
   }
 
@@ -132,15 +147,42 @@ export class HoloGlobe {
     this.img = this.ctx.createImageData(n, n);
     this.px = new Float32Array(n * n * 3);
     this.own = new Int32Array(n * n);
-    const r = n / 2 - 2;
+    this.directions();
+  }
+
+  /** Each canvas pixel's view direction at the current zoom (0 where it misses the globe). */
+  private directions() {
+    const n = this.n, px = this.px!, r = this.radius();
+    px.fill(0);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const x = (i + 0.5 - n / 2) / r, y = -(j + 0.5 - n / 2) / r, q = x * x + y * y;
       if (q >= 1) continue;
       const k = (j * n + i) * 3;
-      this.px[k] = x; this.px[k + 1] = y; this.px[k + 2] = Math.sqrt(1 - q);
+      px[k] = x; px[k + 1] = y; px[k + 2] = Math.sqrt(1 - q);
     }
+    this.zoomFor = this.zoom;
     this.dirty = true;
   }
+
+  /** The globe's radius in canvas pixels. */
+  private radius() { return (this.n / 2 - 2) * this.zoom; }
+
+  /** Work out where the sun is from the game clock; true if it moved enough to redraw. */
+  private sunAt(t: number) {
+    if (t - this.sunTime < 100) return false;
+    this.sunTime = t;
+    const now = this.game.gameNow();
+    const start = Date.UTC(now.getUTCFullYear(), 0, 1);
+    const doy = (now.getTime() - start) / 864e5;
+    const dec = 23.44 * Math.sin((2 * Math.PI * (doy - 81)) / 365) * D;
+    const hours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+    const slon = -(hours - 12) * 15 * D;
+    const s: [number, number, number] = [Math.cos(dec) * Math.sin(slon), Math.sin(dec), Math.cos(dec) * Math.cos(slon)];
+    const moved = Math.abs(s[0] - this.sun[0]) + Math.abs(s[1] - this.sun[1]) + Math.abs(s[2] - this.sun[2]) > 0.004;
+    if (moved) this.sun = s;
+    return moved;
+  }
+  private sunTime = 0;
 
   /** Owners, colours and the sun: read from the game about once a second. */
   private refresh() {
@@ -159,14 +201,6 @@ export class HoloGlobe {
       const cap = pol.provinces.get(pol.nations.get(me)?.capital ?? -1);
       if (cap) { this.lon0 = cap.label[0]; this.lat0 = Math.max(-50, Math.min(50, cap.label[1])); this.centred = true; }
     }
-    // the sun, from the game's date and time of day
-    const now = g.gameNow();
-    const start = Date.UTC(now.getUTCFullYear(), 0, 1);
-    const doy = (now.getTime() - start) / 864e5;
-    const dec = 23.44 * Math.sin((2 * Math.PI * (doy - 81)) / 365) * D;
-    const hours = now.getUTCHours() + now.getUTCMinutes() / 60;
-    const slon = -(hours - 12) * 15 * D;
-    this.sun = [Math.cos(dec) * Math.sin(slon), Math.sin(dec), Math.cos(dec) * Math.cos(slon)];
     const shown = TIES.filter((k) => [...this.cats.values()].includes(k));
     this.legend.innerHTML = shown.map((k) => `<span><i style="background:${CAT_COL[k]}"></i>${CAT_NAME[k]}</span>`).join('')
       || '<span class="muted">No ties yet: treaties, trade and wars appear here</span>';
@@ -225,8 +259,10 @@ export class HoloGlobe {
         const prov = grid[gy * W + gx];
         const nat = pn[prov] ?? -1;
         own[k] = nat;
-        const day = Math.max(0, Math.min(1, ((x * sx + y * sy + z * sz) + 0.12) / 0.3));
-        const light = 0.32 + 0.68 * day;
+        // a soft, wide twilight band and a night side that stays readable: at the
+        // game's speed a day passes in seconds, so a hard dark side would strobe
+        const day = Math.max(0, Math.min(1, ((x * sx + y * sy + z * sz) + 0.25) / 0.5));
+        const light = 0.6 + 0.4 * day;
         const rim = (1 - vz) * (1 - vz) * (1 - vz);
         let r: number, g: number, bl: number, a: number;
         if (nat < 0) {
@@ -257,7 +293,7 @@ export class HoloGlobe {
   private project(lon: number, lat: number, alt = 1): [number, number, number] {
     const la = lat * D, lo = lon * D;
     const [x, y, z] = this.toView(Math.cos(la) * Math.sin(lo) * alt, Math.sin(la) * alt, Math.cos(la) * Math.cos(lo) * alt);
-    const r = this.n / 2 - 2;
+    const r = this.radius();
     return [this.n / 2 + x * r, this.n / 2 - y * r, z];
   }
 
@@ -268,7 +304,7 @@ export class HoloGlobe {
     for (let lat = -60; lat <= 60; lat += 30) this.line(ctx, (t) => [t * 360 - 180, lat]);
     for (let lon = -180; lon < 180; lon += 30) this.line(ctx, (t) => [lon, t * 180 - 90]);
     // atmosphere
-    ctx.beginPath(); ctx.arc(n / 2, n / 2, n / 2 - 2, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(n / 2, n / 2, this.radius(), 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(124,196,255,0.85)'; ctx.lineWidth = 1.4 * s; ctx.stroke();
     const me = this.game.mine?.id;
     if (me === undefined) return;
@@ -291,7 +327,7 @@ export class HoloGlobe {
         const p = this.slerp(a, bv, ang, t);
         const h = 1 + 0.06 + 0.22 * Math.sin(Math.PI * t) * (ang / Math.PI + 0.15);
         const [x, y, z] = this.toView(p[0] * h, p[1] * h, p[2] * h);
-        const r = n / 2 - 2, X = n / 2 + x * r, Y = n / 2 - y * r;
+        const r = this.radius(), X = n / 2 + x * r, Y = n / 2 - y * r;
         const seen = z > 0 || x * x + y * y > 1;
         if (seen) { if (pen) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); pen = true; } else pen = false;
       }
@@ -303,7 +339,7 @@ export class HoloGlobe {
         ctx.beginPath(); ctx.arc(X, Y, 3.2 * s, 0, Math.PI * 2); ctx.fill();
         ctx.font = `600 ${Math.round(11 * s)}px "Exo 2", sans-serif`;
         ctx.fillStyle = 'rgba(227,241,255,0.95)';
-        ctx.fillText(this.pol.nations.get(id)?.name ?? '', X + 6 * s, Y - 4 * s);
+        ctx.fillText(this.pol.nations.get(id)?.name ?? '', Math.round(X + 6 * s), Math.round(Y - 4 * s));
       }
     }
     const [X, Y, z] = this.project(home[0], home[1]);
@@ -336,21 +372,40 @@ export class HoloGlobe {
     ctx.stroke();
   }
 
-  private nationAtEvent(e: PointerEvent) {
+  /**
+   * The nation under the pointer. For a click (`generous`), a small nation within a few
+   * pixels wins over your own or the sea, so tiny neighbours can be picked.
+   */
+  private nationAtEvent(e: PointerEvent, generous = false) {
     const r = this.canvas.getBoundingClientRect();
-    const rad = r.width / 2 - 2 * (r.width / this.n);
-    const x = (e.clientX - r.left - r.width / 2) / rad, y = -(e.clientY - r.top - r.height / 2) / rad;
-    const q = x * x + y * y;
-    if (q >= 1) return undefined;
-    const [wx, wy, wz] = this.toWorld(x, y, Math.sqrt(1 - q));
-    const prov = this.provinceAtWorld(wx, wy, wz);
-    const nat = this.provNation[prov];
-    return nat >= 0 ? nat : undefined;
+    const scale = this.n / r.width; // canvas pixels per CSS pixel
+    const at = (cx: number, cy: number) => {
+      const x = (cx - this.n / 2) / this.radius(), y = -(cy - this.n / 2) / this.radius();
+      const q = x * x + y * y;
+      if (q >= 1) return -1;
+      const [wx, wy, wz] = this.toWorld(x, y, Math.sqrt(1 - q));
+      return this.provNation[this.provinceAtWorld(wx, wy, wz)] ?? -1;
+    };
+    const cx = (e.clientX - r.left) * scale, cy = (e.clientY - r.top) * scale;
+    const hit = at(cx, cy);
+    const me = this.game.mine?.id ?? -2;
+    if (generous && (hit < 0 || hit === me)) {
+      const reach = 7 * scale;
+      let best = -1, bestD = Infinity;
+      for (let dy = -reach; dy <= reach; dy += scale) for (let dx = -reach; dx <= reach; dx += scale) {
+        const d = dx * dx + dy * dy;
+        if (d > reach * reach || d >= bestD) continue;
+        const id = at(cx + dx, cy + dy);
+        if (id >= 0 && id !== me) { best = id; bestD = d; }
+      }
+      if (best >= 0) return best;
+    }
+    return hit >= 0 ? hit : undefined;
   }
 
   private hover(e: PointerEvent) {
-    const id = this.nationAtEvent(e);
-    if (id === undefined) { this.readout.textContent = 'drag to turn · click a nation'; this.canvas.style.cursor = 'grab'; return; }
+    const id = this.nationAtEvent(e, true);
+    if (id === undefined) { this.readout.textContent = 'drag to turn · scroll to zoom · click a nation'; this.canvas.style.cursor = 'grab'; return; }
     const name = this.pol.nations.get(id)?.name ?? '';
     const me = this.game.mine;
     const cat = this.cats.get(id);

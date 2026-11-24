@@ -567,3 +567,11 @@ input[type="range"] { filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5)); }
 @media (max-width: 1300px) { .market-window.screen .scr-grid { grid-template-columns: minmax(520px, 1.2fr) minmax(340px, 1fr); } }
 .mk-ring { width: min(100%, 660px, calc(100vh - 320px)); }
 .econ-window.screen .scr-right .table-wrap { overflow-x: auto !important; overflow-y: hidden !important; flex-shrink: 0; }
+
+/* ---- Parliament: every seat a member you can point at ---- */
+.chamber .seat { transform-box: fill-box; transform-origin: center; transition: transform 0.12s ease, filter 0.12s ease; }
+.chamber-piece .chamber .seat { cursor: pointer; }
+.chamber .seat:hover { transform: scale(1.55); filter: drop-shadow(0 0 3px #fff) brightness(1.35); fill-opacity: 1; }
+.chamber .seat.picked { stroke: #fff; stroke-width: 1.4; transform: scale(1.4); filter: drop-shadow(0 0 4px var(--cyan)); fill-opacity: 1; }
+.chamber .head { filter: drop-shadow(0 0 4px rgba(124, 196, 255, 0.8)); }
+.seat-readout { min-height: 1.5em; margin: 6px 0 0; font-size: 12px; text-align: center; color: var(--text); }

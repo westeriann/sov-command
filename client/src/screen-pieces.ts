@@ -6,7 +6,7 @@ import { proxy, reveal, type Piece } from './screens';
 import { BUDGET_KEYS, COMMODITIES, COMMODITY_INFO, money, type Budget } from '../../shared/economy';
 import { UNIT_SPECS, UNIT_TYPES, type Domain, type UnitType } from '../../shared/military';
 import { BRANCHES, BRANCH_NAMES, TECHS, TIER_COST, prerequisite } from '../../shared/research';
-import { CHAMBER, blocsFor, chamberLegend, chamberSvg } from './chamber';
+import { CHAMBER, blocsFor, chamberLegend, chamberSvg, memberName, memberPick, type Bloc } from './chamber';
 import { threatStackHtml } from './threat-stack';
 import { MAX_SPY_OPS } from '../../shared/diplomacy';
 import type { HoloGlobe } from './holo-globe';
@@ -224,24 +224,57 @@ export function espionagePiece(game: Game, pol: Political): Piece {
 export function politicsPiece(game: Game, pol: Political): Piece {
   const el = base('chamber-piece');
   let win: HTMLElement | undefined;
+  let blocs: Bloc[] = [];
+  let picked: number | null = null;
+  // who sits in a seat: a name, their party and the area they sit for
+  const member = (seat: SVGElement) => {
+    const me = game.mine?.id ?? 0, s = Number(seat.dataset.s), bloc = blocs[Number(seat.dataset.b)];
+    const gov = game.nations.get(me)?.government;
+    const areas = [...pol.provinces.values()].filter((p) => p.kind === 'land' && p.nation === me).map((p) => p.name);
+    const area = gov === 'junta' ? (bloc?.name ?? 'Officer') : memberPick(me, s, areas) ?? 'the capital';
+    const role = gov === 'junta' ? 'officer of the' : gov === 'technocracy' ? 'expert for' : 'member for';
+    return `<b>${esc(memberName(me, s))}</b> · ${esc(bloc?.name ?? '')}<span class="muted"> · ${role} ${esc(area)}</span>`;
+  };
+  const readout = () => el.querySelector<HTMLElement>('.seat-readout');
+  const show = (seat: SVGElement | null) => {
+    const r = readout();
+    if (!r) return;
+    const s = seat ?? (picked !== null ? el.querySelector<SVGElement>(`.seat[data-s="${picked}"]`) : null);
+    r.innerHTML = s ? member(s) : '<span class="muted">Hover a seat to see who sits there</span>';
+  };
+  el.addEventListener('pointerover', (e) => show((e.target as Element).closest<SVGElement>('.seat')));
+  el.addEventListener('pointerout', (e) => { if ((e.target as Element).closest('.seat')) show(null); });
   el.addEventListener('click', (e) => {
     if (!win) return;
+    const seat = (e.target as Element).closest<SVGElement>('.seat');
+    if (seat) {
+      // members can be picked; what they can do comes later
+      el.querySelector('.seat.picked')?.classList.remove('picked');
+      const s = Number(seat.dataset.s);
+      picked = picked === s ? null : s;
+      if (picked !== null) seat.classList.add('picked');
+      show(seat);
+      return;
+    }
     if ((e.target as Element).closest('[data-pp="campaign"]')) proxy(win, '[data-pl="campaign"]');
-    else reveal(win, '.parties, .party-row');
+    else if ((e.target as Element).closest('.chamber-legend')) reveal(win, '.parties, .party-row');
   });
   return {
-    el, caption: 'Your chamber, one light per seat. Click it for the parties.',
+    el, caption: 'Your chamber, one light per seat. Hover a seat to meet its member.',
     update(w) {
       win = w;
       const me = game.mine?.id;
       const pub = me !== undefined ? game.nations.get(me) : undefined;
       const n = me !== undefined ? pol.nations.get(me) : undefined;
       if (!pub?.government || !n) { el.innerHTML = '<p class="hint">Take command of a nation to lead its politics.</p>'; return; }
-      const blocs = blocsFor(pub.government, pub.parties, n.color ?? '#8a8f96');
+      blocs = blocsFor(pub.government, pub.parties, n.color ?? '#8a8f96');
       const camp = w.querySelector<HTMLButtonElement>('[data-pl="campaign"]');
       el.innerHTML = `<div class="chamber-big">${chamberSvg(pub.government, blocs, '#7cc4ff')}</div>
+        <p class="seat-readout"></p>
         <div class="piece-bar"><b class="gov-name">${esc(CHAMBER[pub.government].name)}</b>${chamberLegend(pub.government, blocs)}
         ${camp ? `<button type="button" class="claim${camp.disabled ? '' : ' primary'}" data-pp="campaign" ${camp.disabled ? 'disabled' : ''}>Campaign</button>` : ''}</div>`;
+      if (picked !== null) el.querySelector(`.seat[data-s="${picked}"]`)?.classList.add('picked');
+      show(null);
     },
   };
 }

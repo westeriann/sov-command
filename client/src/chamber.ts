@@ -55,9 +55,10 @@ function layout(shape: Government, n: number): { x: number; y: number; r: number
       out.push({ x: 52 + c * 14, y: 56 + r * 12, r: 4.2, k: i });
     }
   } else {
-    // a round table
+    // a round table, with the head of the table (top) left to the leader's star
+    const gap = 0.55, span = Math.PI * 2 - gap * 2;
     for (let i = 0; i < n; i++) {
-      const a = Math.PI / 2 + (Math.PI * 2 * (i + 0.5)) / n;
+      const a = -Math.PI / 2 + gap + (span * (i + 0.5)) / n;
       out.push({ x: 150 + 78 * Math.cos(a), y: 82 + 44 * Math.sin(a), r: 7, k: i });
     }
   }
@@ -75,8 +76,8 @@ export function chamberSvg(gov: Government, blocs: Bloc[], leader = '#d9b45a', l
   const pos = layout(gov, n);
   let i = 0;
   const dots = seats.flatMap((count, b) => Array.from({ length: count }, () => {
-    const p = pos[i++], bl = blocs[b];
-    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.r.toFixed(1)}" fill="${bl?.colour ?? '#8a8f96'}"${bl?.gov ? '' : ' fill-opacity="0.55"'}><title>${esc(bl?.name ?? '')}</title></circle>`;
+    const k = i, p = pos[i++], bl = blocs[b];
+    return `<circle class="seat" data-s="${k}" data-b="${b}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.r.toFixed(1)}" fill="${bl?.colour ?? '#8a8f96'}"${bl?.gov ? '' : ' fill-opacity="0.55"'}><title>${esc(bl?.name ?? '')}</title></circle>`;
   })).join('');
   const furniture = gov === 'democracy'
     ? `<rect x="138" y="114" width="24" height="9" rx="1" fill="${leader}" opacity="0.85"/><path d="M60 128H240" stroke="#4b4234" stroke-width="1.5"/>`
@@ -84,7 +85,7 @@ export function chamberSvg(gov: Government, blocs: Bloc[], leader = '#d9b45a', l
       ? `<rect x="134" y="80" width="32" height="12" rx="2" fill="#2c3238" stroke="#4b4234"/><circle cx="150" cy="86" r="4" fill="${leader}"/>`
       : gov === 'autocracy'
         ? `<rect x="112" y="14" width="76" height="22" rx="2" fill="#2c3238" stroke="${leader}"/><circle cx="150" cy="25" r="7" fill="${leader}"/><path d="M40 46H260" stroke="#4b4234" stroke-width="1"/>`
-        : `<ellipse cx="150" cy="82" rx="58" ry="26" fill="#3a3326" stroke="#6b5a36"/><path d="M150 26l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" fill="${leader}"/>`;
+        : `<ellipse cx="150" cy="82" rx="58" ry="26" fill="#3a3326" stroke="#6b5a36"/><path class="head" d="M150 24l4.2 8.4 9.3 1.4-6.7 6.5 1.6 9.2-8.4-4.4-8.4 4.4 1.6-9.2-6.7-6.5 9.3-1.4z" fill="${leader}"><title>Head of the council</title></path>`;
   const h = gov === 'autocracy' ? 56 + Math.ceil(n / 15) * 12 + 6 : gov === 'junta' ? 140 : gov === 'technocracy' ? 132 : 132;
   return `<svg class="chamber ${gov}" viewBox="0 0 300 ${h}" role="img" aria-label="${esc(label || `${spec.name}: ${spec.text}`)}">${furniture}${dots}</svg>`;
 }
@@ -106,4 +107,29 @@ export function blocsFor(gov: Government, parties: { name: string; colour: strin
 export function chamberLegend(gov: Government, blocs: Bloc[]) {
   const n = CHAMBER[gov].seats, sum = blocs.reduce((t, b) => t + b.seats, 0) || 1;
   return `<div class="chamber-legend">${blocs.map((b) => `<span class="${b.gov ? 'gov' : ''}"><i style="background:${b.colour}"></i>${esc(b.name)} <b class="mono">${Math.round((b.seats / sum) * n)}</b></span>`).join('')}</div>`;
+}
+
+// ---- members: a name for every seat, the same each time for the same nation and seat ----
+const FIRST = ['Ana', 'Bela', 'Cora', 'Dario', 'Elin', 'Farid', 'Galen', 'Hana', 'Ilya', 'Jonas', 'Kira', 'Leon', 'Mira', 'Nils',
+  'Oren', 'Petra', 'Quin', 'Rosa', 'Soren', 'Tamar', 'Ugo', 'Vera', 'Wim', 'Xena', 'Yara', 'Zoran', 'Adil', 'Bruna', 'Cyril', 'Dana',
+  'Emre', 'Fiona', 'Goran', 'Ines', 'Jarek', 'Lena', 'Marek', 'Nadia', 'Otto', 'Paula', 'Rafael', 'Selin', 'Tomas', 'Una', 'Viktor'];
+const SYL = ['ka', 'ro', 'vel', 'man', 'dri', 'sto', 'len', 'bar', 'ov', 'ic', 'ter', 'sa', 'mir', 'gal', 'den', 'rin', 'tos', 'na',
+  'hol', 'ber', 'ski', 'lu', 'var', 'el', 'son', 'ard', 'ez', 'ko', 'mel', 'dor'];
+
+function hash(a: number, b: number) {
+  let h = (Math.imul(a + 0x9e37, 0x85ebca6b) ^ Math.imul(b + 0x7f4a, 0xc2b2ae35)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
+  return (h ^ (h >>> 13)) >>> 0;
+}
+
+/** A member's name for a seat (stable for the same nation and seat). */
+export function memberName(nation: number, seat: number) {
+  const h = hash(nation, seat), h2 = hash(seat, nation);
+  const last = SYL[h % SYL.length] + SYL[(h >>> 8) % SYL.length] + ((h >>> 16) % 3 === 0 ? SYL[(h >>> 20) % SYL.length] : '');
+  return `${FIRST[h2 % FIRST.length]} ${last[0].toUpperCase()}${last.slice(1)}`;
+}
+
+/** Pick one of a list for a seat, stably (e.g. the area a member sits for). */
+export function memberPick<T>(nation: number, seat: number, list: T[]) {
+  return list.length ? list[hash(seat * 7 + 3, nation) % list.length] : undefined;
 }
