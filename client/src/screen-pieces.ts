@@ -4,13 +4,14 @@ import type { Game } from './game';
 import type { Political } from './political';
 import { proxy, reveal, type Piece } from './screens';
 import { BUDGET_KEYS, COMMODITIES, COMMODITY_INFO, money, type Budget } from '../../shared/economy';
-import { UNIT_SPECS, UNIT_TYPES, type Domain, type UnitType } from '../../shared/military';
+import { UNIT_SPECS, UNIT_TYPES, type Domain } from '../../shared/military';
 import { BRANCHES, BRANCH_NAMES, TECHS, TIER_COST, prerequisite } from '../../shared/research';
 import { CHAMBER, blocsFor, chamberLegend, chamberSvg, memberName, memberPick, type Bloc } from './chamber';
 import { threatStackHtml } from './threat-stack';
 import { MAX_SPY_OPS } from '../../shared/diplomacy';
 import type { HoloGlobe } from './holo-globe';
 import { priceLabel } from './market-panel';
+import { troopParade, updateParade, type TroopEntry } from './troop-models';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const D = Math.PI / 180;
@@ -169,27 +170,33 @@ export function marketPiece(game: Game): Piece {
 export function forcesPiece(game: Game, view: () => Domain): Piece {
   const el = base('forces-piece');
   let win: HTMLElement | undefined;
+  let parade: HTMLElement | undefined;
+  let shown: Domain | undefined;
   el.addEventListener('click', (e) => {
-    const t = (e.target as Element).closest<HTMLElement>('.col, .col-chip');
+    const t = (e.target as Element).closest<HTMLElement>('.troop');
     if (t && win) proxy(win, `[data-f="recruit"][data-type="${t.dataset.key}"]`);
   });
   return {
-    el, caption: 'Each column is one type of formation (+ those in training). Click a column or its name to recruit one more.',
+    el, caption: 'Your formations of each type. Hover one for how many are fielded; click it to recruit one more.',
     update(w) {
       win = w;
       const me = game.mine?.id;
       const mil = game.mine?.mil;
-      const types = UNIT_TYPES.filter((t) => UNIT_SPECS[t].domain === view());
+      const d = view();
+      const types = UNIT_TYPES.filter((t) => UNIT_SPECS[t].domain === d);
       const own = game.units.filter((u) => u.nation === me);
-      const count = (t: UnitType) => own.filter((u) => u.type === t).length;
-      const queued = (t: UnitType) => (mil?.queue ?? []).filter((q) => q.type === t).length;
-      const max = Math.max(1, ...types.map((t) => count(t) + queued(t)));
-      const can = (t: UnitType) => !!w.querySelector(`[data-f="recruit"][data-type="${t}"]:not(:disabled)`);
-      el.innerHTML = columns(types.map((t) => ({
-        key: t, label: UNIT_SPECS[t].name.replace(/ (division|group|wing|fleet)$/i, ''),
-        value: `${count(t)}${queued(t) ? `+${queued(t)}` : ''}`,
-        h: ((count(t) + queued(t)) / max) * 120, cls: can(t) ? '' : 'locked',
-      })), Math.min(4, types.length)) + `<div class="piece-bar"><span class="mono">${own.filter((u) => UNIT_SPECS[u.type].domain === view()).length} formations · ${(mil?.queue ?? []).length} in training</span></div>`;
+      const entries: TroopEntry[] = types.map((t) => ({
+        type: t, label: UNIT_SPECS[t].name.replace(/ (division|group|wing|fleet)s?$/i, ''),
+        count: own.filter((u) => u.type === t).length, queued: (mil?.queue ?? []).filter((q) => q.type === t).length,
+        locked: !w.querySelector(`[data-f="recruit"][data-type="${t}"]:not(:disabled)`),
+      }));
+      // the models are built once per arm, so their entrance and idle animations are not restarted by redraws
+      if (!parade || shown !== d || !parade.isConnected) {
+        shown = d;
+        parade = troopParade(entries, d as 'land' | 'sea' | 'air');
+        el.replaceChildren(parade, Object.assign(document.createElement('div'), { className: 'piece-bar' }));
+      } else updateParade(parade, entries);
+      el.querySelector('.piece-bar')!.innerHTML = `<span class="mono">${own.filter((u) => UNIT_SPECS[u.type].domain === d).length} formations · ${(mil?.queue ?? []).length} in training</span>`;
     },
   };
 }

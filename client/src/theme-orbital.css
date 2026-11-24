@@ -678,3 +678,64 @@ body.build-mode .lens, body.road-mode .lens { display: none; }
 .bm-item .mono { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .lens-tools { gap: 8px; margin: 6px 0 2px; }
 .lens-tools .claim { flex: 1; }
+
+/* ---- Forces: holographic troop models roll in, stop, then idle in place ---- */
+.parade { position: relative; z-index: 1; width: min(100%, 720px); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; padding: 8px 6px 4px; }
+.parade-floor { position: absolute; left: 4%; right: 4%; bottom: 8px; height: 46%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(124, 196, 255, 0.12), transparent); }
+.parade.sea .parade-floor { background: radial-gradient(closest-side, rgba(60, 140, 220, 0.2), transparent); }
+.troop { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 0 8px; padding: 4px 8px 6px; border-radius: 14px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; color: var(--cyan); font: inherit; text-align: left; transition: border-color 0.2s, background 0.2s; }
+.troop svg { grid-column: 1 / 3; width: 100%; height: auto; max-height: min(17cqh, 150px); overflow: visible; }
+.troop .model { fill: rgba(124, 196, 255, 0.14); stroke: #9fd4ff; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(124, 196, 255, 0.55)); }
+.troop .detail, .troop .barrel, .troop .rotor, .troop .wake { fill: none; }
+.troop .hull { fill: rgba(124, 196, 255, 0.2); }
+.troop .wheel circle { fill: rgba(4, 14, 30, 0.7); }
+.troop .burner path { fill: #ffd28a; stroke: #ffb347; filter: drop-shadow(0 0 5px #ffb347); }
+.troop .swell { fill: none; stroke: rgba(124, 196, 255, 0.45); stroke-width: 1.4; }
+.troop-label { font: 600 12px var(--f-display); letter-spacing: 0.06em; color: var(--text); }
+.troop-count { font-size: 13px; color: var(--cyan); }
+.troop-tip { position: absolute; left: 50%; bottom: calc(100% - 6px); transform: translate(-50%, 4px); padding: 4px 10px; border-radius: 10px; white-space: nowrap;
+  font-size: 11.5px; color: var(--text); background: rgba(6, 16, 32, 0.95); border: 1px solid var(--edge); opacity: 0; pointer-events: none; transition: opacity 0.15s, transform 0.15s; z-index: 3; }
+.troop:hover, .troop:focus-visible { border-color: var(--edge); background: rgba(124, 196, 255, 0.06); }
+.troop:hover .troop-tip, .troop:focus-visible .troop-tip { opacity: 1; transform: translate(-50%, 0); }
+.troop:hover .model { filter: drop-shadow(0 0 8px rgba(124, 196, 255, 0.9)); }
+.troop.none .model { opacity: 0.45; }
+.troop.locked .model { opacity: 0.25; stroke-dasharray: 3 3; }
+
+/* entrance: in from the left, easing to a stop, one after another */
+.troop .model { animation: troop-in 1.7s cubic-bezier(0.2, 0.7, 0.25, 1) both; animation-delay: calc(var(--i) * 0.28s); }
+@keyframes troop-in { from { transform: translateX(-130%); opacity: 0; } 25% { opacity: 1; } to { transform: none; opacity: 1; } }
+.parade.sea .troop .model { animation-name: troop-in, ride; animation-duration: 2.2s, 4.2s; animation-timing-function: cubic-bezier(0.2, 0.7, 0.25, 1), ease-in-out;
+  animation-iteration-count: 1, infinite; animation-delay: calc(var(--i) * 0.3s), calc(var(--i) * 0.3s + 2.2s); }
+.parade.air .troop .model { animation-name: fly-in, hover; animation-duration: 1.8s, 3.4s; animation-timing-function: cubic-bezier(0.2, 0.7, 0.25, 1), ease-in-out;
+  animation-iteration-count: 1, infinite; animation-delay: calc(var(--i) * 0.25s), calc(var(--i) * 0.25s + 1.8s); }
+@keyframes ride { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(2px) rotate(-1deg); } }
+@keyframes fly-in { from { transform: translate(-140%, 14px); opacity: 0; } 30% { opacity: 1; } to { transform: none; opacity: 1; } }
+@keyframes hover { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+/* wheels turn while rolling in, then stop */
+.troop .wheel { transform-box: view-box; animation: spin 0.45s linear 4; animation-delay: calc(var(--i) * 0.28s); }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* idle: turrets traverse, guns lift and settle */
+.troop .turret { transform-box: view-box; animation: traverse 6s ease-in-out infinite; animation-delay: calc(var(--i) * 0.28s + 1.8s); }
+@keyframes traverse { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-4deg); } 60% { transform: rotate(3deg); } }
+.troop .barrel { transform-box: view-box; animation: elevate 4.5s ease-in-out infinite; animation-delay: calc(var(--i) * 0.28s + 2.2s); }
+@keyframes elevate { 0%, 100% { transform: rotate(0); } 40% { transform: rotate(-7deg); } 70% { transform: rotate(-2deg); } }
+.troop .turret.aft { animation-direction: reverse; }
+/* soldiers march in and then stand easy */
+.troop .walker .leg-a, .troop .walker .leg-b { transform-box: fill-box; transform-origin: 50% 0; animation: stride 0.45s ease-in-out 4 alternate; animation-delay: calc(var(--i) * 0.28s); }
+.troop .walker .leg-b { animation-direction: alternate-reverse; }
+@keyframes stride { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
+/* rotors and props turn; the periscope rises and turns; engines glow */
+.troop .rotor { transform-box: view-box; animation: rotor 0.35s linear infinite; }
+@keyframes rotor { 0% { transform: scaleX(1); } 50% { transform: scaleX(0.15); } 100% { transform: scaleX(1); } }
+.troop .tail-rotor, .troop .prop { transform-box: view-box; animation: rotor 0.18s linear infinite; }
+.troop .periscope { animation: periscope 5s ease-in-out infinite; animation-delay: 2.4s; }
+@keyframes periscope { 0%, 100% { transform: translateY(6px); } 30%, 70% { transform: translateY(0); } }
+.troop .burner { animation: burn 0.25s ease-in-out infinite alternate; }
+@keyframes burn { from { opacity: 0.55; } to { opacity: 1; } }
+.troop .heli { animation: hover 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .troop *, .troop .model { animation: none !important; } }
+.parade.sea .troop .model, .parade.air .troop .model { animation-fill-mode: both, none; }
