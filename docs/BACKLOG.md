@@ -89,6 +89,13 @@ until the go-ahead; interface work can go first.
     dolphins) that fade in and out.
 28. **Province vignettes**: the short scenes from item 8 drawn on the map, fading in and out.
 
+## Next version
+
+- **Lag at high game speed**: every speed above 5x lags, worse the faster it runs, and worst
+  while the camera is moving. Profile per-tick client work at 10x and 20x (game updates
+  redrawing windows and map layers: political repaints, lanes, buildings, labels) against
+  camera movement; likely too much is redone on every update instead of throttled.
+
 ## Globe notes (keep for any rebuild of the planet)
 
 Causes found and fixed:
