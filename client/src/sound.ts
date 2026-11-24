@@ -26,9 +26,9 @@ const CUES: Record<Cue, [string[], Group]> = {
   build_done: [['build_done'], 'fx'], deal_signed: [['deal_signed'], 'fx'], market_alert: [['market_alert'], 'fx'],
   ring: [['ui_hover'], 'ui'],
   // a province's sound when you click it (one of the files, picked at random)
-  p_city: [['prov_city'], 'amb'], p_farm: [['prov_farm_cow', 'prov_farm_rooster', 'prov_farm_sheep'], 'amb'], p_wind: [['prov_wind'], 'amb'],
+  p_city: [['prov_city'], 'amb'], p_farm: [['prov_farm_sheep', 'prov_farm_birds'], 'amb'], p_wind: [['prov_wind'], 'amb'],
   p_goat: [['prov_goat'], 'amb'], p_forest: [['prov_forest'], 'amb'], p_desert: [['prov_desert'], 'amb'], p_waves: [['prov_waves'], 'amb'],
-  p_gulls: [['prov_gulls'], 'amb'], p_industry: [['prov_industry'], 'amb'], p_base: [['prov_base'], 'amb'],
+  p_gulls: [['prov_gulls'], 'amb'], p_industry: [['prov_industry'], 'amb'], p_base: [['order_ack'], 'amb'] /* radio traffic from the base */,
 };
 /** Cues whose files are alternatives (one plays) rather than layers (all play). */
 const PICK_ONE = new Set<Cue>(['p_farm']);

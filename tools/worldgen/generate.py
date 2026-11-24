@@ -355,7 +355,7 @@ class Bomber:
 
 def ocean_colour(depth_m):
     stops = np.array([0, 60, 200, 1200, 3500, 7000], np.float32)
-    cols = np.array([[38, 104, 124], [28, 84, 112], [19, 60, 96], [12, 40, 78], [8, 27, 58], [6, 20, 46]], np.float32)
+    cols = np.array([[33, 92, 114], [26, 78, 106], [19, 59, 94], [12, 40, 78], [8, 27, 58], [6, 20, 46]], np.float32)
     d = np.clip(-depth_m, 0, 7000)
     return np.stack([np.interp(d, stops, cols[:, i]) for i in range(3)], axis=-1)
 
@@ -439,7 +439,10 @@ def make_texture(terrain, seed, ow, dw):
     nvar = Perlin3(seed + 50)
     (tone,) = field(terrain["lat"], grid(dw, dw // 2)[1], lambda p: (fbm(nvar, p, 4, freq=5.0),))
     # water colour comes from a softened depth map so shallows have no stair-steps
-    sea_depth = ndimage.gaussian_filter(np.minimum(terrain["elev"], 0), 1.6, mode=("nearest", "wrap"))
+    # (softened well beyond a cell, so the shelf fades into the deep instead of showing as pale blobs)
+    sea_depth = ndimage.gaussian_filter(np.minimum(terrain["elev"], 0), 3.2, mode=("nearest", "wrap"))
+    islands = make_islands(terrain, dw, seed)
+    log(f"{len(islands)} small islands in the open ocean")
     rs = RowSampler(dw, ow)
     coslat = np.cos(np.radians(grid(ow, oh)[0]))
 
@@ -452,7 +455,7 @@ def make_texture(terrain, seed, ow, dw):
     _CTX.update(dict(oh=oh, ow=ow, rs=rs, weights=weights, bombers=bombers, coslat=coslat, tone=tone, shade=shade,
                      sea_depth=sea_depth, terrain=terrain, lat_o=lat_o, lon_o=lon_o, n_coast=n_coast, n_micro=n_micro,
                      upland=upland, riparian=riparian, dryness=dryness, height=height, lake_soft=lake_soft,
-                     lake_ice=lake_ice, river_px=river_px))
+                     lake_ice=lake_ice, river_px=river_px, islands=islands))
     img = np.empty((oh, ow, 3), np.uint8)
     starts = list(range(0, oh, STRIP))
     # every strip of rows is painted on its own, so the work splits across processor
@@ -477,6 +480,69 @@ def make_texture(terrain, seed, ow, dw):
 STRIP = 256
 JOBS = 1
 _CTX = {}
+
+
+def make_islands(terrain, dw, seed):
+    """Small islands and atolls scattered over the deep ocean, far from any coast: painted only
+    (too small to hold a province). Each: lat, lon, radius km, and a few islets for archipelagos."""
+    rng = np.random.default_rng(seed + 4242)
+    land = terrain["land"]
+    pad = dw // 8
+    wide = np.concatenate([land[:, -pad:], land, land[:, :pad]], axis=1)
+    dist_km = ndimage.distance_transform_edt(~wide)[:, pad:-pad] * (EARTH_KM / dw)
+    h, w = land.shape
+    out = []
+    tries = 0
+    while len(out) < 220 and tries < 20000:
+        tries += 1
+        lat = np.degrees(np.arcsin(rng.uniform(-0.88, 0.88)))
+        lon = rng.uniform(-180, 180)
+        y = min(h - 1, int((90 - lat) / 180 * h)); x = int((lon + 180) / 360 * w) % w
+        if land[y, x] or dist_km[y, x] < 260 or terrain["elev"][y, x] > -1500:
+            continue
+        group = [(lat, lon, rng.uniform(2.5, 9.0))]
+        for _ in range(int(rng.integers(0, 6)) if rng.random() < 0.45 else 0):
+            group.append((lat + rng.normal(0, 0.18), lon + rng.normal(0, 0.18) / max(0.2, np.cos(np.radians(lat))), rng.uniform(0.8, 4.0)))
+        out.extend(group)
+    return out
+
+
+def paint_islands(islands, ys, lat_rows, lon_o, ocean, bombers, coslat, noise):
+    """Draw the islands that fall in these rows: land textured for their latitude, ringed by a
+    pale reef shallow. Returns the ocean (with reefs), the islands' land colour and their mask."""
+    lat0, lat1 = float(lat_rows.min()), float(lat_rows.max())
+    here = [i for i in islands if lat0 - 0.4 < i[0] < lat1 + 0.4]
+    if not here:
+        return ocean, None, None
+    mask = np.zeros(ocean.shape[:2], np.float32)
+    reef = np.zeros(ocean.shape[:2], np.float32)
+    zone = np.zeros(ocean.shape[:2], np.int8)  # 0 tropical, 1 temperate, 2 cold
+    ow = ocean.shape[1]
+    for lat, lon, r in here:
+        k = np.cos(np.radians(lat))
+        span = (r * 3 / 111.32) / max(0.15, k)
+        cols = np.flatnonzero(np.abs(((lon_o - lon + 180) % 360) - 180) < span)
+        if not len(cols):
+            continue
+        dx = (((lon_o[cols] - lon + 180) % 360) - 180) * k * 111.32
+        dy = (lat_rows - lat) * 111.32
+        d = np.sqrt(dx[None, :] ** 2 + dy[:, None] ** 2)
+        nz = noise[:, cols]
+        m = smooth(r * (1 + 0.45 * nz) - d, 0, 0.7)
+        mask[:, cols] = np.maximum(mask[:, cols], m)
+        reef[:, cols] = np.maximum(reef[:, cols], smooth(r * 2.4 - d, 0, r * 1.1) * 0.55)
+        zone[:, cols] = 0 if abs(lat) < 24 else 1 if abs(lat) < 48 else 2
+    if mask.max() < 1e-3:
+        return ocean, None, None
+    ocean = ocean * (1 - reef[..., None]) + np.array([62, 150, 150], np.float32) * reef[..., None]
+    land = np.zeros_like(ocean)
+    for z, b in ((0, "savanna"), (1, "grassland"), (2, "tundra")):
+        sel = zone == z
+        if sel.any() and b in bombers:
+            land[sel] = bombers[b].render(ys, coslat)[sel]
+    beach = (smooth(mask, 0.0, 0.5) - smooth(mask, 0.5, 1.0))[..., None] * 0.5
+    land = land * (1 - beach) + np.array([196, 184, 150], np.float32) * beach
+    return ocean, land, mask[..., None]
 
 
 def _paint_strip(r0):
@@ -513,8 +579,17 @@ def _paint_strip(r0):
         rip = riparian[sl].astype(np.float32)[..., None] / 255 * (0.25 + 0.6 * rs(dryness, ys))[..., None]
         if rip.max() > 0.01:
             landc = landc * (1 - rip) + bombers["temperate_forest"].render(ys, coslat[sl]) * 1.05 * rip
-        a = smooth(rs(height, ys) + 0.012 * coast_noise, -0.0012, 0.0012)[..., None]
+        hs = rs(height, ys)
+        # the shore follows the same contour as the map's provinces (only a little roughened), so
+        # province colours and the photo meet at the same coastline
+        a = smooth(hs + 0.003 * coast_noise, -0.0012, 0.0012)[..., None]
+        # shallows: a soft turquoise wash that thins out from the shore over a few kilometres
+        shallow = (smooth(hs, -0.010, 0.0) * 0.32)[..., None]
+        ocean = ocean * (1 - shallow) + np.array([44, 118, 128], np.float32) * shallow
+        ocean, landc_i, ai = paint_islands(c["islands"], ys, lat_o[sl], lon_o, ocean, bombers, coslat[sl], coast_noise)
         out = landc * a + ocean * (1 - a)
+        if ai is not None:
+            out = out * (1 - ai) + landc_i * ai
         # lakes: a softened mask with the same fractal shoreline noise
         la = smooth(rs(lake_soft, ys) - 0.5 + 0.22 * coast_noise, -0.06, 0.06)[..., None]
         if la.max() > 0:

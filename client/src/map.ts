@@ -37,7 +37,8 @@ async function hasRelief() {
 
 /** How much the mountains are raised: strong from orbit, gentler up close, times the player's Relief setting. */
 function exaggeration(zoom: number, relief: number) {
-  const base = Math.min(14, Math.max(2.5, 14 / Math.pow(1.6, Math.max(0, zoom - 1.5))));
+  // tall enough to read from orbit without coasts and ridges standing up as walls
+  const base = Math.min(8, Math.max(2.2, 8 / Math.pow(1.45, Math.max(0, zoom - 1.5))));
   return base * relief;
 }
 /** The camera leans over the map as you zoom in, like a commander bending over a table. */
@@ -120,6 +121,47 @@ function graticule() {
 
 const NONE: ExpressionSpecification = ['==', ['get', 'a'], -1];
 
+/**
+ * Province colours on a Web Mercator canvas, with the coastline drawn as a smooth,
+ * anti-aliased contour between grid cells (the same contour the satellite photo's shore
+ * follows) rather than as the grid's square steps. Inland, each pixel takes the colour of
+ * its own cell; at the coast the colour fades out across the shore.
+ */
+function provinceFill(pol: Political, byProvince: Uint8Array, size: number) {
+  const W = pol.width, H = pol.height, grid = pol.grid;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(size, size);
+  const d = img.data;
+  const alphaOf = (i: number) => byProvince[grid[i] * 4 + 3] / 255;
+  for (let y = 0; y < size; y++) {
+    const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / size))) * 180) / Math.PI;
+    const fy = ((90 - lat) / 180) * H - 0.5;
+    const y0 = Math.max(0, Math.min(H - 1, Math.floor(fy))), y1 = Math.min(H - 1, y0 + 1), ty = Math.max(0, Math.min(1, fy - y0));
+    for (let x = 0; x < size; x++) {
+      const fx = ((x + 0.5) / size) * W - 0.5;
+      const xf = Math.floor(fx), tx = fx - xf;
+      const x0 = ((xf % W) + W) % W, x1 = (x0 + 1) % W;
+      const i00 = y0 * W + x0, i01 = y0 * W + x1, i10 = y1 * W + x0, i11 = y1 * W + x1;
+      // how much of the neighbourhood is coloured land, bilinearly: a smooth coastline
+      const f = (alphaOf(i00) * (1 - tx) + alphaOf(i01) * tx) * (1 - ty) + (alphaOf(i10) * (1 - tx) + alphaOf(i11) * tx) * ty;
+      const k = (y * size + x) * 4;
+      if (f <= 0.3) { d[k + 3] = 0; continue; }
+      // the colour of the nearest coloured cell of the four
+      let best = grid[tx < 0.5 ? (ty < 0.5 ? i00 : i10) : (ty < 0.5 ? i01 : i11)];
+      if (!byProvince[best * 4 + 3]) {
+        best = byProvince[grid[i00] * 4 + 3] ? grid[i00] : byProvince[grid[i01] * 4 + 3] ? grid[i01] : byProvince[grid[i10] * 4 + 3] ? grid[i10] : grid[i11];
+      }
+      const t = Math.min(1, (f - 0.3) / 0.4);
+      d[k] = byProvince[best * 4]; d[k + 1] = byProvince[best * 4 + 1]; d[k + 2] = byProvince[best * 4 + 2];
+      d[k + 3] = Math.round(255 * t * t * (3 - 2 * t));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
 export class GameMap {
   map: MLMap;
   private overlays = new Map<MapMode, HTMLCanvasElement>();
@@ -138,11 +180,12 @@ export class GameMap {
       projection: { type: 'globe' },
       sky: {
         'sky-color': '#0b1218',
-        'horizon-color': '#4a6470',
-        'fog-color': '#1a252c',
-        'fog-ground-blend': 0.6,
-        'horizon-fog-blend': 0.7,
-        'sky-horizon-blend': 0.6,
+        // a thin, dim halo: a bright horizon band used to glow under the tilted globe
+        'horizon-color': '#22323c',
+        'fog-color': '#121b21',
+        'fog-ground-blend': 0.85,
+        'horizon-fog-blend': 0.35,
+        'sky-horizon-blend': 0.25,
         'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 5, 0.4, 7, 0],
       },
       sources: {
@@ -158,7 +201,8 @@ export class GameMap {
         rivers: { type: 'geojson', data: `${ASSET_BASE}world/rivers.geojson`, tolerance: 0.2 },
       },
       layers: [
-        { id: 'space', type: 'background', paint: { 'background-color': '#05080b' } },
+        // under the photo: polar ice, so the poles (beyond the map tiles) are ice caps, not a void
+        { id: 'space', type: 'background', paint: { 'background-color': '#d9e4ea' } },
         {
           // the photographed planet, toned down into a map: less saturation, a little more contrast
           id: 'planet', type: 'raster', source: 'planet',
@@ -298,14 +342,14 @@ export class GameMap {
 
   private async enableRelief() {
     if (!(await hasRelief())) return;
-    this.map.addSource('relief', { type: 'raster-dem', tiles: [RELIEF_TILES], tileSize: 256, maxzoom: 5, encoding: 'terrarium' });
-    this.map.addSource('relief-shade', { type: 'raster-dem', tiles: [RELIEF_TILES], tileSize: 256, maxzoom: 5, encoding: 'terrarium' });
+    this.map.addSource('relief', { type: 'raster-dem', tiles: [RELIEF_TILES], tileSize: 256, maxzoom: 6, encoding: 'terrarium' });
+    this.map.addSource('relief-shade', { type: 'raster-dem', tiles: [RELIEF_TILES], tileSize: 256, maxzoom: 6, encoding: 'terrarium' });
     this.map.addLayer({
       id: 'hillshade', type: 'hillshade', source: 'relief-shade',
       paint: {
-        'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 5, 0.6, 7, 0.25], // the coarse relief shading gives way to the photo's own detail up close
+        'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 5, 0.45, 7, 0.3], // relief shading that stays under the photo's own
         'hillshade-shadow-color': '#0b0d0c',
-        'hillshade-highlight-color': '#fff6dc',
+        'hillshade-highlight-color': '#e9e3cf',
         'hillshade-accent-color': '#2a2a22',
         'hillshade-illumination-direction': 315,
       },
@@ -482,10 +526,7 @@ export class GameMap {
       const c = p.kind === 'land' ? colourOf(p) : undefined;
       if (c) byProvince.set([...c.map(Math.round), 255], p.id * 4);
     }
-    return mercatorCanvas(pol.width, pol.height, (i) => {
-      const id = pol.grid[i];
-      return [byProvince[id * 4], byProvince[id * 4 + 1], byProvince[id * 4 + 2], byProvince[id * 4 + 3]];
-    }, 4096);
+    return provinceFill(pol, byProvince, 4096);
   }
 
   /** New income-per-person figures arrived: refresh the Wealth overlay if it is showing. */
