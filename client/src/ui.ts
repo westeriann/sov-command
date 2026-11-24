@@ -315,6 +315,7 @@ export class Hud {
         <label class="check"><input type="checkbox" id="rivers" checked>Rivers</label>
         <label class="check"><input type="checkbox" id="labels" checked>Names</label>
         <label class="check"><input type="checkbox" id="grid">Grid lines</label>
+        <label class="check" title="Day and night follow the game clock; the sea glints under the sun"><input type="checkbox" id="sunlight" checked>Sunlight and night</label>
         <label class="check"><input type="checkbox" id="colorBlind">Colour-blind friendly</label>
         <label class="check" title="Animated troops, ships, aircraft, cities and buildings when zoomed in"><input type="checkbox" id="models3d" checked>3D models</label>
         <label class="check" title="The camera leans over the map as you zoom in. Right-drag or Ctrl-drag tilts it by hand."><input type="checkbox" id="tilt" checked>Tilt with zoom</label>
@@ -448,6 +449,7 @@ export class Hud {
     );
 
     this.root.addEventListener('click', (e) => this.onClick(e));
+    this.root.querySelector<HTMLInputElement>('#sunlight')?.addEventListener('change', (e) => this.onSunlight((e.target as HTMLInputElement).checked));
     // map drawer sections fold away to save space; remember which
     for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.drawer-sec[data-sec]')) if (this.secClosed.has(d.dataset.sec!)) d.open = false;
     this.root.addEventListener('toggle', (e) => {
@@ -806,6 +808,8 @@ export class Hud {
 
   private resourceKey = 'farmland';
   diploShown = new Set<DiploCat>(DIPLO_CATS.map(([k]) => k));
+  onSunlight: (on: boolean) => void = () => {};
+  setSunlight(on: boolean) { const b = this.root.querySelector<HTMLInputElement>('#sunlight'); if (b) b.checked = on; }
   /** The colour strength (0..1) the player chose for a map mode. */
   strength(mode: MapMode) { return this.opacityByMode[mode] / 100; }
   /** Map drawer sections the player folded away (kept between sessions). */

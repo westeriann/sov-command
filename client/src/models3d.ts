@@ -15,7 +15,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { BuildingType } from '../../shared/buildings';
 import { domainOf, UNIT_SPECS, UNIT_TYPES, type UnitType, type UnitView } from '../../shared/military';
 import type { CityShape } from './cities';
-import { cloudImage, flashImage, hurricaneImage, rainImage } from './weather';
+import { cloudImage, flashImage, hurricaneImage, rainCurtainImage, rainImage } from './weather';
 import type { Forces } from './forces';
 import type { Game } from './game';
 import type { Political } from './political';
@@ -235,6 +235,8 @@ const GEOMETRY = {
   cloud1: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   cloud2: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   hurN: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  cloudBase: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  rainCurtain: () => new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), // upright, standing on the ground
   hurS: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   rain0: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   rain1: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
@@ -304,6 +306,9 @@ const nightUniforms = { uWin: { value: 400 } };
 /** Effects use their own, unlit and see-through, materials. */
 const EFFECTS: Partial<Record<Kind, THREE.Material>> = {
   cloud0: sheet(cloudImage(101)), cloud1: sheet(cloudImage(118)), cloud2: sheet(cloudImage(135)),
+  // the grey underside of a cloud, under the lit tops: gives the cloud depth from any angle
+  cloudBase: (() => { const m = sheet(cloudImage(152), false, 0.75); m.color.set('#8b939c'); return m; })(),
+  rainCurtain: (() => { const m = sheet(rainCurtainImage(), false, 0.85); m.map!.wrapT = THREE.RepeatWrapping; m.map!.repeat.set(1, 3); return m; })(),
   hurN: sheet(hurricaneImage(7, false), false, 0.95), hurS: sheet(hurricaneImage(7, true), false, 0.95),
   rain0: sheet(rainImage(0), false, 0.8), rain1: sheet(rainImage(1), false, 0.8), rain2: sheet(rainImage(2), false, 0.8),
   bolt: sheet(flashImage(), true, 1),
@@ -595,6 +600,8 @@ export class Models3D implements CustomLayerInterface {
     this.picks = [];
 
     nightUniforms.uWin.value = Math.max(250, mpp * 3);
+    const rainMap = (EFFECTS.rainCurtain as THREE.MeshBasicMaterial).map;
+    if (rainMap) rainMap.offset.y = (t * 0.9) % 1;
     if (on) {
       this.drawCities(t, mpp);
       this.drawBuildings(t, mpp, BUILDING_M); // buildings: a fixed size on the ground, in fixed places
@@ -624,12 +631,27 @@ export class Models3D implements CustomLayerInterface {
       if (!this.visible(c.lon, c.lat)) continue;
       const kind = kinds[c.img];
       if (!kind) continue;
-      const size = c.km * 1000;
-      this.at(c.lon, c.lat, 1, 9000 + (c.part === 'core' ? 1500 : 0));
-      this.put(kind, 0, 0, 0, (c.rot * Math.PI) / 180, size, 1, size);
+      const size = c.km * 1000, rot = (c.rot * Math.PI) / 180;
+      const top = 9000 + (c.part === 'core' ? 1500 : 0);
+      if (kind === 'hurN' || kind === 'hurS') {
+        // a hurricane: the spiral, a second thinner deck turning above it, a grey base below
+        this.at(c.lon, c.lat, 1, top - 3000); this.put('cloudBase', 0, 0, 0, rot * 0.7, size * 0.8, 1, size * 0.8);
+        this.at(c.lon, c.lat, 1, top); this.put(kind, 0, 0, 0, rot, size, 1, size);
+        this.at(c.lon, c.lat, 1, top + 2500); this.put(kind, 0, 0, 0, rot * 1.15 + 0.6, size * 0.82, 1, size * 0.82);
+      } else {
+        // a cloud in three decks: a grey base, the body, and a smaller lit top, each turned a little
+        this.at(c.lon, c.lat, 1, top - 2500); this.put('cloudBase', 0, 0, 0, rot + 1.1, size * 0.9, 1, size * 0.9);
+        this.at(c.lon, c.lat, 1, top); this.put(kind, 0, 0, 0, rot, size, 1, size);
+        this.at(c.lon, c.lat, 1, top + 2200); this.put(kind, 0, 0, 0, rot + 2.3, size * 0.7, 1, size * 0.7);
+      }
       if (c.part === 'core' && z >= 3) {
-        this.at(c.lon, c.lat, 1, 4000);
-        this.put((['rain0', 'rain1', 'rain2'] as Kind[])[sky.rainFrame % 3], 0, 0, 0, 0.3, size * 0.75, 1, size * 0.75);
+        // rain falls from the cloud base to the ground: curtains of streaks standing under the core
+        const base = top - 2500, seed = Math.floor(c.lon * 13 + c.lat * 7);
+        this.at(c.lon, c.lat, 1, 0);
+        for (let k = 0; k < 9; k++) {
+          const a = seed * 0.37 + k * 2.39, d = size * 0.28 * Math.sqrt((k + 0.5) / 9);
+          this.put('rainCurtain', Math.cos(a) * d, 0, Math.sin(a) * d, a * 1.7, size * 0.22, base, 1);
+        }
       }
     }
     for (const f of sky.flashes) {

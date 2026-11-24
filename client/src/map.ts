@@ -430,6 +430,20 @@ export class GameMap {
 
   setProjection(type: 'globe' | 'mercator') {
     this.map.setProjection({ type });
+    const flat = type === 'mercator';
+    // on the globe the background shows only at the poles (ice); flat, it fills the space around the map
+    this.map.setPaintProperty('space', 'background-color', flat ? '#05080b' : '#d9e4ea');
+    if (flat) {
+      // centred on the world, never dragged off it, and never zoomed out past the map's width
+      const w = this.map.getContainer().clientWidth || 1200;
+      this.map.setMinZoom(Math.max(0, Math.log2(w / 512)));
+      this.map.setMaxBounds([[-180, -84], [180, 84]]);
+      const c = this.map.getCenter();
+      this.map.jumpTo({ center: [c.lng, Math.max(-55, Math.min(55, c.lat))], pitch: 0, bearing: 0, zoom: Math.max(this.map.getMinZoom(), this.map.getZoom()) });
+    } else {
+      this.map.setMaxBounds(null);
+      this.map.setMinZoom(0.6);
+    }
   }
 
   setGrid(on: boolean) {

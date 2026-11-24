@@ -118,3 +118,18 @@ export function flashImage() {
   g.stroke();
   return g.getImageData(0, 0, 128, 128);
 }
+
+/** Falling rain seen from the side: long thin streaks, fading at the top and toward the edges (tiles vertically). */
+export function rainCurtainImage() {
+  const n = makeNoise(57, 64);
+  return canvas((d) => {
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const lane = (x * 7.3) % 11;
+      const streak = lane < 0.9 ? 1 : 0;
+      const gap = n(x / 3, y / 40) > 0.45 ? 1 : 0;
+      const edge = 1 - Math.abs(x / S - 0.5) * 2;
+      const i = (y * S + x) * 4;
+      d[i] = 190; d[i + 1] = 202; d[i + 2] = 214; d[i + 3] = streak * gap * Math.min(1, edge * 2.5) * 120;
+    }
+  });
+}

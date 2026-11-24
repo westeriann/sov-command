@@ -781,3 +781,9 @@ body.build-mode .lens, body.road-mode .lens { display: none; }
 .home-btn svg.art { width: 20px; height: 20px; }
 .home-btn:hover { border-color: var(--cyan); color: #fff; box-shadow: var(--glow); }
 @media (max-width: 760px) { .home-btn { bottom: 72px; } }
+.prov-scene.whale svg { width: 34px; animation: surface 5s ease-in-out forwards; }
+.prov-scene.whale .spout { stroke: rgba(255, 255, 255, 0.85); stroke-width: 1.2; animation: spout 5s ease-out forwards; }
+@keyframes surface { 0% { transform: translate(0, 6px); } 50% { transform: translate(10px, 0); } 100% { transform: translate(20px, 6px); } }
+@keyframes spout { 0%, 30% { opacity: 0; } 45% { opacity: 1; } 70%, 100% { opacity: 0; } }
+.prov-scene.dolphins svg { width: 16px; animation: leap 1.4s ease-in-out var(--d) 3; }
+.prov-scene.whale .body, .prov-scene.dolphins .body { fill: rgba(70, 86, 100, 0.85); stroke: rgba(230, 240, 245, 0.6); stroke-width: 0.7; }
