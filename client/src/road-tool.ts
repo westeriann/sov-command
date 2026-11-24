@@ -57,7 +57,16 @@ export class RoadTool {
     map.on('mousemove', (e) => this.moveTo(e));
     map.on('mouseup', () => this.up());
     game.on((c) => { if (c.has('war') || c.has('mine')) this.renderRoads(); });
-    if (map.loaded()) this.addLayers(); else map.once('load', () => this.addLayers());
+    // add the layers now if the map will take them, else as soon as it will: loaded() and
+    // isStyleLoaded() stay false while tiles stream in, long after the load event has gone by
+    const tryAdd = () => {
+      if (map.getSource('roads')) return true;
+      try { this.addLayers(); return true; } catch { return false; }
+    };
+    if (!tryAdd()) {
+      const retry = () => { if (tryAdd()) map.off('styledata', retry); };
+      map.on('styledata', retry);
+    }
   }
 
   // ---- the roads on the map ----

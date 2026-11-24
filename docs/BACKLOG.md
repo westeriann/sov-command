@@ -89,16 +89,20 @@ until the go-ahead; interface work can go first.
     dolphins) that fade in and out.
 28. **Province vignettes**: the short scenes from item 8 drawn on the map, fading in and out.
 
-## Next version
+## Fixed after the preview round
 
-- **Lag at high game speed**: every speed above 5x lags, worse the faster it runs, and worst
-  while the camera is moving. Profile per-tick client work at 10x and 20x (game updates
-  redrawing windows and map layers: political repaints, lanes, buildings, labels) against
-  camera movement; likely too much is redone on every update instead of throttled.
-
-- **Poles**: still not ice caps. A pale background showed through loading tiles, so the
-  background is deep-sea blue; real caps need geometry past 85 degrees (a custom layer).
-- **Arctic sea ice edge**: the painted sea ice ends in a sharp oval; soften it in the generator.
+- **Lag at high game speed** (worst while moving): every game tick re-sent all trade lanes
+  (~20,000 points), roads and building icons to the map and redrew the side panels. Now map
+  data goes only when it changes, lane legs are routed once and shared, and panels redraw at
+  most four times a second: about 75% less time in game updates at 20x.
+- **Poles**: curved ice caps drawn over both poles in the 3D layer (the imagery stops at 85
+  degrees), fading into the photo and dimming in polar night with the sunlight.
+- **Arctic sea ice edge**: a wider band broken into floes and leads (in the next planet build).
+- Found in the check: the road tool never set up its map layers (it waited for a load event
+  that had already passed), so roads could not be drawn or shown; and in build or road mode,
+  unit markers swallowed clicks on the provinces under them.
+- Found in the previews: the troop models on the forces screens were invisible (their
+  animations restarted every game tick, or never started).
 
 ## Globe notes (keep for any rebuild of the planet)
 

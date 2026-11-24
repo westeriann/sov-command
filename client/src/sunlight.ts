@@ -47,9 +47,13 @@ export class Sunlight {
 
   get enabled() { return this.on; }
 
+  /** Told how sunlit the north and south poles are (0..1) whenever the light is worked out. */
+  onPoles: (north: number, south: number) => void = () => {};
+
   setEnabled(on: boolean) {
     this.on = on;
     try { localStorage.setItem('sov.sunlight', on ? 'on' : 'off'); } catch { /* storage blocked */ }
+    if (!on) this.onPoles(1, 1);
     if (this.map.getLayer('sunlight')) this.map.setPaintProperty('sunlight', 'raster-opacity', on ? 1 : 0);
     if (on) this.paint(true);
   }
@@ -69,6 +73,9 @@ export class Sunlight {
     const [px, py, pz] = this.lastSun;
     if (!force && Math.abs(sx - px) + Math.abs(sy - py) + Math.abs(sz - pz) < 0.01) return;
     this.lastSun = [sx, sy, sz];
+    // the sun's height over each pole is its declination: below the horizon there it is polar night
+    const pole = (h: number) => (this.on ? 0.3 + 0.7 * Math.min(1, Math.max(0, (h + 0.06) / 0.25)) : 1);
+    this.onPoles(pole(sy), pole(-sy));
     const d = this.img.data, dir = this.dir, sea = this.sea;
     for (let i = 0, k = 0, o = 0; i < N * N; i++, k += 3, o += 4) {
       const cos = dir[k] * sx + dir[k + 1] * sy + dir[k + 2] * sz; // the sun's height in the sky, -1..1

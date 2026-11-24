@@ -236,6 +236,28 @@ const GEOMETRY = {
   cloud2: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   hurN: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   cloudBase: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+  polarCap: () => {
+    // rings from the pole out to 6.5 degrees away, following the curve of the globe, a little above it
+    const rings = 14, seg = 96, maxA = 6.5 * (Math.PI / 180), lift = 1500;
+    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let i = 0; i <= rings; i++) {
+      const a = (maxA * i) / rings, rr = R * Math.sin(a), y = R * (Math.cos(a) - 1) + lift;
+      for (let j = 0; j <= seg; j++) {
+        const t = (j / seg) * Math.PI * 2;
+        pos.push(rr * Math.cos(t), y, rr * Math.sin(t));
+        uv.push(0.5 + 0.5 * (i / rings) * Math.cos(t), 0.5 + 0.5 * (i / rings) * Math.sin(t));
+      }
+    }
+    for (let i = 0; i < rings; i++) for (let j = 0; j < seg; j++) {
+      const a = i * (seg + 1) + j, b = a + seg + 1;
+      idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    return g;
+  },
   rainCurtain: () => new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), // upright, standing on the ground
   hurS: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
   rain0: () => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
@@ -284,6 +306,27 @@ function glowTexture() {
   return t;
 }
 
+/** Polar ice seen from orbit: packed white and blue-white, with pressure ridges, fading out at the rim. */
+function iceCapTexture() {
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(S, S), d = img.data;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S - 0.5, v = y / S - 0.5, r = Math.hypot(u, v) * 2;
+    const n = Math.sin(u * 41 + Math.sin(v * 13) * 2) * Math.sin(v * 37 + Math.sin(u * 17) * 2) * 0.5 + Math.sin((u + v) * 90) * 0.15;
+    const k = (y * S + x) * 4, base = 226 + n * 18;
+    d[k] = base - 6; d[k + 1] = base + 2; d[k + 2] = Math.min(255, base + 14);
+    // solid over the pole, fading out over the band where the photo still shows (84 to 85.5 degrees)
+    const a = r < 0.72 ? 1 : Math.max(0, 1 - (r - 0.72) / 0.22);
+    d[k + 3] = Math.round(255 * a);
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 /** A weather image as a texture. */
 function weatherTexture(img: ImageData) {
   const t = new THREE.DataTexture(img.data, img.width, img.height);
@@ -308,6 +351,7 @@ const EFFECTS: Partial<Record<Kind, THREE.Material>> = {
   cloud0: sheet(cloudImage(101)), cloud1: sheet(cloudImage(118)), cloud2: sheet(cloudImage(135)),
   // the grey underside of a cloud, under the lit tops: gives the cloud depth from any angle
   cloudBase: (() => { const m = sheet(cloudImage(152), false, 0.75); m.color.set('#8b939c'); return m; })(),
+  polarCap: new THREE.MeshBasicMaterial({ map: iceCapTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide }),
   rainCurtain: (() => { const m = sheet(rainCurtainImage(), false, 0.85); m.map!.wrapT = THREE.RepeatWrapping; m.map!.repeat.set(1, 3); return m; })(),
   hurN: sheet(hurricaneImage(7, false), false, 0.95), hurS: sheet(hurricaneImage(7, true), false, 0.95),
   rain0: sheet(rainImage(0), false, 0.8), rain1: sheet(rainImage(1), false, 0.8), rain2: sheet(rainImage(2), false, 0.8),
@@ -578,7 +622,7 @@ export class Models3D implements CustomLayerInterface {
     const px = on ? Math.min(44, 30 + (z - MODELS_FULL) * 4) * grow : 0; // troops grow only a little as you zoom in
     if (Math.abs(px - this.sizePx) > 0.5) { this.sizePx = px; this.onSize(px); }
     const sky = this.weather();
-    if (!on && !sky.clouds.length) return;
+    const caps = !this.flat;
 
     this.flat = this.map.getProjection()?.type === 'mercator';
     const c = this.map.getCenter();
@@ -608,6 +652,7 @@ export class Models3D implements CustomLayerInterface {
       this.drawForces(unit * 1.6, t, px * 1.6);
     }
     this.drawWeather(sky, z);
+    if (caps) this.drawPolarCaps();
 
     for (const [k, mesh] of this.meshes) {
       mesh.count = this.counts.get(k) ?? 0;
@@ -617,10 +662,29 @@ export class Models3D implements CustomLayerInterface {
     this.renderer.resetState();
     this.renderer.clearDepth();
     this.renderer.render(this.scene, this.camera);
-    // keep animating, at most ~30 frames a second, so map data still loads between frames on slower machines
-    if (!this.repaintQueued) {
+    // keep animating, at most ~30 frames a second, so map data still loads between frames on slower
+    // machines; the ice caps alone are still, so they need no repainting of their own
+    if ((on || sky.clouds.length) && !this.repaintQueued) {
       this.repaintQueued = true;
       window.setTimeout(() => { this.repaintQueued = false; this.map.triggerRepaint(); }, 33);
+    }
+  }
+
+  /**
+   * Ice caps over the poles: the map's imagery stops at 85 degrees, so the globe had a hole
+   * there. Each cap is drawn only while its pole faces the camera (the 3D layer is not hidden
+   * by the far side of the globe).
+   */
+  /** How sunlit each pole is (north, south), 0..1: set from the sunlight, so caps go dark in polar night. */
+  capLight: [number, number] = [1, 1];
+
+  private drawPolarCaps() {
+    for (const lat of [90, -90]) {
+      const up = lat > 0 ? 1 : -1;
+      if (this.centre.y * up < -0.05) continue; // that pole is round the back of the globe
+      const l = this.capLight[lat > 0 ? 0 : 1];
+      this.at(0, lat, 1, 0);
+      this.put('polarCap', 0, 0, 0, 0, 1, 1, 1, new THREE.Color(l * 0.97, l, Math.min(1, l * 1.04)));
     }
   }
 

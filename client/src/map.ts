@@ -302,7 +302,7 @@ export class GameMap {
     this.map.on('moveend', () => this.updateProvinceLabels());
     this.map.on('pitchstart', (e) => { if ((e as { originalEvent?: Event }).originalEvent) this.autoTilt = false; });
     this.map.on('zoomend', () => this.followZoom());
-    this.map.once('load', () => void this.enableRelief());
+    this.map.once('load', () => { this.loadedOnce = true; void this.enableRelief(); });
     this.keyboardPan();
   }
 
@@ -422,9 +422,10 @@ export class GameMap {
     }
   }
 
+  private loadedOnce = false;
   ready() {
     return new Promise<void>((resolve) => {
-      if (this.map.loaded()) resolve();
+      if (this.loadedOnce || this.map.loaded()) resolve();
       else this.map.once('load', () => resolve());
     });
   }

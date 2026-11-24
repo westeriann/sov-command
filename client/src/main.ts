@@ -531,6 +531,7 @@ let soundRef: Sound | null = null;
   new Shipping(gameMap.map, game, pol);
   const sunlight = new Sunlight(gameMap.map, game, pol);
   hud.onSunlight = (on) => sunlight.setEnabled(on);
+  sunlight.onPoles = (n, s) => { if (modelsRef) modelsRef.capLight = [n, s]; };
   hud.setSunlight(sunlight.enabled);
   // thunder you hear: lightning over your own land, a moment after the flash
   presence.onThunder = (lon, lat) => {

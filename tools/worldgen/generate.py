@@ -273,7 +273,7 @@ def make_terrain(seed, dw):
         default=B["desert_rock"],
     ).astype(np.uint8)
     cls[lake] = B["lake"]
-    sea_ice = smooth(-temp, 11, 16) * (~land)
+    sea_ice = smooth(-temp, 7, 19) * (~land)  # a wide band: the edge is broken into floes when painted
     return dict(lat=lat, h=h, sea=sea, land=land, elev=elev, temp=temp, moist=moist, relief=rel,
                 lake=lake, rivers=water["rivers"], river_class=water["river_class"],
                 biome=cls, sea_ice=sea_ice.astype(np.float32), land_frac=land_frac)
@@ -566,12 +566,14 @@ def _paint_strip(r0):
         tn = rs(tone, ys)
         landc *= (1 + 0.10 * tn)[..., None] * (1 + 0.55 * (rs(shade, ys) - 1))[..., None]
         ocean = ocean_colour(rs(sea_depth, ys)) * (1 + 0.06 * tn)[..., None]
-        si = rs(terrain["sea_ice"], ys)[..., None]
-        if si.max() > 1e-3:
-            ocean = ocean * (1 - si) + bombers["ice"].render(ys, coslat[sl]) * 0.93 * si
-        # full-resolution noise: fractal coastline and fine relief shading
+        # full-resolution noise: fractal coastline, ice floes and fine relief shading
         p = sphere_points(lat_o[sl][:, None], lon_o[None, :])
         coast_noise = fbm(n_coast, p, 6, freq=140.0)
+        floes = fbm(n_micro, p, 5, freq=60.0)
+        # sea ice: solid pack inside, breaking up into floes and leads toward its ragged edge
+        si = smooth(rs(terrain["sea_ice"], ys) + 0.55 * floes + 0.25 * coast_noise, 0.35, 0.75)[..., None]
+        if si.max() > 1e-3:
+            ocean = ocean * (1 - si) + bombers["ice"].render(ys, coslat[sl]) * 0.93 * si
         micro = ridged(n_micro, p, 3, freq=300.0)
         relief = (np.roll(micro, 1, axis=1) - np.roll(micro, -1, axis=1)) * (0.3 + 0.7 * rs(upland, ys))
         landc *= (1 + 1.1 * relief)[..., None]

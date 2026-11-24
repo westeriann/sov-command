@@ -756,3 +756,5 @@ body.build-mode .lens, body.road-mode .lens { display: none; }
 @keyframes spout { 0%, 30% { opacity: 0; } 45% { opacity: 1; } 70%, 100% { opacity: 0; } }
 .prov-scene.dolphins svg { width: 16px; animation: leap 1.4s ease-in-out var(--d) 3; }
 .prov-scene.whale .body, .prov-scene.dolphins .body { fill: rgba(70, 86, 100, 0.85); stroke: rgba(230, 240, 245, 0.6); stroke-width: 0.7; }
+/* while building or laying roads, clicks go through unit markers and labels to the province beneath */
+body.build-mode .maplibregl-marker, body.road-mode .maplibregl-marker { pointer-events: none !important; }
