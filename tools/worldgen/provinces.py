@@ -600,16 +600,32 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
         win = np.zeros((y1 - y0 + 2, x1 - x0 + 2), np.float32)
         sub = wide[y0:y1, x0 + P:x1 + P] if x1 + P <= wide.shape[1] else np.take(lab, np.arange(x0, x1) % W, axis=1)[y0:y1]
         win[1:-1, 1:-1] = sub == pid
-        # softened exactly as the photo's shore is, then traced a hair inside the halfway line so
-        # neighbours overlap a touch instead of leaving pinholes where three provinces meet
+        landwin = np.zeros_like(win)
+        landwin[1:-1, 1:-1] = is_land[sub]
+        # both softened exactly as the photo's shore is. The coast is where the softened land
+        # crosses one half (the photo's own shore); inland, every point belongs to whichever province
+        # holds the most of it, which splits the land with no gaps and no overlaps
         from scipy import ndimage as ndi
-        win = ndi.gaussian_filter(win, 0.85, mode="constant")
+        mine = ndi.gaussian_filter(win, 0.85, mode="constant")
+        landb = ndi.gaussian_filter(landwin, 0.85, mode="constant")
+        rival = np.zeros_like(mine)
+        inner = win[1:-1, 1:-1]
+        for q in np.unique(sub[is_land[sub]]):
+            if q == pid:
+                continue
+            other = np.zeros_like(win)
+            other[1:-1, 1:-1] = sub == q
+            np.maximum(rival, ndi.gaussian_filter(other, 0.85, mode="constant"), out=rival)
+        fill_f = np.minimum(mine - rival, landb - 0.5)
+        line_f = fill_f   # border lines on exactly the same divisions
+        for c in measure.find_contours(line_f, 0.0):
+            if len(c) >= 4:
+                cut_lines(lines, pid, c[:, 0] - 1 + y0, c[:, 1] - 1 + x0, lab, is_land, owner, W, H)
         rings = []
-        for c in measure.find_contours(win, 0.47):
+        for c in measure.find_contours(fill_f, 0.0):
             if len(c) < 4:
                 continue
             yy, xx = c[:, 0] - 1 + y0, c[:, 1] - 1 + x0
-            cut_lines(lines, pid, yy, xx, lab, is_land, owner, W, H)
             area = 0.5 * np.sum(xx[:-1] * yy[1:] - xx[1:] * yy[:-1])
             lon = np.round((xx + 0.5) / W * 360 - 180, 3)
             lat = np.round(90 - (yy + 0.5) / H * 180, 3)
