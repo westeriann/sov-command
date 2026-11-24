@@ -739,3 +739,38 @@ body.build-mode .lens, body.road-mode .lens { display: none; }
 .troop .heli { animation: hover 2.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .troop *, .troop .model { animation: none !important; } }
 .parade.sea .troop .model, .parade.air .troop .model { animation-fill-mode: both, none; }
+
+/* ---- Province scenes: little moments on the map that fade in and out ---- */
+.prov-scenes { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+.prov-scene { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.prov-scene i { position: absolute; left: var(--x); top: var(--y); display: block; opacity: 0; animation: scene-life 4.8s ease-in-out var(--d) forwards; }
+.prov-scene svg { display: block; overflow: visible; fill: none; stroke: rgba(255, 255, 255, 0.9); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.7)); }
+.prov-scene .body { fill: rgba(250, 246, 235, 0.85); stroke: rgba(30, 30, 30, 0.55); stroke-width: 0.8; }
+.prov-scene .dot, .prov-scene .flake { fill: rgba(255, 255, 255, 0.92); stroke: none; }
+.prov-scene .puff { fill: rgba(210, 210, 205, 0.55); stroke: none; }
+.prov-scene .haze { stroke: rgba(235, 210, 160, 0.6); stroke-width: 2.4; }
+@keyframes scene-life { 0% { opacity: 0; } 18% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+/* each kind moves its own way */
+.prov-scene.fly svg { width: calc(22px * var(--s)); animation: glide 4.8s linear var(--d) forwards; }
+.prov-scene.fly.small svg { width: calc(12px * var(--s)); }
+.prov-scene .wing { animation: flap 0.42s ease-in-out infinite alternate; transform-origin: 50% 70%; transform-box: fill-box; }
+@keyframes flap { from { transform: scaleY(1); } to { transform: scaleY(-0.4); } }
+@keyframes glide { from { transform: translate(-30px, 8px); } to { transform: translate(60px, -26px); } }
+.prov-scene.soar svg { width: 34px; animation: soar 4.8s ease-in-out forwards; }
+@keyframes soar { from { transform: translate(-40px, 0) rotate(-4deg); } 50% { transform: translate(0, -12px) rotate(3deg); } to { transform: translate(40px, -4px) rotate(-3deg); } }
+.prov-scene.graze svg { width: calc(16px * var(--s)); animation: graze 4.8s ease-in-out var(--d) forwards; }
+@keyframes graze { from { transform: translateX(-6px); } to { transform: translateX(8px); } }
+.prov-scene.hop svg { width: 20px; animation: hop 1.2s ease-in-out 3; }
+@keyframes hop { 0%, 100% { transform: translate(0, 0); } 40% { transform: translate(6px, -8px); } 70% { transform: translate(12px, 0); } }
+.prov-scene.drift svg { width: 46px; animation: drift 4.8s linear var(--d) forwards; }
+@keyframes drift { from { transform: translateX(-30px); } to { transform: translateX(40px); } }
+.prov-scene.fall svg { width: 5px; animation: fall 4.8s linear var(--d) forwards; }
+@keyframes fall { from { transform: translate(0, -24px); } to { transform: translate(14px, 30px); } }
+.prov-scene.rise svg { width: calc(14px * var(--s)); animation: rise 4.8s ease-out var(--d) forwards; }
+@keyframes rise { from { transform: translate(0, 0) scale(0.5); } to { transform: translate(18px, -40px) scale(1.8); } }
+.prov-scene.walk svg { width: 4px; animation: walk 4.8s linear var(--d) forwards; }
+@keyframes walk { from { transform: translateX(-10px); } to { transform: translateX(12px); } }
+.prov-scene.march svg { width: 4px; animation: walk 4.8s steps(16) var(--d) forwards; }
+.prov-scene.leap svg { width: 18px; animation: leap 1.6s ease-in-out var(--d) 2; }
+@keyframes leap { 0%, 100% { transform: translate(0, 6px) rotate(20deg); opacity: 0; } 30% { opacity: 1; } 50% { transform: translate(14px, -10px) rotate(-10deg); } 80% { transform: translate(26px, 4px) rotate(30deg); } }

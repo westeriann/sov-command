@@ -8,7 +8,8 @@ export type Cue =
   | 'click' | 'notice' | 'war' | 'peace' | 'research' | 'alert' | 'battle' | 'urgent' | 'thunder'
   | 'hover' | 'open' | 'close' | 'tab' | 'toggle' | 'confirm' | 'error'
   | 'dispatch' | 'election' | 'smallarms' | 'air_strike' | 'helicopter' | 'naval_gun' | 'explosion' | 'distant_blast'
-  | 'missile_launch' | 'nuke' | 'order_ack' | 'recruit_done' | 'build_done' | 'deal_signed' | 'market_alert';
+  | 'missile_launch' | 'nuke' | 'order_ack' | 'recruit_done' | 'build_done' | 'deal_signed' | 'market_alert'
+  | 'ring' | 'p_city' | 'p_farm' | 'p_wind' | 'p_goat' | 'p_forest' | 'p_desert' | 'p_waves' | 'p_gulls' | 'p_industry' | 'p_base';
 export type Loop = 'amb_command' | 'amb_rain' | 'amb_crowd';
 export type Group = 'ui' | 'fx' | 'amb';
 
@@ -23,11 +24,21 @@ const CUES: Record<Cue, [string[], Group]> = {
   distant_blast: [['distant_blast'], 'fx'], missile_launch: [['missile_launch'], 'fx'], nuke: [['nuke'], 'fx'],
   order_ack: [['order_ack'], 'fx'], recruit_done: [['recruit_done'], 'fx'], thunder: [['amb_storm'], 'fx'],
   build_done: [['build_done'], 'fx'], deal_signed: [['deal_signed'], 'fx'], market_alert: [['market_alert'], 'fx'],
+  ring: [['ui_hover'], 'ui'],
+  // a province's sound when you click it (one of the files, picked at random)
+  p_city: [['prov_city'], 'amb'], p_farm: [['prov_farm_cow', 'prov_farm_rooster', 'prov_farm_sheep'], 'amb'], p_wind: [['prov_wind'], 'amb'],
+  p_goat: [['prov_goat'], 'amb'], p_forest: [['prov_forest'], 'amb'], p_desert: [['prov_desert'], 'amb'], p_waves: [['prov_waves'], 'amb'],
+  p_gulls: [['prov_gulls'], 'amb'], p_industry: [['prov_industry'], 'amb'], p_base: [['prov_base'], 'amb'],
 };
+/** Cues whose files are alternatives (one plays) rather than layers (all play). */
+const PICK_ONE = new Set<Cue>(['p_farm']);
+/** Played faster (higher) than recorded. */
+const RATE: Partial<Record<Cue, number>> = { ring: 1.45 };
 const LOOPS: Loop[] = ['amb_command', 'amb_rain', 'amb_crowd'];
 /** How long before the same cue may sound again (ms): no machine-gun repeats. */
 const GAP: Partial<Record<Cue, number>> = { battle: 4000, smallarms: 3000, thunder: 9000, air_strike: 6000, naval_gun: 4000, distant_blast: 5000,
-  election: 8000, war: 6000, urgent: 3000, missile_launch: 8000, nuke: 8000, hover: 70, helicopter: 6000, order_ack: 400 };
+  election: 8000, war: 6000, urgent: 3000, missile_launch: 8000, nuke: 8000, hover: 70, helicopter: 6000, order_ack: 400, ring: 90,
+  p_city: 1200, p_farm: 1200, p_wind: 1200, p_goat: 1200, p_forest: 1200, p_desert: 1200, p_waves: 1200, p_gulls: 1200, p_industry: 1200, p_base: 1200 };
 
 const KEY = 'sov.sound';
 const LEVELS_KEY = 'sov.sound.levels';
@@ -105,11 +116,13 @@ export class Sound {
     const ctx = this.audio();
     if (!ctx) return;
     const [files, group] = CUES[cue];
-    const bufs = files.map((f) => this.buffers.get(f)).filter((b): b is AudioBuffer => !!b);
+    let bufs = files.map((f) => this.buffers.get(f)).filter((b): b is AudioBuffer => !!b);
+    if (PICK_ONE.has(cue) && bufs.length > 1) bufs = [bufs[Math.floor(Math.random() * bufs.length)]];
     if (!bufs.length) { this.synth(ctx, cue); return; }
     for (const b of bufs) {
       const src = ctx.createBufferSource(), g = ctx.createGain();
       src.buffer = b;
+      src.playbackRate.value = RATE[cue] ?? 1;
       g.gain.value = vol;
       src.connect(g).connect(this.gains.get(group)!);
       src.start();

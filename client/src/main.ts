@@ -1,3 +1,4 @@
+import { ProvinceScenes, provinceMood } from './province-scenes';
 import { RoadTool } from './road-tool';
 import { BuildMode } from './build-mode';
 import { NationCard } from './nation-card';
@@ -486,7 +487,11 @@ let soundRef: Sound | null = null;
   hudRoot.addEventListener('change', (e) => { if ((e.target as HTMLInputElement).type === 'checkbox') sound.play('toggle'); });
   // a press on a button that cannot be used right now
   hudRoot.addEventListener('pointerdown', (e) => { if ((e.target as HTMLElement).closest('button:disabled, .claim[disabled]')) sound.play('error'); });
-  hudRoot.addEventListener('pointerover', (e) => { if ((e.target as HTMLElement).closest('.left .module')) sound.play('hover'); });
+  hudRoot.addEventListener('pointerover', (e) => {
+    const t = e.target as Element;
+    if (t.closest('.left .module')) sound.play('hover');
+    else if (t.closest('.econ-piece .seg, .econ-piece .tax')) sound.play('ring', 0.7); // the Economy rings
+  });
   // phones: picking a module closes the menu sheet
   hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('[data-module]')) document.body.classList.remove('show-left'); });
   tutorial = new Tutorial(hudRoot);
@@ -573,6 +578,7 @@ let soundRef: Sound | null = null;
     }
   });
   const map = gameMap.map;
+  const scenes = new ProvinceScenes(map);
   roadTool = new RoadTool(hudRoot, map, game, pol, {
     build: (path, pts) => { conn.send({ t: 'order', order: { kind: 'road', path, pts } }); sound.play('confirm'); },
     back: () => lenses.show('eco'),
@@ -708,6 +714,14 @@ let soundRef: Sound | null = null;
     if (hit?.kind === 'stack') { forces?.clickStack(hit.key, (e.originalEvent as MouseEvent).shiftKey); return; }
     if (hit?.kind === 'building') { const p = pol.provinces.get(hit.province); if (p) select(p.label[1], p.label[0]); return; }
     select(e.lngLat.lat, e.lngLat.wrap().lng);
+    // the province's own sound, and a little scene of it on the map
+    const clicked = pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng);
+    if (clicked) {
+      const capitals = new Set([...pol.nations.values()].map((n) => n.capital));
+      const mood = provinceMood(clicked, game, capitals.has(clicked.id));
+      sound.play(mood.cue, 0.8);
+      scenes.play(mood.scene, e.lngLat.wrap().lng, e.lngLat.lat);
+    }
   });
 
   // the main menu: the globe turns slowly behind it; single player pauses while it is open
