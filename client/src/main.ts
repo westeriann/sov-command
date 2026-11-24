@@ -1,3 +1,5 @@
+import { RoadTool } from './road-tool';
+import { BuildMode } from './build-mode';
 import { NationCard } from './nation-card';
 import { art } from './art-icons';
 import { domainOf } from '../../shared/military';
@@ -307,7 +309,16 @@ let soundRef: Sound | null = null;
   const espionage = new EspionagePanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const records = new RecordsPanel(hudRoot, game, pol);
   const hoverCard = new HoverCard(hudRoot, game, pol);
-  new Lenses(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
+  let roadTool: RoadTool | undefined;
+  const lenses = new Lenses(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }), {
+    build: () => buildMode.start(),
+    roads: () => roadTool?.start(),
+  });
+  const buildMode = new BuildMode(hudRoot, game, pol, {
+    build: (province, building) => { conn.send({ t: 'order', order: { kind: 'build', province, building } }); sound.play('confirm'); },
+    back: () => lenses.show('eco'),
+    roads: () => roadTool?.start(),
+  });
   // the diplomatic map follows wars, treaties and opinion as they change
   let diploStamp = '';
   game.on((c) => {
@@ -562,6 +573,10 @@ let soundRef: Sound | null = null;
     }
   });
   const map = gameMap.map;
+  roadTool = new RoadTool(hudRoot, map, game, pol, {
+    build: (path, pts) => { conn.send({ t: 'order', order: { kind: 'road', path, pts } }); sound.play('confirm'); },
+    back: () => lenses.show('eco'),
+  });
   // ?debug in the address: expose the map and game state for tests and troubleshooting
   if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { sovDebug: { map, pol, game } });
   const goTo = (id: number) => {
@@ -679,6 +694,13 @@ let soundRef: Sound | null = null;
   map.on('mouseout', () => { hud.hover(null); hoverCard.hide(); });
   map.on('movestart', () => hoverCard.hide());
   map.on('click', (e) => {
+    if (roadTool?.active) return; // the road tool works on press and drag
+    // build mode: the click picks a province to build in
+    if (buildMode.active) {
+      const r = map.getCanvas().getBoundingClientRect();
+      buildMode.click(pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng) ?? null, r.left + e.point.x, r.top + e.point.y);
+      return;
+    }
     // an armed order (Q on the command card) goes where you click
     if (card.mapClick(pol.provinceAt(e.lngLat.lat, e.lngLat.wrap().lng) ?? null)) return;
     // a click on a 3D model: troops select their stack, a building opens its province

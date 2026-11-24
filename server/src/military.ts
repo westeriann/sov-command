@@ -4,6 +4,7 @@
 // through orders that players and AI submit the same way.
 import { DAY } from '../../shared/clock.ts';
 import type { BuildingState, BuildingType } from '../../shared/buildings.ts';
+import { ROAD, roadKey, type RoadState } from '../../shared/roads.ts';
 import { WINTER_ATTRITION, coldLand, seasonAt, seasonSlow } from '../../shared/seasons.ts';
 import {
   BEACHHEAD, EQUIP_CAP, EQUIP_PER_BN, GENERAL_BONUS, SUPPLY_HOPS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, bestRoute, distanceKm, domainOf, legDays,
@@ -46,6 +47,8 @@ export interface MilitaryState {
   wars: War[];
   occupied: Record<number, number>;
   buildings?: Record<number, BuildingState[]>;
+  roads?: RoadState[];
+  nextRoad?: number;
 }
 
 export interface Province extends RouteNode {
@@ -90,14 +93,29 @@ export class Military {
       this.wars = state.wars;
       this.occupied = new Map(Object.entries(state.occupied).map(([k, v]) => [Number(k), v]));
       this.buildings = new Map(Object.entries(state.buildings ?? {}).map(([k, v]) => [Number(k), v]));
+      this.roads = state.roads ?? [];
+      this.nextRoad = state.nextRoad ?? 1;
+      this.indexRoads();
     }
   }
 
   serialize(): MilitaryState {
-    return { nextId: this.nextId, units: [...this.units.values()], wars: this.wars, occupied: Object.fromEntries(this.occupied), buildings: Object.fromEntries(this.buildings) };
+    return { nextId: this.nextId, units: [...this.units.values()], wars: this.wars, occupied: Object.fromEntries(this.occupied), buildings: Object.fromEntries(this.buildings),
+      roads: this.roads, nextRoad: this.nextRoad };
   }
 
   buildings = new Map<number, BuildingState[]>();
+  roads: RoadState[] = [];
+  nextRoad = 1;
+  /** Province pairs joined by a finished road. */
+  private roadLegs = new Set<string>();
+
+  indexRoads() {
+    this.roadLegs.clear();
+    for (const r of this.roads) if (r.progress >= 1) for (let i = 1; i < r.path.length; i++) this.roadLegs.add(roadKey(r.path[i - 1], r.path[i]));
+  }
+
+  hasRoad(a: number, b: number) { return this.roadLegs.has(roadKey(a, b)); }
   /** Current game time, set by the World before each day's fighting. */
   now = 0;
   /** Set by the World: provinces and sea zones under a storm today. */
@@ -374,7 +392,8 @@ export class Military {
     u.legStart = at;
     const to = this.provinces.get(next)!;
     const slow = domainOf(u.type) === 'land' && to.kind === 'land' ? seasonSlow(at, to.terrain, to.label[1]) : 1; // winter roads
-    u.legEnd = at + legDays(this.provinces.get(u.province)!, to, u.type) * DAY * slow;
+    const road = domainOf(u.type) === 'land' && this.hasRoad(u.province, next) ? ROAD.speed : 1; // a finished road: faster
+    u.legEnd = at + legDays(this.provinces.get(u.province)!, to, u.type) * DAY * slow * road;
   }
 
   declareWar(a: number, b: number, day: number) {

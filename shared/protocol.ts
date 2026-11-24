@@ -1,3 +1,4 @@
+import type { RoadState } from './roads';
 // Messages between browser and world server, shared by both sides.
 //
 // Every nation has a controller: a human player or the server's AI. Both send
@@ -127,6 +128,7 @@ export interface WarState {
   owners: Record<number, number>; // province id -> nation, where land changed hands by treaty
   buildings: Record<number, BuildingState[]>; // province id -> buildings (finished and under way)
   nuked: number[]; // provinces struck by nuclear weapons
+  roads?: RoadState[]; // roads built and under way
   embargoes: { from: number; to: number }[];
   unrest: Record<number, number>; // province id -> unrest 0..100 in recently conquered land
   blocs: Bloc[];
@@ -208,6 +210,7 @@ export type Order =
   | { kind: 'research'; tech: TechId }
   | { kind: 'research_queue'; tech: TechId; remove?: boolean } // line up (or take out) a technology after the current one
   | { kind: 'build'; province: number; building: BuildingType }
+  | { kind: 'road'; path: number[]; pts: [number, number][] }
   | { kind: 'repair'; province: number; building: BuildingType } // fix a building a hurricane damaged
   | { kind: 'general'; unit: number }
   | { kind: 'missile'; province: number }

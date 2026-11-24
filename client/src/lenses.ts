@@ -19,7 +19,8 @@ export class Lenses {
   private open: Lens | null = null;
   private html = '';
 
-  constructor(root: HTMLElement, private game: Game, private pol: Political, private order: (o: Order) => void) {
+  constructor(root: HTMLElement, private game: Game, private pol: Political, private order: (o: Order) => void,
+    private tools: { build?: () => void; roads?: () => void } = {}) {
     this.el = document.createElement('section');
     this.el.className = 'panel lens';
     this.el.hidden = true;
@@ -32,12 +33,16 @@ export class Lenses {
       const k = a.dataset.ln;
       const e2 = this.game.mine?.econ;
       if (k === 'close') this.toggle(this.open!);
+      else if (k === 'buildmode' || k === 'roads') { this.toggle(this.open!); (k === 'roads' ? this.tools.roads : this.tools.build)?.(); }
       else if (k === 'recruit') this.order({ kind: 'recruit', unit: a.dataset.unit as UnitType });
       else if (k === 'tax' && e2) this.order({ kind: 'policy', policy: { tax: Math.max(LIMITS.taxMin, Math.min(LIMITS.taxMax, (this.game.mine!.tax ?? 25) + Number(a.dataset.d))) } });
     });
     game.on((c: Set<Change>) => { if (this.open && (c.has('mine') || c.has('units') || c.has('war') || c.has('economy'))) queueMicrotask(() => this.render()); });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.open) { this.toggle(this.open); } });
   }
+
+  /** Open a lens (no-op if it is already open). */
+  show(l: Lens) { if (this.open !== l) this.toggle(l); }
 
   toggle(l: Lens) {
     this.open = this.open === l ? null : l;
@@ -126,6 +131,7 @@ export class Lenses {
       </div>
       <span class="label">BUDGET</span>
       <div class="lens-budget">${(['military', 'infrastructure', 'welfare', 'research'] as const).map((k) => `<a href="#" class="go" data-go="econ:b-${k}"><span>${k}</span><b>${e.budget[k]}%</b></a>`).join('')}</div>
+      <div class="actions-row lens-tools"><button type="button" class="claim primary" data-ln="buildmode" data-tip="${attr(tip('Build', 'Pick provinces on the map and choose what to build in each', 'Back returns you to this lens'))}">Build…</button><button type="button" class="claim" data-ln="roads" data-tip="${attr(tip('Roads', 'Drag a road across your provinces: troops and supplies move faster along it', 'Snaps to province centres and cities'))}">Roads…</button></div>
       <div class="actions-row"><a href="#" class="go" data-go="build:${capital}">Build at the capital</a> · <a href="#" class="go" data-go="module:economy">Economy</a> · <a href="#" class="go" data-go="module:market">Market</a> · <a href="#" class="go" data-go="module:politics">Politics</a></div>
       <span class="label">ADVICE</span>${this.adviceHtml(adv)}`;
   }

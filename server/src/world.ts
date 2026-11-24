@@ -35,6 +35,7 @@ import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTOR
 import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
+import { ROAD, roadCost, roadDays } from '../../shared/roads.ts';
 import {
   GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
   type Effects, type Government, type ResearchPrivate, type TechId,
@@ -627,7 +628,7 @@ export class World {
     return {
       wars: this.military.wars, occupied: Object.fromEntries(this.military.occupied), battles: [...this.military.battles],
       treaties: this.diplomacy.treaties, owners: Object.fromEntries(this.diplomacy.owners),
-      buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked, embargoes: this.diplomacy.embargoes,
+      buildings: Object.fromEntries(this.military.buildings), nuked: this.nuked, embargoes: this.diplomacy.embargoes, roads: this.military.roads,
       unrest: Object.fromEntries([...this.diplomacy.unrest].map(([p, u]) => [p, Math.round(u)])),
       blocs: this.diplomacy.blocs, council: this.diplomacy.council, vassals: Object.fromEntries(this.diplomacy.overlords),
       storms: this.storms.map((s) => ({
@@ -1164,6 +1165,30 @@ export class World {
         n.econ.treasury -= cost;
         this.military.buildings.set(p.id, [...here, { type: order.building, progress: 0 }]);
         if (actor === 'human') this.warChanged(); else this.warDirty = true; // AI projects go out with the daily update
+        this.touch(n, false);
+        return ok;
+      }
+      case 'road': {
+        // a road dragged across our own provinces: each stretch joins neighbours
+        const path = Array.isArray(order.path) ? order.path.map(Number) : [];
+        const pts = Array.isArray(order.pts) ? order.pts.filter((q) => Array.isArray(q) && q.length === 2 && q.every((v) => Number.isFinite(v) && Math.abs(v) <= 360))
+          .map((q) => [Math.round(q[0] * 1e4) / 1e4, Math.round(q[1] * 1e4) / 1e4] as [number, number]) : [];
+        const legs = path.length - 1;
+        if (legs < 1 || legs > ROAD.maxLegs || pts.length < 2 || pts.length > ROAD.maxPts) return fail('bad_request', `A road joins 2 to ${ROAD.maxLegs + 1} provinces.`);
+        for (let i = 0; i < path.length; i++) {
+          const p = this.military.provinces.get(path[i]);
+          if (!p || p.kind !== 'land' || p.owner !== n.id || this.military.controller(p.id) !== n.id) return fail('not_allowed', 'Roads can only cross provinces you own and hold.');
+          if (i > 0 && !p.adj.includes(path[i - 1])) return fail('bad_request', 'Each stretch of road must join neighbouring provinces.');
+          if (path.indexOf(path[i]) !== i) return fail('bad_request', 'A road cannot cross the same province twice.');
+        }
+        if (path.slice(1).every((q, i) => this.military.hasRoad(path[i], q))) return fail('not_allowed', 'There is already a road there.');
+        const building = this.military.roads.filter((r) => r.owner === n.id && r.progress < 1).length;
+        if (building >= ROAD.maxProjects) return fail('not_allowed', `At most ${ROAD.maxProjects} roads under construction at a time.`);
+        const cost = roadCost(legs);
+        if (n.econ.treasury < cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
+        n.econ.treasury -= cost;
+        this.military.roads.push({ id: this.military.nextRoad++, owner: n.id, path, pts, progress: 0 });
+        if (actor === 'human') this.warChanged(); else this.warDirty = true;
         this.touch(n, false);
         return ok;
       }
@@ -2474,6 +2499,19 @@ export class World {
   private constructionDay() {
     this.factories.clear();
     this.plants.clear();
+    // roads: built a stretch at a time; a finished road speeds troops along it
+    let roadDone = false;
+    for (const r of this.military.roads) {
+      if (r.progress >= 1) continue;
+      r.progress = Math.min(1, r.progress + 1 / roadDays(r.path.length - 1));
+      this.warDirty = true;
+      if (r.progress >= 1) {
+        roadDone = true;
+        const owner = this.nations.get(r.owner);
+        if (owner?.controller === 'human') this.event('politics', owner.id, `${this.defs.get(owner.id)!.short}: the road from ${this.military.provinces.get(r.path[0])?.name ?? 'a province'} to ${this.military.provinces.get(r.path[r.path.length - 1])?.name ?? 'a province'} is open.`);
+      }
+    }
+    if (roadDone) this.military.indexRoads();
     for (const [p, list] of this.military.buildings) {
       const prov = this.military.provinces.get(p)!;
       for (const b of list) {
