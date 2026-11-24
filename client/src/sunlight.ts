@@ -103,7 +103,7 @@ export class Sunlight {
  * Up close over the sea: whitecaps that glint and move with the wind, and now and
  * then a whale surfacing or a pod of dolphins, fading in and out.
  */
-class Seas {
+export class Seas {
   private frame = 0;
   private layer: HTMLElement;
   private still = matchMedia('(prefers-reduced-motion: reduce)').matches;

@@ -37,15 +37,15 @@ export function threatStackHtml(s: StackInput) {
   const names = cells.slice(0, 6).map(([id]) => esc(s.name(id))).join(' · ');
   return `<div class="threat-stack" aria-label="Threat stack: ${cells.length} networks abroad, ${s.ops} operations under way, foreign agents at ${s.foreign} of 100 at home">
     <div class="ts-scene"><div class="ts-rig">
-      <div class="ts-plane ts-l1">${tiles || '<span class="ts-empty">no networks</span>'}</div>
-      <div class="ts-plane ts-l2"><svg viewBox="0 0 300 300" aria-hidden="true">${links}<circle class="hub" cx="150" cy="150" r="8"></circle>${beacons}</svg></div>
-      <div class="ts-plane ts-l3"><svg viewBox="0 0 300 300" aria-hidden="true">${shields}
+      <div class="ts-plane ts-l1" data-ts="nets" title="Networks abroad: open them below">${tiles || '<span class="ts-empty">no networks</span>'}</div>
+      <div class="ts-plane ts-l2" data-ts="ops" title="Operations: run them from a network below"><svg viewBox="0 0 300 300" aria-hidden="true">${links}<circle class="hub" cx="150" cy="150" r="8"></circle>${beacons}</svg></div>
+      <div class="ts-plane ts-l3" data-ts="home" title="At home: counter-intelligence below"><svg viewBox="0 0 300 300" aria-hidden="true">${shields}
         <circle class="threat" cx="150" cy="150" r="${(threat * 0.45).toFixed(1)}"></circle><circle class="threat-ring" cx="150" cy="150" r="${(threat * 0.75).toFixed(1)}"></circle></svg></div>
     </div></div>
     <ul class="ts-keys">
-      <li class="k3"><b>L3 · At home</b><span>foreign agents ${s.foreign}/100 · counter-intelligence ${['off', 'low', 'medium', 'high'][s.counter] ?? s.counter}</span></li>
-      <li class="k2"><b>L2 · Operations</b><span>${s.ops} of ${s.maxOps} under way</span></li>
-      <li class="k1"><b>L1 · Networks abroad</b><span>${cells.length ? names : 'none yet: start one below'}</span></li>
+      <li class="k3" data-ts="home" tabindex="0"><b>L3 · At home</b><span>foreign agents ${s.foreign}/100 · counter-intelligence ${['off', 'low', 'medium', 'high'][s.counter] ?? s.counter}</span></li>
+      <li class="k2" data-ts="ops" tabindex="0"><b>L2 · Operations</b><span>${s.ops} of ${s.maxOps} under way</span></li>
+      <li class="k1" data-ts="nets" tabindex="0"><b>L1 · Networks abroad</b><span>${cells.length ? names : 'none yet: start one below'}</span></li>
     </ul>
   </div>`;
 }

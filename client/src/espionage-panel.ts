@@ -72,9 +72,9 @@ export class EspionagePanel {
         <div data-tip="${attr(tip('Foreign agents here', 'The strongest foreign network inside your nation', 'Counter-intelligence wears it down'))}"><span>Foreign agents here</span><b class="${spy.foreign > 40 ? 'down' : ''}">${spy.foreign}</b><em>strongest foreign network</em></div>
         <div><span>Military funds</span><b>$${funds.toFixed(1)}bn</b><em>recruiting costs $${NETWORK_COST}bn a day per network</em></div>
       </div>
-      <span class="label">COUNTER-INTELLIGENCE</span>
+      <span class="label" data-sec="home">COUNTER-INTELLIGENCE</span>
       <div class="actions-row">${LEVELS.map((l, i) => `<button type="button" class="claim${spy.counter === i ? ' primary' : ''}" data-s="counter" data-level="${i}" data-tip="${attr(counterTip(i))}">${l}</button>`).join('')}</div>
-      <span class="label">AGENT NETWORKS · recruiting adds ${NETWORK_GROWTH} a day; idle networks fade slowly</span>
+      <span class="label" data-sec="nets">AGENT NETWORKS · recruiting adds ${NETWORK_GROWTH} a day; idle networks fade slowly</span>
       ${rows || '<p class="hint">No networks yet. Start one below: reconnaissance needs 10, stealing technology 30, rigging their politics 55, backing a coup 70.</p>'}
       <div class="deal-form"><select id="spyNew" aria-label="Nation">${others.map((n) => `<option value="${n.id}">${esc(n.name)}</option>`).join('')}</select>
         <button type="button" class="claim primary" data-s="new" ${spy.building.length >= MAX_NETWORKS ? 'disabled' : ''}>Start a network</button></div>

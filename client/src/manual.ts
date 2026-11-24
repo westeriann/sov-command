@@ -57,7 +57,7 @@ const CHAPTERS: Chapter[] = [
         <li>Click a province or sea zone to inspect it; right-click for a menu of what you can do there. Hover over a foreign nation to see what it thinks of you. Each place sounds and stirs a little when you click it: a city's traffic, farm animals, forest birds, mountain wind, waves and gulls.</li>
         <li>Lost? The round button by the MAP arrow (or the <kbd>Home</kbd> key) flies you back to your capital.</li>
         <li>Clicking a nation's name in any window opens a small card about it (country, economy, military, diplomacy) with a button to zoom to it.</li>
-        <li>${L('view:sunlight', 'Sunlight and night')}: the sun moves with the game clock; the night side dims and the sea glints under the sun. The flat map (Globe or Flat, at the bottom of the map drawer) stays centred on the world.</li>
+        <li>The flat map (Globe or Flat, at the bottom of the map drawer) stays centred on the world.</li>
         <li>Map modes (the MAP arrow, bottom left) include <b>Resources</b> (pick a resource, or province specialties) and <b>Diplomatic</b> (every nation coloured by how it stands with you, with a filter for allies, trade partners, pacts, truces, wars, embargoes, claims and opinion).</li>
       </ul>
       <h3>Map modes</h3>

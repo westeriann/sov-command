@@ -758,3 +758,14 @@ body.build-mode .lens, body.road-mode .lens { display: none; }
 .prov-scene.whale .body, .prov-scene.dolphins .body { fill: rgba(70, 86, 100, 0.85); stroke: rgba(230, 240, 245, 0.6); stroke-width: 0.7; }
 /* while building or laying roads, clicks go through unit markers and labels to the province beneath */
 body.build-mode .maplibregl-marker, body.road-mode .maplibregl-marker { pointer-events: none !important; }
+
+/* no projector ring under the centrepieces */
+.scr-stage > .scr-base, .scr-base { display: none !important; }
+.globe-piece .orb-base { display: none !important; }
+
+/* Espionage: the stack sits lower and smaller so its top layer is not cut off; its layers and keys can be clicked */
+.spy-piece .ts-scene { height: min(360px, calc(100cqh - 200px)); min-height: 240px; overflow: visible; }
+.spy-piece .ts-rig { top: 64%; transform: scale(0.82) rotateX(58deg) rotateZ(-38deg); }
+.spy-piece .ts-plane, .spy-piece .ts-keys li { cursor: pointer; pointer-events: auto; transition: box-shadow 0.15s, border-color 0.15s; }
+.spy-piece .ts-plane:hover { box-shadow: 0 0 0 1px var(--cyan), 0 0 26px rgba(124, 196, 255, 0.45); }
+.spy-piece .ts-keys li:hover, .spy-piece .ts-keys li:focus-visible { border-color: var(--cyan); background: rgba(124, 196, 255, 0.08); }

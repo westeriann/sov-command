@@ -213,9 +213,18 @@ export function diplomacyPiece(globe: HoloGlobe, focused: () => number | null): 
 // ---------------- Espionage: the threat stack ----------------
 export function espionagePiece(game: Game, pol: Political): Piece {
   const el = base('spy-piece');
+  let win: HTMLElement | undefined;
+  // each layer (or its key) opens its part of the window: networks, operations (run from a network), defences
+  el.addEventListener('click', (e) => {
+    const t = (e.target as Element).closest<HTMLElement>('[data-ts]');
+    if (!t || !win) return;
+    const k = t.dataset.ts;
+    reveal(win, k === 'home' ? '[data-sec="home"]' : k === 'ops' ? '.spy-row, [data-sec="nets"]' : '[data-sec="nets"]');
+  });
   return {
-    el, caption: 'Networks abroad, operations under way, and the threat at home.',
-    update() {
+    el, caption: 'Networks abroad, operations under way, and the threat at home. Click a layer to work on it.',
+    update(w) {
+      win = w;
       const mine = game.mine;
       if (!mine) { el.innerHTML = ''; return; }
       const spy = mine.spy ?? { nets: {}, building: [], counter: 0, foreign: 0 };

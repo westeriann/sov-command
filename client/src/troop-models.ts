@@ -21,9 +21,10 @@ const MODELS: Record<UnitType, string> = {
       <path class="track" d="M20 64h120a8 8 0 0 1 0 14H20a8 8 0 0 1 0-14z"/>${wheels([28, 46, 64, 82, 100, 118, 134], 71, 5)}`,
   marines: `<path class="hull" d="M14 70l6-18h86l26 8 8 10-6 6H22z"/><path d="M40 52v-10h30v10"/><g class="turret" style="transform-origin:55px 42px"><path class="barrel" d="M68 44h24"/></g>
       <path class="wake" d="M4 80c10-4 20 4 30 0s20 4 30 0"/>${wheels([42, 70, 98], 73, 6)}`,
-  special_forces: `<g class="heli"><path class="hull" d="M40 52c0-10 10-16 28-16h20c14 0 20 8 20 16s-8 14-20 14H62c-14 0-22-6-22-14z"/><path d="M108 50h40l6-8M146 50l6 8"/>
+  // facing right, the way it flies in
+  special_forces: `<g class="heli"><g transform="matrix(-1 0 0 1 160 0)"><path class="hull" d="M40 52c0-10 10-16 28-16h20c14 0 20 8 20 16s-8 14-20 14H62c-14 0-22-6-22-14z"/><path d="M108 50h40l6-8M146 50l6 8"/>
       <path d="M58 66l-4 10h52M90 66l4 10"/><path d="M88 36v-6"/><g class="rotor" style="transform-origin:88px 30px"><path d="M40 30h96"/></g>
-      <g class="tail-rotor" style="transform-origin:152px 44px"><path d="M152 36v16"/></g><path class="detail" d="M70 44h14v8H70z"/></g>`,
+      <g class="tail-rotor" style="transform-origin:152px 44px"><path d="M152 36v16"/></g><path class="detail" d="M70 44h14v8H70z"/></g></g>`,
   destroyers: `<g class="ship"><path class="hull" d="M8 62h144l-14 16H26z"/><path d="M40 62V50h44v12M56 50V36h14v14M62 36V22"/><path class="detail" d="M60 26h12M58 30h16"/>
       <g class="turret" style="transform-origin:112px 58px"><path d="M104 62v-6h16v6"/><path class="barrel" d="M118 57h20"/></g>
       <g class="turret aft" style="transform-origin:26px 58px"><path d="M20 62v-5h12v5"/><path class="barrel" d="M22 58h-14"/></g></g>`,
@@ -91,6 +92,13 @@ function animate(el: HTMLElement, domain: 'land' | 'sea' | 'air') {
     model.querySelectorAll('.leg-a, .leg-b').forEach((l, k) => go(l, [{ transform: 'rotate(-16deg)' }, { transform: 'rotate(16deg)' }], { duration: 450, delay: lag, iterations: 4, direction: k % 2 ? 'alternate-reverse' : 'alternate' }));
     // idle: turrets traverse, guns lift, rotors and propellers turn, the periscope rises, engines glow
     model.querySelectorAll('.turret').forEach((g, k) => go(g, [{ transform: 'rotate(0)' }, { transform: 'rotate(-4deg)', offset: 0.3 }, { transform: 'rotate(3deg)', offset: 0.6 }, { transform: 'rotate(0)' }], { duration: 6000, delay: lag + 1800, iterations: Infinity, easing: 'ease-in-out', direction: k ? 'reverse' : 'normal' }));
+    model.querySelectorAll<SVGGraphicsElement>('.barrel').forEach((g) => {
+      if (!(g as SVGElement).style.transformOrigin) {
+        const d = (g.matches('path') ? g : g.querySelector('path'))?.getAttribute('d') ?? '';
+        const m = /M\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/.exec(d);
+        if (m) (g as SVGElement).style.transformOrigin = `${m[1]}px ${m[2]}px`;
+      }
+    });
     model.querySelectorAll('.barrel').forEach((g) => go(g, [{ transform: 'rotate(0)' }, { transform: 'rotate(-7deg)', offset: 0.4 }, { transform: 'rotate(-2deg)', offset: 0.7 }, { transform: 'rotate(0)' }], { duration: 4500, delay: lag + 2200, iterations: Infinity, easing: 'ease-in-out' }));
     model.querySelectorAll('.rotor').forEach((g) => go(g, [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0.15)' }, { transform: 'scaleX(1)' }], { duration: 350, iterations: Infinity }));
     model.querySelectorAll('.tail-rotor, .prop').forEach((g) => go(g, [{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.15)' }, { transform: 'scaleY(1)' }], { duration: 180, iterations: Infinity }));

@@ -318,7 +318,7 @@ function iceCapTexture() {
     const k = (y * S + x) * 4, base = 226 + n * 18;
     d[k] = base - 6; d[k + 1] = base + 2; d[k + 2] = Math.min(255, base + 14);
     // solid over the pole, fading out over the band where the photo still shows (84 to 85.5 degrees)
-    const a = r < 0.72 ? 1 : Math.max(0, 1 - (r - 0.72) / 0.22);
+    const f = Math.min(1, Math.max(0, (r - 0.45) / 0.5)); const a = 1 - f * f * (3 - 2 * f); // a long, soft fade: no rim
     d[k + 3] = Math.round(255 * a);
   }
   g.putImageData(img, 0, 0);
@@ -396,6 +396,10 @@ const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; 
 // ---- the layer ------------------------------------------------------------------
 
 const MAX_INSTANCES = 4096;
+/** City blocks are many: from afar the visible cities need far more than other models (past the
+ * cap, the tallest towers lost their bodies and kept only their roofs). */
+const CAP: Partial<Record<string, number>> = { tower: 24576, towerLit: 24576, roofCap: 8192 };
+const capOf = (kind: string) => CAP[kind] ?? MAX_INSTANCES;
 const OLIVE = new THREE.Color('#5d6b45');
 const WHITE = new THREE.Color('#ffffff');
 const _m = new THREE.Matrix4(), _l = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
@@ -527,7 +531,7 @@ export class Models3D implements CustomLayerInterface {
     // both faces: seen from low down, tall towers' sides were dropped and only their roofs were left
     const lit = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     for (const kind of Object.keys(GEOMETRY) as Kind[]) {
-      const mesh = new THREE.InstancedMesh(GEOMETRY[kind](), EFFECTS[kind] ?? lit, MAX_INSTANCES);
+      const mesh = new THREE.InstancedMesh(GEOMETRY[kind](), EFFECTS[kind] ?? lit, capOf(kind));
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.setColorAt(0, WHITE);
       mesh.instanceColor!.setUsage(THREE.DynamicDrawUsage);
@@ -590,7 +594,7 @@ export class Models3D implements CustomLayerInterface {
   private put(kind: Kind, x: number, y: number, z: number, ry = 0, sx = 1, sy = sx, sz = sx, color: THREE.Color = WHITE, rx = 0, rz = 0) {
     const mesh = this.meshes.get(kind)!;
     const i = this.counts.get(kind) ?? 0;
-    if (i >= MAX_INSTANCES) return;
+    if (i >= capOf(kind)) return;
     _q.setFromEuler(_e.set(rx, ry, rz, 'YXZ'));
     _l.compose(_v.set(x, y, z), _q, _s.set(sx, sy, sz));
     mesh.setMatrixAt(i, _m.multiplyMatrices(this.base, _l));
@@ -676,12 +680,21 @@ export class Models3D implements CustomLayerInterface {
    * by the far side of the globe).
    */
   /** How sunlit each pole is (north, south), 0..1: set from the sunlight, so caps go dark in polar night. */
-  capLight: [number, number] = [1, 1];
+  capLight: [number, number] = [0.94, 0.94];
 
   private drawPolarCaps() {
     for (const lat of [90, -90]) {
       const up = lat > 0 ? 1 : -1;
-      if (this.centre.y * up < -0.05) continue; // that pole is round the back of the globe
+      if (this.centre.y * up < 0.05) continue; // that pole is round the back of the globe
+      // drawn only where the pole is really in sight: the 3D layer is not hidden by the globe, so
+      // a pole just past the horizon showed through the land. A point is in sight when the map,
+      // asked what lies at its spot on screen, answers with that point.
+      const seen = [0, 90, 180, 270].some((lon) => {
+        const q = this.map.project([lon, up * 86.5]);
+        const back = this.map.unproject(q);
+        return Math.abs(back.lat - up * 86.5) < 0.6;
+      });
+      if (!seen) continue;
       const l = this.capLight[lat > 0 ? 0 : 1];
       this.at(0, lat, 1, 0);
       this.put('polarCap', 0, 0, 0, 0, 1, 1, 1, new THREE.Color(l * 0.97, l, Math.min(1, l * 1.04)));
@@ -703,10 +716,15 @@ export class Models3D implements CustomLayerInterface {
         this.at(c.lon, c.lat, 1, top); this.put(kind, 0, 0, 0, rot, size, 1, size);
         this.at(c.lon, c.lat, 1, top + 2500); this.put(kind, 0, 0, 0, rot * 1.15 + 0.6, size * 0.82, 1, size * 0.82);
       } else {
-        // a cloud in three decks: a grey base, the body, and a smaller lit top, each turned a little
-        this.at(c.lon, c.lat, 1, top - 2500); this.put('cloudBase', 0, 0, 0, rot + 1.1, size * 0.9, 1, size * 0.9);
-        this.at(c.lon, c.lat, 1, top); this.put(kind, 0, 0, 0, rot, size, 1, size);
-        this.at(c.lon, c.lat, 1, top + 2200); this.put(kind, 0, 0, 0, rot + 2.3, size * 0.7, 1, size * 0.7);
+        // a cloud in three decks, each a different cloud picture, stretched and nudged its own way, so
+        // no two clouds share an outline (copies of one picture, turned, stacked into crosses)
+        const h = Math.abs(Math.sin(c.lon * 12.9898 + c.lat * 78.233) * 43758.5453) % 1, h2 = (h * 7.31) % 1, h3 = (h * 13.7) % 1;
+        const decks: Kind[] = ['cloud0', 'cloud1', 'cloud2'];
+        const pick = (k: number) => decks[(Math.floor(h * 3) + k) % 3];
+        const sx = 0.7 + h * 0.8, sz = 0.7 + h2 * 0.6, off = size * 0.18;
+        this.at(c.lon, c.lat, 1, top - 2500); this.put('cloudBase', (h2 - 0.5) * off, 0, (h3 - 0.5) * off, rot + h * 6, size * sx * 0.85, 1, size * sz * 0.9);
+        this.at(c.lon, c.lat, 1, top); this.put(pick(0), 0, 0, 0, rot, size * sx, 1, size * sz);
+        this.at(c.lon, c.lat, 1, top + 2200); this.put(pick(1), (h3 - 0.5) * off * 1.6, 0, (h - 0.5) * off, rot + 0.4 + h2, size * sx * 0.62, 1, size * sz * 0.7);
       }
       if (c.part === 'core' && z >= 3) {
         // rain falls from the cloud base to the ground: curtains of streaks standing under the core
@@ -741,6 +759,7 @@ export class Models3D implements CustomLayerInterface {
         this.put('glow', 0, city.size * 0.05, 0, 0, r, 1, r, new THREE.Color(lit, lit * 0.9, lit * 0.75));
       } else {
         for (const b of city.towers) {
+          if (g > 2 && b.h < b.w * 0.75) continue; // from far out the low houses are lost anyway: leave them out
           this.put('tower', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g, b.color);
           if (b.h > b.w * 2.5) this.put('roofCap', b.x, 0, b.z, 0, b.w * g, b.h * g, b.d * g);
         }
