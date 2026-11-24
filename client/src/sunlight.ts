@@ -75,7 +75,7 @@ export class Sunlight {
       // night: a deep blue dimming that comes on through civil and nautical twilight
       const night = Math.min(1, Math.max(0, (0.06 - cos) / 0.26));
       // dawn and dusk: a warm band where the sun is on the horizon
-      const dusk = Math.max(0, 1 - Math.abs(cos + 0.02) / 0.09);
+      const dusk = Math.max(0, 1 - Math.abs(cos + 0.03) / 0.16) ** 2 * 0.45; // faint: a hint of warmth, not a stripe
       // the glint of the sun on open water, round the point below it
       const glint = sea[i] && cos > 0.9 ? ((cos - 0.9) / 0.1) ** 3 : 0;
       const a = night * 0.5 + dusk * 0.14 + glint * 0.2;

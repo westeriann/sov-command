@@ -201,8 +201,9 @@ export class GameMap {
         rivers: { type: 'geojson', data: `${ASSET_BASE}world/rivers.geojson`, tolerance: 0.2 },
       },
       layers: [
-        // under the photo: polar ice, so the poles (beyond the map tiles) are ice caps, not a void
-        { id: 'space', type: 'background', paint: { 'background-color': '#d9e4ea' } },
+        // under the photo: deep-ocean blue, so the poles (beyond the map tiles) and any tile still
+        // loading read as dark sea rather than a black (or bright) hole
+        { id: 'space', type: 'background', paint: { 'background-color': '#0d1f33' } },
         {
           // the photographed planet, toned down into a map: less saturation, a little more contrast
           id: 'planet', type: 'raster', source: 'planet',
@@ -432,7 +433,7 @@ export class GameMap {
     this.map.setProjection({ type });
     const flat = type === 'mercator';
     // on the globe the background shows only at the poles (ice); flat, it fills the space around the map
-    this.map.setPaintProperty('space', 'background-color', flat ? '#05080b' : '#d9e4ea');
+    this.map.setPaintProperty('space', 'background-color', flat ? '#05080b' : '#0d1f33');
     if (flat) {
       // centred on the world, never dragged off it, and never zoomed out past the map's width
       const w = this.map.getContainer().clientWidth || 1200;
