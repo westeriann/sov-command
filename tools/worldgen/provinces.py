@@ -563,7 +563,7 @@ def main():
     land_lines = write_fills(lab2d, is_land, lake2d, W, H, owner)
     # every border that touches land is cut from the province outlines themselves, so the lines
     # and the coloured fills can never disagree; only sea-zone lines (sea to sea) come from the grid
-    features = [f for f in features if f["properties"]["k"] == 3] + land_lines
+    features = [f for f in features if f["properties"]["k"] != 2] + land_lines
     (PUBLIC / "borders.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features},
                                                        separators=(",", ":")))
     sizes = {p.name: f"{p.stat().st_size / 1e6:.1f} MB" for p in PUBLIC.glob("*") if p.suffix in (".json", ".bin", ".geojson")}
@@ -579,6 +579,11 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
     P = 48
     lines = []
     lab = np.where(lake2d, 0, lab2d)
+    from scipy import ndimage as ndi
+    height = np.load(WORLD / "height.npy") if (WORLD / "height.npy").exists() else np.where(is_land[lab2d], 1.0, -1.0).astype(np.float32)
+    lake_soft = ndi.gaussian_filter(lake2d.astype(np.float32), 1.0, mode=("nearest", "wrap"))
+    hwide = np.concatenate([height[:, -P:], height, height[:, :P]], axis=1)
+    lwide = np.concatenate([lake_soft[:, -P:], lake_soft, lake_soft[:, :P]], axis=1)
     wide = np.concatenate([lab[:, -P:], lab, lab[:, :P]], axis=1)
     ys, xs = np.nonzero(lab)
     ids = lab[ys, xs]
@@ -600,27 +605,23 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
         win = np.zeros((y1 - y0 + 2, x1 - x0 + 2), np.float32)
         sub = wide[y0:y1, x0 + P:x1 + P] if x1 + P <= wide.shape[1] else np.take(lab, np.arange(x0, x1) % W, axis=1)[y0:y1]
         win[1:-1, 1:-1] = sub == pid
-        landwin = np.zeros_like(win)
-        landwin[1:-1, 1:-1] = is_land[sub]
-        # both softened exactly as the photo's shore is. The coast is where the softened land
-        # crosses one half (the photo's own shore); inland, every point belongs to whichever province
-        # holds the most of it, which splits the land with no gaps and no overlaps
-        from scipy import ndimage as ndi
-        mine = ndi.gaussian_filter(win, 0.85, mode="constant")
-        landb = ndi.gaussian_filter(landwin, 0.85, mode="constant")
-        rival = np.zeros_like(mine)
-        inner = win[1:-1, 1:-1]
+        hwin = np.full_like(win, -1.0)
+        hwin[1:-1, 1:-1] = hwide[y0:y1, x0 + P:x1 + P] if x1 + P <= hwide.shape[1] else np.take(height, np.arange(x0, x1) % W, axis=1)[y0:y1]
+        lwin = np.zeros_like(win)
+        lwin[1:-1, 1:-1] = lwide[y0:y1, x0 + P:x1 + P] if x1 + P <= lwide.shape[1] else np.take(lake_soft, np.arange(x0, x1) % W, axis=1)[y0:y1]
+        # inland the province keeps its own (jagged) cells, against every neighbour; the coast is
+        # where the photo's height field crosses sea level, and lake shores where the photo's
+        # softened lakes cross one half: exactly the lines the satellite photo is painted on
+        rival = np.zeros_like(win)
         for q in np.unique(sub[is_land[sub]]):
-            if q == pid:
-                continue
-            other = np.zeros_like(win)
-            other[1:-1, 1:-1] = sub == q
-            np.maximum(rival, ndi.gaussian_filter(other, 0.85, mode="constant"), out=rival)
-        fill_f = np.minimum(mine - rival, landb - 0.5)
-        line_f = fill_f   # border lines on exactly the same divisions
-        for c in measure.find_contours(line_f, 0.0):
+            if q != pid:
+                np.maximum(rival, np.pad(sub == q, 1).astype(np.float32), out=rival)
+        fill_f = np.minimum(np.minimum(win - rival, hwin * 400.0), 0.5 - lwin)
+        # only the coasts and lake shores are cut from these outlines; borders between provinces
+        # keep their original jagged lines
+        for c in measure.find_contours(fill_f, 0.0):
             if len(c) >= 4:
-                cut_lines(lines, pid, c[:, 0] - 1 + y0, c[:, 1] - 1 + x0, lab, is_land, owner, W, H)
+                cut_lines(lines, pid, c[:, 0] - 1 + y0, c[:, 1] - 1 + x0, lab, is_land, owner, W, H, coast_only=True)
         rings = []
         for c in measure.find_contours(fill_f, 0.0):
             if len(c) < 4:
@@ -651,7 +652,7 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
     return lines
 
 
-def cut_lines(lines, pid, yy, xx, lab, is_land, owner, W, H):
+def cut_lines(lines, pid, yy, xx, lab, is_land, owner, W, H, coast_only=False):
     """Split one outline of province pid into runs by what lies across it (another province,
     the sea, a lake) and keep each run as a border line (once per pair: from the lower id)."""
     n = len(yy)
@@ -670,7 +671,7 @@ def cut_lines(lines, pid, yy, xx, lab, is_land, owner, W, H):
     for i in range(1, n):
         if i == n - 1 or seg_other[i] != seg_other[start]:
             q = seg_other[start]
-            if q != pid and (q == 0 or not is_land[q] or pid < q):
+            if q != pid and (q == 0 or not is_land[q] or (pid < q and not coast_only)):
                 if q == 0:
                     kind = 2  # a lake shore
                 elif not is_land[q]:

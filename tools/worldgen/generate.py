@@ -46,7 +46,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_DIR = ROOT / "assets" / "samples"
 OUT = ROOT / "world"
 EARTH_KM = 40075.0
-OUTLINE_SIGMA = 0.85  # cells: how much the land outline is softened (shared with provinces.py)
 
 BIOMES = [
     "ocean", "ice", "tundra", "boreal", "temperate_forest", "grassland", "steppe",
@@ -467,10 +466,9 @@ def make_texture(terrain, seed, ow, dw):
     _wide = np.concatenate([terrain["land"][:, -_pad:], terrain["land"], terrain["land"][:, :_pad]], axis=1)
     _shore = np.clip(ndimage.distance_transform_edt(_wide)[:, _pad:-_pad] / 3.0, 0, 1).astype(np.float32)
     shade = 1 + (shade - 1) * (_shore * _shore * (3 - 2 * _shore))
-    # the land outline softened by about a cell, so the shore is a smooth curve rather than the
-    # grid's stairs; the province outlines are traced on exactly the same softened field
-    land_f = ndimage.gaussian_filter((terrain["land"] & ~terrain["lake"]).astype(np.float32), OUTLINE_SIGMA, mode=("nearest", "wrap"))
-    lake_f = ndimage.gaussian_filter(terrain["lake"].astype(np.float32), OUTLINE_SIGMA, mode=("nearest", "wrap"))
+    # the field the photo's shore is drawn from, kept for the province outlines (provinces.py), so
+    # the political colours meet the coast exactly where the photo does
+    np.save(OUT / "height.npy", height.astype(np.float32))
     nvar = Perlin3(seed + 50)
     (tone,) = field(terrain["lat"], grid(dw, dw // 2)[1], lambda p: (fbm(nvar, p, 4, freq=5.0),))
     # water colour comes from a softened depth map so shallows have no stair-steps
@@ -490,7 +488,7 @@ def make_texture(terrain, seed, ow, dw):
     _CTX.update(dict(oh=oh, ow=ow, rs=rs, weights=weights, bombers=bombers, coslat=coslat, tone=tone, shade=shade,
                      sea_depth=sea_depth, terrain=terrain, lat_o=lat_o, lon_o=lon_o, n_coast=n_coast, n_micro=n_micro,
                      upland=upland, riparian=riparian, dryness=dryness, height=height, lake_soft=lake_soft,
-                     lake_ice=lake_ice, river_px=river_px, islands=islands, land_f=land_f, lake_f=lake_f))
+                     lake_ice=lake_ice, river_px=river_px, islands=islands))
     img = np.empty((oh, ow, 3), np.uint8)
     starts = list(range(0, oh, STRIP))
     # every strip of rows is painted on its own, so the work splits across processor
@@ -619,7 +617,7 @@ def _paint_strip(r0):
         hs = rs(height, ys)
         # the shore follows the same contour as the map's provinces (only a little roughened), so
         # province colours and the photo meet at the same coastline
-        a = smooth(rs(c["land_f"], ys) + rs(c["lake_f"], ys) - 0.5 + 0.07 * coast_noise, -0.05, 0.05)[..., None]
+        a = smooth(hs + 0.003 * coast_noise, -0.0012, 0.0012)[..., None]
         # shallows: a soft turquoise wash that thins out from the shore over a few kilometres
         shallow = (smooth(hs, -0.010, 0.0) * 0.32)[..., None]
         ocean = ocean * (1 - shallow) + np.array([44, 118, 128], np.float32) * shallow
@@ -628,7 +626,7 @@ def _paint_strip(r0):
         if ai is not None:
             out = out * (1 - ai) + landc_i * ai
         # lakes: a softened mask with the same fractal shoreline noise
-        la = smooth(rs(c["lake_f"], ys) - 0.5 + 0.07 * coast_noise, -0.05, 0.05)[..., None]
+        la = smooth(rs(lake_soft, ys) - 0.5 + 0.22 * coast_noise, -0.06, 0.06)[..., None]
         if la.max() > 0:
             lake_col = np.array([24, 64, 92], np.float32) * (1 + 0.05 * tn)[..., None]
             li = rs(lake_ice, ys)[..., None]
