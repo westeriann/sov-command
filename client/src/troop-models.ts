@@ -69,7 +69,13 @@ function animate(el: HTMLElement, domain: 'land' | 'sea' | 'air') {
   el.querySelectorAll<HTMLElement>('.troop').forEach((t, i) => {
     const model = t.querySelector<SVGGElement>('.model');
     if (!model) return;
-    const go = (target: Element | null | undefined, frames: Keyframe[], o: KeyframeAnimationOptions) => { if (target) target.animate(frames, { fill: 'both', ...o }); };
+    // started on the document clock at once, rather than waiting for a frame to confirm the start
+    // (while the window is being re-attached that confirmation could fail to come, leaving it stuck at 0)
+    const go = (target: Element | null | undefined, frames: Keyframe[], o: KeyframeAnimationOptions) => {
+      if (!target) return;
+      const a = target.animate(frames, { fill: 'both', ...o });
+      a.startTime = document.timeline.currentTime;
+    };
     const lag = i * 280;
     if (domain === 'air') {
       go(model, [{ transform: 'translate(-140%, 14px)', opacity: 0 }, { opacity: 1, offset: 0.3 }, { transform: 'none', opacity: 1 }], { duration: 1800, delay: lag, easing: ease });
