@@ -109,6 +109,15 @@ until the go-ahead; interface work can go first.
 14. Cities placed by their surroundings within their province (shores, lakes, rivers, the foot
     of mountains, valleys) instead of at its centre; same provinces and names.
 
+15. Sea particles and animals float in space when you zoom out quickly.
+16. A beeping, dial-tone-like sound loops constantly in the background: remove it.
+17. Hurricanes clickable for more information.
+18. A development index per province: more cities and people mean more developed, more
+    countryside means less. It speeds building a lot and recruiting a little; less developed
+    provinces lean right-wing, authoritarian and selfish, cities and crowds lean left and liberal.
+19. Borders that do not follow the coloured outline: find and fix every such spot.
+20. Each placed city becomes its own very small province inside its current province.
+
 ## Fixed after the preview round
 
 - **Lag at high game speed** (worst while moving): every game tick re-sent all trade lanes

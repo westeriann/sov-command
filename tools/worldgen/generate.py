@@ -257,6 +257,29 @@ def make_terrain(seed, dw):
          (e > 1900) & (m > 0.38), e > 1900,
          t < -1,
          (t < 6) & (m > 0.30), t < 6,
+         (t < 19) & (m > 0.55), (t < 19) & (m > 0.36), (t < 19) & (m > 0.20), (t < 19) & (m > 0.06),
+         (t < 19),
+         (m > 0.62) & (t >= 22), m > 0.58, m > 0.36, m > 0.12, m > 0.07,
+         sandy],
+        [B["ocean"],
+         B["ice"],
+         B["mountain_wet"], B["mountain_dry"],
+         B["tundra"],
+         B["boreal"], B["tundra"],
+         B["temperate_forest"], B["grassland"], B["steppe"], B["shrubland"],
+         B["desert_rock"],
+         B["rainforest"], B["temperate_forest"], B["savanna"], B["shrubland"], B["steppe"],
+         B["desert_sand"]],
+        default=B["desert_rock"],
+    ).astype(np.uint8)
+    # the original rules, kept so the provinces, their names, nations and people stay the same
+    # (they are drawn from these); only the land's look and each province's terrain use the new
+    legacy = np.select(
+        [~land,
+         t < -15,
+         (e > 1900) & (m > 0.38), e > 1900,
+         t < -1,
+         (t < 6) & (m > 0.30), t < 6,
          (t < 19) & (m > 0.55), (t < 19) & (m > 0.36), (t < 19) & (m > 0.22), (t < 19) & (m > 0.12),
          (t < 19),
          (m > 0.62) & (t >= 22), m > 0.58, m > 0.36, m > 0.22,
@@ -272,11 +295,12 @@ def make_terrain(seed, dw):
          B["desert_sand"]],
         default=B["desert_rock"],
     ).astype(np.uint8)
+    legacy[lake] = B["lake"]
     cls[lake] = B["lake"]
     sea_ice = smooth(-temp, 7, 19) * (~land)  # a wide band: the edge is broken into floes when painted
     return dict(lat=lat, h=h, sea=sea, land=land, elev=elev, temp=temp, moist=moist, relief=rel,
                 lake=lake, rivers=water["rivers"], river_class=water["river_class"],
-                biome=cls, sea_ice=sea_ice.astype(np.float32), land_frac=land_frac)
+                biome=cls, biome_legacy=legacy.astype(np.uint8), sea_ice=sea_ice.astype(np.float32), land_frac=land_frac)
 
 
 # ---------------------------------------------------------------- texture ----
@@ -436,6 +460,14 @@ def make_texture(terrain, seed, ow, dw):
     n_coast, n_micro = Perlin3(seed + 60), Perlin3(seed + 61)
     lat_o, lon_o = grid(ow, oh)
     shade = np.clip(hillshade(terrain["elev"], dw, terrain["lat"]), 0.35, 1.5)
+    # baked relief fades out over the last ~3 cells to the sea, as the 3D relief does: mountains
+    # meeting the coast no longer show a bright or dark wall along the shore
+    _pad = 16
+    _wide = np.concatenate([terrain["land"][:, -_pad:], terrain["land"], terrain["land"][:, :_pad]], axis=1)
+    _shore = np.clip(ndimage.distance_transform_edt(_wide)[:, _pad:-_pad] / 3.0, 0, 1).astype(np.float32)
+    shade = 1 + (shade - 1) * (_shore * _shore * (3 - 2 * _shore))
+    land_f = (terrain["land"] & ~terrain["lake"]).astype(np.float32)
+    lake_f = terrain["lake"].astype(np.float32)
     nvar = Perlin3(seed + 50)
     (tone,) = field(terrain["lat"], grid(dw, dw // 2)[1], lambda p: (fbm(nvar, p, 4, freq=5.0),))
     # water colour comes from a softened depth map so shallows have no stair-steps
@@ -455,7 +487,7 @@ def make_texture(terrain, seed, ow, dw):
     _CTX.update(dict(oh=oh, ow=ow, rs=rs, weights=weights, bombers=bombers, coslat=coslat, tone=tone, shade=shade,
                      sea_depth=sea_depth, terrain=terrain, lat_o=lat_o, lon_o=lon_o, n_coast=n_coast, n_micro=n_micro,
                      upland=upland, riparian=riparian, dryness=dryness, height=height, lake_soft=lake_soft,
-                     lake_ice=lake_ice, river_px=river_px, islands=islands))
+                     lake_ice=lake_ice, river_px=river_px, islands=islands, land_f=land_f, lake_f=lake_f))
     img = np.empty((oh, ow, 3), np.uint8)
     starts = list(range(0, oh, STRIP))
     # every strip of rows is painted on its own, so the work splits across processor
@@ -584,7 +616,7 @@ def _paint_strip(r0):
         hs = rs(height, ys)
         # the shore follows the same contour as the map's provinces (only a little roughened), so
         # province colours and the photo meet at the same coastline
-        a = smooth(hs + 0.003 * coast_noise, -0.0012, 0.0012)[..., None]
+        a = smooth(rs(c["land_f"], ys) + rs(c["lake_f"], ys) - 0.5 + 0.07 * coast_noise, -0.05, 0.05)[..., None]
         # shallows: a soft turquoise wash that thins out from the shore over a few kilometres
         shallow = (smooth(hs, -0.010, 0.0) * 0.32)[..., None]
         ocean = ocean * (1 - shallow) + np.array([44, 118, 128], np.float32) * shallow
@@ -593,7 +625,7 @@ def _paint_strip(r0):
         if ai is not None:
             out = out * (1 - ai) + landc_i * ai
         # lakes: a softened mask with the same fractal shoreline noise
-        la = smooth(rs(lake_soft, ys) - 0.5 + 0.22 * coast_noise, -0.06, 0.06)[..., None]
+        la = smooth(rs(c["lake_f"], ys) - 0.5 + 0.07 * coast_noise, -0.05, 0.05)[..., None]
         if la.max() > 0:
             lake_col = np.array([24, 64, 92], np.float32) * (1 + 0.05 * tn)[..., None]
             li = rs(lake_ice, ys)[..., None]
@@ -619,6 +651,7 @@ def main():
     elev16 = np.clip(terrain["elev"] + 11000, 0, 65535).astype(np.uint16)
     Image.fromarray(elev16).save(OUT / "elevation.png")
     Image.fromarray(terrain["biome"]).save(OUT / "biome.png")
+    Image.fromarray(terrain["biome_legacy"]).save(OUT / "biome_legacy.png")
     Image.fromarray(np.clip(np.round(terrain["temp"]) + 128, 0, 255).astype(np.uint8)).save(OUT / "temperature.png")
     Image.fromarray(np.clip(terrain["moist"] * 255, 0, 255).astype(np.uint8)).save(OUT / "moisture.png")
     Image.fromarray(terrain["river_class"]).save(OUT / "rivers.png")

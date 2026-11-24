@@ -55,7 +55,6 @@ function spark(values: number[], cls: string, label: string) {
 
 export class EconomyPanel {
   private el: HTMLElement;
-  private budgetTimer = 0;
   private taxTimer = 0;
   private editing = false;
   private draft: Budget | null = null;
@@ -77,6 +76,15 @@ export class EconomyPanel {
       const t = e.target as HTMLElement;
       if (t.closest('[data-econ="close"]')) this.close();
       if (t.closest('[data-econ="market"]')) document.dispatchEvent(new CustomEvent('open-market'));
+      const bf = t.closest<HTMLElement>('[data-bf]')?.dataset.bf;
+      if (bf && this.game.mine?.econ) {
+        const econ = this.game.mine.econ;
+        if (bf === 'finalize' && this.draft && this.total(this.draft) === 100) { this.actions.budget(this.draft); this.draft = null; }
+        else if (bf === 'even' && this.draft) this.draft = normalizeBudget({ [this.lastKey]: this.draft[this.lastKey] }, this.draft);
+        else if (bf === 'undo') this.draft = null;
+        this.showDraft(econ);
+        return;
+      }
       const at = t.closest<HTMLElement>('[data-build-at]');
       if (at) { this.actions.buildAt(Number(at.dataset.buildAt)); return; }
       const b = t.closest<HTMLElement>('[data-borders]');
@@ -112,23 +120,40 @@ export class EconomyPanel {
     if (!econ) return;
     if (t.dataset.budget) {
       const key = t.dataset.budget as keyof Budget;
-      this.draft = normalizeBudget({ [key]: Number(t.value) }, this.draft ?? econ.budget);
-      // keep the slider being dragged where the player put it; show the rebalanced shares
-      for (const k of BUDGET_KEYS) {
-        const input = this.el.querySelector<HTMLInputElement>(`input[data-budget="${k}"]`)!;
-        if (k !== key) input.value = String(this.draft[k]);
-        this.el.querySelector<HTMLElement>(`[data-budget-out="${k}"]`)!.textContent = this.shareText(econ, this.draft[k]);
-      }
-      clearTimeout(this.budgetTimer);
-      this.budgetTimer = window.setTimeout(() => {
-        if (this.draft) this.actions.budget(this.draft);
-        this.draft = null;
-      }, 400);
+      // each slider moves on its own; nothing is sent until the player finalizes the budget
+      this.draft = { ...(this.draft ?? econ.budget), [key]: Number(t.value) };
+      this.lastKey = key;
+      this.showDraft(econ);
     } else if (t.id === 'econTax') {
       this.el.querySelector<HTMLOutputElement>('#econTaxOut')!.value = `${t.value}%`;
       clearTimeout(this.taxTimer);
       this.taxTimer = window.setTimeout(() => this.actions.tax(Number(t.value)), 400);
     }
+  }
+
+  private lastKey: keyof Budget = 'military';
+  private total(b: Budget) { return BUDGET_KEYS.reduce((t, k) => t + b[k], 0); }
+
+  /** Show the sliders as drafted, and the bar that finalizes (or evens out, or undoes) the draft. */
+  private showDraft(econ: EconomyPrivate) {
+    const b = this.draft ?? econ.budget;
+    for (const k of BUDGET_KEYS) {
+      const input = this.el.querySelector<HTMLInputElement>(`input[data-budget="${k}"]`);
+      if (input && document.activeElement !== input) input.value = String(b[k]);
+      const out = this.el.querySelector<HTMLElement>(`[data-budget-out="${k}"]`);
+      if (out) out.textContent = this.shareText(econ, b[k]);
+    }
+    const bar = this.el.querySelector<HTMLElement>('.budget-final');
+    if (bar) bar.outerHTML = this.draftBar();
+  }
+
+  private draftBar() {
+    if (!this.draft) return '<div class="budget-final" hidden></div>';
+    const t = this.total(this.draft);
+    const msg = t === 100 ? 'Adds up to 100%' : t > 100 ? `${t}%: take ${t - 100}% off somewhere` : `${t}%: ${100 - t}% left to place`;
+    return `<div class="budget-final ${t === 100 ? 'ok' : 'off'}"><span class="mono">${msg}</span>
+      <button type="button" class="claim primary" data-bf="finalize" ${t === 100 ? '' : 'disabled'}>Finalize budget</button>
+      ${t === 100 ? '' : '<button type="button" class="claim" data-bf="even">Even out</button>'}<button type="button" class="link" data-bf="undo">Undo</button></div>`;
   }
 
   private shareText(e: EconomyPrivate, share: number) {
@@ -235,9 +260,10 @@ export class EconomyPanel {
           <p class="hint">Government spends ${money(e.spending)} a year (24% of GDP). Taxes above that pay down debt; below it, borrow. Taxes over 25% slow growth and cost stability.</p>
           ${BUDGET_KEYS.map((k) => `
             <div class="slider budget">
-              <label for="b-${k}" title="${BUDGET_NAMES[k][1]}"><span>${BUDGET_NAMES[k][0].toUpperCase()}</span><output data-budget-out="${k}">${this.shareText(e, e.budget[k])}</output></label>
-              <input id="b-${k}" type="range" min="0" max="70" value="${e.budget[k]}" data-budget="${k}">
+              <label for="b-${k}" title="${BUDGET_NAMES[k][1]}"><span>${BUDGET_NAMES[k][0].toUpperCase()}</span><output data-budget-out="${k}">${this.shareText(e, (this.draft ?? e.budget)[k])}</output></label>
+              <input id="b-${k}" type="range" min="0" max="70" value="${(this.draft ?? e.budget)[k]}" data-budget="${k}">
             </div>`).join('')}
+          ${this.draftBar()}
           <div class="kv mono">
             <span>Infrastructure</span><span>${(e.infra * 100).toFixed(0)}% of need</span>
             <span data-tip="${attr(tip('Interest rate', 'What lenders charge on your debt each year', ['Rises with debt and with turmoil', 'bad'], 'Pay down debt and keep stability up to borrow cheaply'))}">Interest rate</span><span>${((this.game.mine?.rate ?? 0.04) * 100).toFixed(1)}% a year${e.treasury < 0 ? ` · ${money((-e.treasury) * (this.game.mine?.rate ?? 0.04))}/yr` : ''}</span>

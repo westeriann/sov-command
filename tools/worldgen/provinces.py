@@ -188,7 +188,10 @@ def main():
     seed = meta["seed"]
     rng = np.random.default_rng(seed + 1000)
     elev = np.asarray(Image.open(WORLD / "elevation.png")).astype(np.int32) - 11000
-    biome = np.asarray(Image.open(WORLD / "biome.png"))
+    # provinces, names and nations come from the original biome rules (so they stay the same when the
+    # land's look changes); each province's terrain label comes from the current biomes
+    biome_now = np.asarray(Image.open(WORLD / "biome.png"))
+    biome = np.asarray(Image.open(WORLD / "biome_legacy.png")) if (WORLD / "biome_legacy.png").exists() else biome_now
     moist = np.asarray(Image.open(WORLD / "moisture.png")).astype(np.float32) / 255
     river_class = np.asarray(Image.open(WORLD / "rivers.png"))
     lake2d = biome == BIOMES.index("lake")
@@ -321,6 +324,9 @@ def main():
     bc_land = bc.copy()
     bc_land[:, BIOMES.index("lake")] *= 0.25          # a province is only "lake" if it is mostly water
     dominant = bc_land.argmax(1)
+    bc_now = np.bincount(labels * len(BIOMES) + biome_now.ravel(), weights=cell_km2, minlength=N * len(BIOMES)).reshape(N, len(BIOMES))
+    bc_now[:, BIOMES.index("lake")] *= 0.25
+    dominant_now = bc_now.argmax(1)
     share = bc / np.maximum(bc.sum(1, keepdims=True), 1)
 
     # label point: the cell furthest from the province's edge
@@ -475,7 +481,7 @@ def main():
         rec = {
             "id": pid, "name": prov_name[pid], "kind": "land" if is_land[pid] else "sea",
             "label": [round(float(lon[lx]), 3), round(float(lat[ly]), 3)],
-            "area": int(area[pid]), "terrain": BIOMES[dominant[pid]] if is_land[pid] else "ocean",
+            "area": int(area[pid]), "terrain": BIOMES[dominant_now[pid]] if is_land[pid] else "ocean",
             "elev": int(mean_elev[pid]), "adj": adj[pid],
         }
         if is_land[pid]:
@@ -554,8 +560,117 @@ def main():
                              "geometry": {"type": "LineString", "coordinates": np.stack([lons, lats], 1).tolist()}})
     (PUBLIC / "borders.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features},
                                                        separators=(",", ":")))
+    land_lines = write_fills(lab2d, is_land, lake2d, W, H, owner)
+    # every border that touches land is cut from the province outlines themselves, so the lines
+    # and the coloured fills can never disagree; only sea-zone lines (sea to sea) come from the grid
+    features = [f for f in features if f["properties"]["k"] == 3] + land_lines
+    (PUBLIC / "borders.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features},
+                                                       separators=(",", ":")))
     sizes = {p.name: f"{p.stat().st_size / 1e6:.1f} MB" for p in PUBLIC.glob("*") if p.suffix in (".json", ".bin", ".geojson")}
     log(f"wrote {len(features):,} border lines; {sizes}")
+
+
+def write_fills(lab2d, is_land, lake2d, W, H, owner):
+    """Every land province as a polygon traced along the 0.5 line of its own (lake-free) cells,
+    read bilinearly between cell centres: the same line the satellite photo's shore follows, so
+    the political colours meet the coast and lakes exactly, and neighbours share their edges.
+    Written to client/public/world/fills.geojson."""
+    from skimage import measure
+    P = 48
+    lines = []
+    lab = np.where(lake2d, 0, lab2d)
+    wide = np.concatenate([lab[:, -P:], lab, lab[:, :P]], axis=1)
+    ys, xs = np.nonzero(lab)
+    ids = lab[ys, xs]
+    order = np.argsort(ids, kind="stable")
+    ys, xs, ids = ys[order], xs[order], ids[order]
+    bounds = np.flatnonzero(np.diff(ids)) + 1
+    feats = []
+    for gy, gx, gid in zip(np.split(ys, bounds), np.split(xs, bounds), ids[np.concatenate([[0], bounds])]):
+        pid = int(gid)
+        if not len(gx) or not is_land[pid]:
+            continue
+        # the province's cells as one block, across the date line if it straddles it
+        if gx.max() - gx.min() > W // 2:
+            gx = np.where(gx < W // 2, gx + W, gx)
+        x0, x1 = gx.min() - 2, gx.max() + 3
+        y0, y1 = max(0, gy.min() - 2), min(H, gy.max() + 3)
+        if x1 - x0 > W // 2 + P:  # too wide to window (a huge province): skip, the raster draws it
+            continue
+        win = np.zeros((y1 - y0 + 2, x1 - x0 + 2), np.float32)
+        sub = wide[y0:y1, x0 + P:x1 + P] if x1 + P <= wide.shape[1] else np.take(lab, np.arange(x0, x1) % W, axis=1)[y0:y1]
+        win[1:-1, 1:-1] = sub == pid
+        rings = []
+        for c in measure.find_contours(win, 0.5):
+            if len(c) < 4:
+                continue
+            yy, xx = c[:, 0] - 1 + y0, c[:, 1] - 1 + x0
+            cut_lines(lines, pid, yy, xx, lab, is_land, owner, W, H)
+            area = 0.5 * np.sum(xx[:-1] * yy[1:] - xx[1:] * yy[:-1])
+            lon = np.round((xx + 0.5) / W * 360 - 180, 3)
+            lat = np.round(90 - (yy + 0.5) / H * 180, 3)
+            rings.append((area, np.stack([lon, lat], 1).tolist()))
+        if not rings:
+            continue
+        # outer rings wind one way and holes (lakes, enclaves) the other: the largest is outer
+        big = max(rings, key=lambda r: abs(r[0]))
+        sign = np.sign(big[0])
+        outers = [r for r in rings if np.sign(r[0]) == sign]
+        holes = [r for r in rings if np.sign(r[0]) != sign]
+        polys = [[o[1]] for o in outers]
+        for h in holes:
+            hx, hy = h[1][0]
+            for poly, o in zip(polys, outers):
+                if point_in(hx, hy, o[1]):
+                    poly.append(h[1])
+                    break
+        feats.append({"type": "Feature", "id": pid, "properties": {"p": pid},
+                      "geometry": {"type": "MultiPolygon", "coordinates": polys}})
+    (PUBLIC / "fills.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")))
+    log(f"wrote {len(feats):,} province outlines, {len(lines):,} border lines cut from them")
+    return lines
+
+
+def cut_lines(lines, pid, yy, xx, lab, is_land, owner, W, H):
+    """Split one outline of province pid into runs by what lies across it (another province,
+    the sea, a lake) and keep each run as a border line (once per pair: from the lower id)."""
+    n = len(yy)
+    def across(i):
+        my, mx = (yy[i] + yy[i + 1]) / 2, (xx[i] + xx[i + 1]) / 2
+        dy, dx = yy[i + 1] - yy[i], xx[i + 1] - xx[i]
+        ln = (dx * dx + dy * dy) ** 0.5 or 1
+        for sgn in (1, -1):
+            cy, cx = int(round(my + sgn * dx / ln * 0.5)), int(round(mx - sgn * dy / ln * 0.5))
+            q = int(lab[min(H - 1, max(0, cy)), cx % W])
+            if q != pid:
+                return q
+        return pid
+    seg_other = [across(i) for i in range(n - 1)]
+    start = 0
+    for i in range(1, n):
+        if i == n - 1 or seg_other[i] != seg_other[start]:
+            q = seg_other[start]
+            if q != pid and (q == 0 or not is_land[q] or pid < q):
+                if q == 0:
+                    kind = 2  # a lake shore
+                elif not is_land[q]:
+                    kind = 2  # the coast
+                else:
+                    kind = 1 if owner[pid] != owner[q] else 0
+                pts = np.stack([np.round((xx[start:i + 1] + 0.5) / W * 360 - 180, 3), np.round(90 - (yy[start:i + 1] + 0.5) / H * 180, 3)], 1)
+                if len(pts) >= 2:
+                    lines.append({"type": "Feature", "properties": {"k": kind, "a": int(pid), "b": int(q)},
+                                  "geometry": {"type": "LineString", "coordinates": pts.tolist()}})
+            start = i
+
+
+def point_in(x, y, ring):
+    inside = False
+    for i in range(len(ring)):
+        (x1, y1), (x2, y2) = ring[i], ring[i - 1]
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-12) + x1:
+            inside = not inside
+    return inside
 
 
 if __name__ == "__main__":

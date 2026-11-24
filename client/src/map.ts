@@ -506,11 +506,84 @@ export class GameMap {
   }
 
   setOverlayOpacity(v: number) {
+    this.opacity = v;
     if (this.map.getLayer('overlay')) this.map.setPaintProperty('overlay', 'raster-opacity', v);
+    if (this.map.getLayer('province-fill')) this.map.setPaintProperty('province-fill', 'fill-opacity', v);
+  }
+
+  private opacity = 0.72;
+  private fillsReady = false;
+  private fillColour = new Map<number, string>();
+
+  /**
+   * Province modes are drawn from each province's traced outline (world/fills.geojson), so the
+   * colours meet the coast and lakes exactly where the satellite photo does, stay sharp at any
+   * zoom, and recolour in place (no repainting a whole-world picture when a front line moves).
+   */
+  private addFills() {
+    if (this.map.getSource('fills')) return;
+    this.map.addSource('fills', { type: 'geojson', data: `${ASSET_BASE}world/fills.geojson`, promoteId: 'p', tolerance: 0.15 });
+    this.map.addLayer({
+      id: 'province-fill', type: 'fill', source: 'fills',
+      paint: { 'fill-color': ['coalesce', ['feature-state', 'c'], 'rgba(0,0,0,0)'] as never, 'fill-opacity': 0, 'fill-antialias': true },
+    }, this.map.getLayer('hillshade') ? 'hillshade' : 'graticule');
+    this.map.on('sourcedata', (e) => {
+      if (e.sourceId !== 'fills' || !e.isSourceLoaded || this.fillsReady) return;
+      this.fillsReady = true;
+      this.fillColour.clear();
+      this.setMode(this.mode, this.opacity);
+    });
+  }
+
+  /** The colour of each land province in a province-based mode (undefined: unpainted). */
+  private provinceColour(mode: MapMode): ((p: Province) => [number, number, number] | undefined) | null {
+    const owner = (p: Province) => (p.nation ? this.occupied.get(p.id) ?? p.nation : undefined);
+    if (mode === 'political') {
+      const colours = new Map<number, [number, number, number]>();
+      for (const n of this.pol.nations.values()) colours.set(n.id, hex(n.color));
+      return (p) => { const o = owner(p); return o !== undefined ? colours.get(o) : undefined; };
+    }
+    if (mode === 'diplomatic') return (p) => { const o = owner(p); return o !== undefined ? this.diplo.get(o) : undefined; };
+    if (mode === 'wealth') {
+      const logStops = WEALTH_STOPS.map(([v, c]) => [Math.log10(v), c] as [number, string]);
+      return (p) => { const o = owner(p); const v = o !== undefined ? this.wealth.get(o) : undefined; return v ? ramp(logStops, Math.log10(v)) : undefined; };
+    }
+    if (mode === 'resource') {
+      const key = this.resourceKey;
+      if (key === 'specialty') {
+        const cols = Object.fromEntries(Object.entries(SPECIALTY_COLOURS).map(([k, c]) => [k, hslRgb(c)]));
+        return (p) => { const sp = specialtyOf(p as never); return sp ? cols[sp] : undefined; };
+      }
+      return (p) => { const v = (p.res as Record<string, number> | undefined)?.[key] ?? 0; return v > 0 ? ramp(RESOURCE_STOPS, v) : undefined; };
+    }
+    return null;
+  }
+
+  /** Set each province's colour, touching only those that changed. */
+  private paintFills(colourOf: (p: Province) => [number, number, number] | undefined) {
+    for (const p of this.pol.provinces.values()) {
+      if (p.kind !== 'land') continue;
+      const c = colourOf(p);
+      const css = c ? `rgb(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])})` : '';
+      if (this.fillColour.get(p.id) === css) continue;
+      this.fillColour.set(p.id, css);
+      this.map.setFeatureState({ source: 'fills', id: p.id }, { c: css || null });
+    }
   }
 
   setMode(mode: MapMode, opacity: number) {
     this.mode = mode;
+    this.opacity = opacity;
+    this.addFills();
+    const byProvince = this.provinceColour(mode);
+    if (byProvince && this.fillsReady) {
+      if (this.map.getLayer('overlay')) this.map.removeLayer('overlay');
+      if (this.map.getSource('overlay')) this.map.removeSource('overlay');
+      this.paintFills(byProvince);
+      this.map.setPaintProperty('province-fill', 'fill-opacity', opacity);
+      return;
+    }
+    this.map.setPaintProperty('province-fill', 'fill-opacity', 0);
     if (this.map.getLayer('overlay')) this.map.removeLayer('overlay');
     if (this.map.getSource('overlay')) this.map.removeSource('overlay');
     if (mode === 'satellite') return;
@@ -532,7 +605,7 @@ export class GameMap {
   setDiplomatic(colours: Map<number, [number, number, number]>) { this.diplo = colours; this.refreshMode('diplomatic'); }
   private refreshMode(mode: MapMode) {
     this.overlays.delete(mode);
-    if (this.mode === mode && this.map.getLayer('overlay')) this.setMode(mode, this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+    if (this.mode === mode) this.setMode(mode, this.opacity);
   }
 
   /** Paint each land province by a value of its own. */
@@ -555,8 +628,8 @@ export class GameMap {
     if (same && !force) return;
     this.occupied = occ;
     this.overlays.delete('political');
-    if (this.mode === 'political' && this.map.getLayer('overlay')) {
-      this.setMode('political', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+    if (this.mode === 'political') {
+      this.setMode('political', this.opacity);
     }
   }
 
@@ -564,8 +637,8 @@ export class GameMap {
   setColorBlind(on: boolean) {
     WEALTH_STOPS.splice(0, WEALTH_STOPS.length, ...(on ? WEALTH_CB : WEALTH_DEFAULT).map((s) => [...s] as [number, string]));
     this.overlays.delete('wealth');
-    if (this.mode === 'wealth' && this.map.getLayer('overlay')) {
-      this.setMode('wealth', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+    if (this.mode === 'wealth') {
+      this.setMode('wealth', this.opacity);
     }
   }
 
@@ -573,7 +646,7 @@ export class GameMap {
   refreshNations(ids: number[]) {
     for (const l of this.nationLabels) if (ids.includes(l.id)) l.el.textContent = this.pol.nations.get(l.id)!.short.toUpperCase();
     this.overlays.delete('political');
-    if (this.mode === 'political' && this.map.getLayer('overlay')) this.setMode('political', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+    if (this.mode === 'political') this.setMode('political', this.opacity);
   }
 
   private borderData: { features: { properties: { k: number; a: number; b: number } }[] } | null = null;
@@ -597,8 +670,8 @@ export class GameMap {
   setWealth(values: Map<number, number>) {
     this.wealth = values;
     this.overlays.delete('wealth');
-    if (this.mode === 'wealth' && this.map.getLayer('overlay')) {
-      this.setMode('wealth', this.map.getPaintProperty('overlay', 'raster-opacity') as number);
+    if (this.mode === 'wealth') {
+      this.setMode('wealth', this.opacity);
     }
   }
 

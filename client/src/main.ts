@@ -1,3 +1,4 @@
+import { Capitals } from './capitals';
 import { Seas } from './sunlight';
 import { Shipping } from './shipping';
 import { ProvinceScenes, provinceMood } from './province-scenes';
@@ -532,6 +533,7 @@ let soundRef: Sound | null = null;
   // the sea up close (whitecaps, sea life); the day and night shading was removed: at game
   // speed the night side swept round the globe several times a minute and read as blinking
   new Seas(gameMap.map, pol);
+  new Capitals(gameMap.map, game, pol);
   // thunder you hear: lightning over your own land, a moment after the flash
   presence.onThunder = (lon, lat) => {
     if (game.mine && pol.provinceAt(lat, lon)?.nation === game.mine.id) setTimeout(() => sound.play('thunder'), 400 + Math.random() * 1600);
