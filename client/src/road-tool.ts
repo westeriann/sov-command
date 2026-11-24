@@ -86,10 +86,14 @@ export class RoadTool {
     this.renderRoads();
   }
 
+  private roadsKey = '';
   private renderRoads() {
     const src = this.map.getSource('roads') as GeoJSONSource | undefined;
     if (!src) return;
     const roads: RoadState[] = this.game.war.roads ?? [];
+    const key = roads.map((r) => `${r.id}${r.progress >= 1 ? 1 : 0}`).join(',');
+    if (key === this.roadsKey) return;
+    this.roadsKey = key;
     src.setData({ type: 'FeatureCollection', features: roads.map((r) => ({
       type: 'Feature', properties: { done: r.progress >= 1, id: r.id }, geometry: { type: 'LineString', coordinates: this.smooth(r.pts) },
     })) });

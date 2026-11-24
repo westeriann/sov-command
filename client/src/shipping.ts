@@ -40,7 +40,7 @@ export class Shipping {
     });
     game.on((c) => { if (c.has('war') || c.has('mine')) this.update(); });
     this.update();
-    window.setInterval(() => this.sail(), 120);
+    window.setInterval(() => this.sail(), 200);
   }
 
   /** The routed line for each of the game's lanes (worked out once per lane, then kept). */
@@ -50,15 +50,20 @@ export class Shipping {
     if (!line) {
       const stops = path.map((id) => this.pol.provinces.get(id)?.label).filter((p): p is Pt => !!p);
       line = [stops[0]];
-      for (let i = 1; i < stops.length; i++) line.push(...this.route(stops[i - 1], stops[i]).slice(1));
+      for (let i = 1; i < stops.length; i++) line.push(...this.hop(path[i - 1], path[i], stops[i - 1], stops[i]).slice(1));
       line = smooth(simplify(line));
       this.paths.set(key, line);
     }
     return line;
   }
 
+  private lanesKey = '';
   private update() {
     const me = this.game.mine?.id;
+    // only when the lanes changed: re-sending ~20,000 points every game tick made the map stutter at speed
+    const key = `${me}|${(this.game.war.lanes ?? []).map((l) => `${l.a}-${l.b}-${l.raided ? 1 : 0}-${l.path.length}`).join(',')}`;
+    if (key === this.lanesKey) return;
+    this.lanesKey = key;
     this.lanes = (this.game.war.lanes ?? []).map((l) => {
       const pts = this.lineFor(l.path);
       const len = [0];
@@ -124,14 +129,34 @@ export class Shipping {
     return [Math.floor(((p[0] + 180) / 360) * GW) % GW, Math.min(GH - 1, Math.max(0, Math.floor(((90 - p[1]) / 180) * GH)))];
   }
 
+  /** One leg between two sea zones, found once and shared by every lane that uses it. */
+  private hops = new Map<string, Pt[]>();
+  private hop(za: number, zb: number, a: Pt, b: Pt): Pt[] {
+    const key = `${za}>${zb}`;
+    let h = this.hops.get(key);
+    if (!h) {
+      const back = this.hops.get(`${zb}>${za}`);
+      h = back ? [...back].reverse() : this.route(a, b);
+      this.hops.set(key, h);
+    }
+    return h.map((p) => [p[0], p[1]] as Pt);
+  }
+
+  // search memory, kept between searches; a stamp marks which cells this search has touched
+  private cost = new Float32Array(GW * GH);
+  private prev = new Int32Array(GW * GH);
+  private seen = new Uint32Array(GW * GH);
+  private stamp = 0;
+
   /** The cheapest way by water from a to b on the sea grid (A*), as lon/lat points. */
   private route(a: Pt, b: Pt): Pt[] {
     const [ax, ay] = this.nearestSea(this.cell(a)), [bx, by] = this.nearestSea(this.cell(b));
     const start = ay * GW + ax, goal = by * GW + bx;
-    const cost = new Float32Array(GW * GH).fill(Infinity), prev = new Int32Array(GW * GH).fill(-1);
+    const cost = this.cost, prev = this.prev, seen = this.seen, stamp = ++this.stamp;
+    const costOf = (i: number) => (seen[i] === stamp ? cost[i] : Infinity);
     const h = (i: number) => { const x = i % GW, y = (i / GW) | 0; const dx = Math.min(Math.abs(x - bx), GW - Math.abs(x - bx)); return Math.hypot(dx, y - by); };
     const heap = new Heap();
-    cost[start] = 0; heap.push(start, h(start));
+    cost[start] = 0; prev[start] = -1; seen[start] = stamp; heap.push(start, h(start));
     let steps = 0;
     while (heap.size && steps++ < 400_000) {
       const i = heap.pop();
@@ -144,10 +169,10 @@ export class Shipping {
         const j = ny * GW + ((x + dx + GW) % GW);
         if (!this.sea[j]) continue;
         const c = cost[i] + (dx && dy ? 1.414 : 1) * (this.sea[j] === 2 ? 2.2 : 1);
-        if (c < cost[j]) { cost[j] = c; prev[j] = i; heap.push(j, c + h(j)); }
+        if (c < costOf(j)) { cost[j] = c; prev[j] = i; seen[j] = stamp; heap.push(j, c + h(j)); }
       }
     }
-    if (prev[goal] < 0 && goal !== start) return [a, b]; // no way by water found: keep the straight hop
+    if (seen[goal] !== stamp || (prev[goal] < 0 && goal !== start)) return [a, b]; // no way by water found: keep the straight hop
     const cells: number[] = [];
     for (let i = goal; i >= 0; i = prev[i]) { cells.push(i); if (i === start) break; }
     cells.reverse();

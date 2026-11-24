@@ -228,7 +228,15 @@ export class Hud {
     this.render();
     this.tick();
     setInterval(() => this.tick(), 1000);
-    game.on((c) => this.onGame(c));
+    // at high speed the game reports changes many times a second: gather them and redraw the
+    // panels at most four times a second, so the interface keeps pace without stalling the map
+    let pending: Set<Change> | null = null;
+    game.on((c) => {
+      if (c.has('error') || c.has('status') || c.has('mine')) { if (pending) { for (const k of pending) c.add(k); pending = null; } this.onGame(c); return; }
+      if (pending) { for (const k of c) pending.add(k); return; }
+      pending = new Set(c);
+      window.setTimeout(() => { const p = pending; pending = null; if (p) this.onGame(p); }, 250);
+    });
     this.onGame(new Set<Change>(['status', 'me', 'mine', 'nations', 'events', 'chat', 'online']));
   }
 

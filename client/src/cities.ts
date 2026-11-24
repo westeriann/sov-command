@@ -382,7 +382,12 @@ export class Cities {
     this.renderBuildings();
   }
 
+  private buildingsKey = '';
   private renderBuildings() {
+    // only when something changed: re-sending map data every game tick made the map stutter at speed
+    const key = Object.entries(this.game.war.buildings).map(([id, l]) => `${id}:${l.slice(0, SLOTS.length).map((b) => `${b.type}${b.progress >= 1 ? 1 : 0}`).join(',')}`).join(';');
+    if (key === this.buildingsKey) return;
+    this.buildingsKey = key;
     const features: GeoJSON.Feature[] = [];
     for (const [id, list] of Object.entries(this.game.war.buildings)) {
       const p: Province | undefined = this.pol.provinces.get(Number(id));
