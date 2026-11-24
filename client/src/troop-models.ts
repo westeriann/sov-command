@@ -54,7 +54,43 @@ export function troopParade(entries: TroopEntry[], domain: 'land' | 'sea' | 'air
       <span class="troop-tip"></span>
     </button>`).join('')}`;
   updateParade(el, entries);
+  animate(el, domain);
   return el;
+}
+
+/**
+ * The models' motion, by script rather than CSS: the window redraws (and re-attaches this
+ * element) every game tick, which restarts CSS animations, so the entrance would replay
+ * forever. Script animations keep running through that.
+ */
+function animate(el: HTMLElement, domain: 'land' | 'sea' | 'air') {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !el.animate) return;
+  const ease = 'cubic-bezier(0.2, 0.7, 0.25, 1)';
+  el.querySelectorAll<HTMLElement>('.troop').forEach((t, i) => {
+    const model = t.querySelector<SVGGElement>('.model');
+    if (!model) return;
+    const go = (target: Element | null | undefined, frames: Keyframe[], o: KeyframeAnimationOptions) => { if (target) target.animate(frames, { fill: 'both', ...o }); };
+    const lag = i * 280;
+    if (domain === 'air') {
+      go(model, [{ transform: 'translate(-140%, 14px)', opacity: 0 }, { opacity: 1, offset: 0.3 }, { transform: 'none', opacity: 1 }], { duration: 1800, delay: lag, easing: ease });
+      go(model.querySelector('.jet, .heli'), [{ transform: 'translateY(0)' }, { transform: 'translateY(-4px)' }, { transform: 'translateY(0)' }], { duration: 3400, delay: lag + 1800, iterations: Infinity, easing: 'ease-in-out' });
+    } else if (domain === 'sea') {
+      go(model, [{ transform: 'translateX(-130%)', opacity: 0 }, { opacity: 1, offset: 0.25 }, { transform: 'none', opacity: 1 }], { duration: 2200, delay: lag, easing: ease });
+      go(model.querySelector('.ship'), [{ transform: 'translateY(0) rotate(0)' }, { transform: 'translateY(2px) rotate(-1deg)' }, { transform: 'translateY(0) rotate(0)' }], { duration: 4200, delay: lag + 2200, iterations: Infinity, easing: 'ease-in-out' });
+    } else {
+      go(model, [{ transform: 'translateX(-130%)', opacity: 0 }, { opacity: 1, offset: 0.25 }, { transform: 'none', opacity: 1 }], { duration: 1700, delay: lag, easing: ease });
+    }
+    // wheels turn while rolling in, then stop; soldiers stride in, then stand
+    model.querySelectorAll('.wheel').forEach((w) => go(w, [{ transform: 'rotate(0)' }, { transform: 'rotate(360deg)' }], { duration: 450, delay: lag, iterations: 4 }));
+    model.querySelectorAll('.leg-a, .leg-b').forEach((l, k) => go(l, [{ transform: 'rotate(-16deg)' }, { transform: 'rotate(16deg)' }], { duration: 450, delay: lag, iterations: 4, direction: k % 2 ? 'alternate-reverse' : 'alternate' }));
+    // idle: turrets traverse, guns lift, rotors and propellers turn, the periscope rises, engines glow
+    model.querySelectorAll('.turret').forEach((g, k) => go(g, [{ transform: 'rotate(0)' }, { transform: 'rotate(-4deg)', offset: 0.3 }, { transform: 'rotate(3deg)', offset: 0.6 }, { transform: 'rotate(0)' }], { duration: 6000, delay: lag + 1800, iterations: Infinity, easing: 'ease-in-out', direction: k ? 'reverse' : 'normal' }));
+    model.querySelectorAll('.barrel').forEach((g) => go(g, [{ transform: 'rotate(0)' }, { transform: 'rotate(-7deg)', offset: 0.4 }, { transform: 'rotate(-2deg)', offset: 0.7 }, { transform: 'rotate(0)' }], { duration: 4500, delay: lag + 2200, iterations: Infinity, easing: 'ease-in-out' }));
+    model.querySelectorAll('.rotor').forEach((g) => go(g, [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0.15)' }, { transform: 'scaleX(1)' }], { duration: 350, iterations: Infinity }));
+    model.querySelectorAll('.tail-rotor, .prop').forEach((g) => go(g, [{ transform: 'scaleY(1)' }, { transform: 'scaleY(0.15)' }, { transform: 'scaleY(1)' }], { duration: 180, iterations: Infinity }));
+    model.querySelectorAll('.periscope').forEach((g) => go(g, [{ transform: 'translateY(6px)' }, { transform: 'translateY(0)', offset: 0.3 }, { transform: 'translateY(0)', offset: 0.7 }, { transform: 'translateY(6px)' }], { duration: 5000, delay: 2400, iterations: Infinity, easing: 'ease-in-out' }));
+    model.querySelectorAll('.burner').forEach((g) => go(g, [{ opacity: 0.55 }, { opacity: 1 }], { duration: 250, iterations: Infinity, direction: 'alternate' }));
+  });
 }
 
 export function updateParade(el: HTMLElement, entries: TroopEntry[]) {
