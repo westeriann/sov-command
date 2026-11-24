@@ -54,7 +54,10 @@ const CHAPTERS: Chapter[] = [
         <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> move the camera (hold <kbd>Shift</kbd> to go faster); drag with the left mouse button to turn the globe; the wheel zooms.</li>
         <li>Right-drag (or <kbd>Ctrl</kbd>-drag) tilts and turns the view. The camera also leans over the map as you zoom in: switch that off with ${L('view:tilt', 'Tilt with zoom')}.</li>
         <li>${L('view:relief', 'Relief (3D)')} raises or flattens the mountains; ${L('view:models3d', '3D models')} shows troops, ships, aircraft, cities and buildings when zoomed in.</li>
-        <li>Click a province or sea zone to inspect it; right-click for a menu of what you can do there. Hover over a foreign nation to see what it thinks of you.</li>
+        <li>Click a province or sea zone to inspect it; right-click for a menu of what you can do there. Hover over a foreign nation to see what it thinks of you. Each place sounds and stirs a little when you click it: a city's traffic, farm animals, forest birds, mountain wind, waves and gulls.</li>
+        <li>Lost? The round button by the MAP arrow (or the <kbd>Home</kbd> key) flies you back to your capital.</li>
+        <li>Clicking a nation's name in any window opens a small card about it (country, economy, military, diplomacy) with a button to zoom to it.</li>
+        <li>${L('view:sunlight', 'Sunlight and night')}: the sun moves with the game clock; the night side dims and the sea glints under the sun. The flat map (Globe or Flat, at the bottom of the map drawer) stays centred on the world.</li>
         <li>Map modes (the MAP arrow, bottom left) include <b>Resources</b> (pick a resource, or province specialties) and <b>Diplomatic</b> (every nation coloured by how it stands with you, with a filter for allies, trade partners, pacts, truces, wars, embargoes, claims and opinion).</li>
       </ul>
       <h3>Map modes</h3>
@@ -65,6 +68,7 @@ const CHAPTERS: Chapter[] = [
         <li>${L('mode:climate', 'Temperature')}: mean temperature, hot deserts to frozen poles; mountain tops are colder.</li>
         <li>${L('mode:lights', 'Night lights')}: the planet at night. Cities glow by how well their nation is powered; blackouts go dark.</li>
       </ul>
+      <p>${L('view:opacity', 'Colour strength')} sets how strongly a map mode is painted over the satellite photo; each mode remembers its own. The map drawer's sections fold away to save space.</p>
       <p>Borders follow rivers and ridges where they can; rivers slow armies that cross them and help defenders.</p>`,
   },
   {
@@ -74,6 +78,9 @@ const CHAPTERS: Chapter[] = [
       <p>By default: treasury (with the yearly surplus or deficit), GDP and growth, stability, political capital, manpower and equipment, war (with your worst war score), and research. Click a figure to open the window where you change it; <kbd>Ctrl</kbd>-click shrinks it to a tab. Choose and order the figures in Options. Fuel, munitions and electricity appear as warning icons when they run low.</p>
       <h3>Lenses</h3>
       <p>The <b>Military</b> and <b>Eco</b> buttons in the bottom bar open compact quick views: wars and scores, forces, production with quick recruit buttons; or treasury, taxes, budget, power and construction. Each gives advice on what is needed and what to build next, with links straight to the place to act.</p>
+      <h3>Building and roads</h3>
+      <p>In the Eco lens, <b>Build…</b> sets the lens aside: click any of your provinces and a menu by the click lists what can be built there, with cost and time. <b>Back</b> (or <kbd>Esc</kbd>) returns to the lens.</p>
+      <p><b>Roads…</b> lays roads: press on one of your provinces and drag across your land. With <b>Snap on</b> the road runs through province centres and cities; with it off it follows your pointer. Drag back to shorten it; release to see the cost and time, then build. A road costs $0.35bn a stretch and takes 8 days plus 3 a stretch (three at a time). Land troops move 40% faster along a finished road.</p>
       <h3>Windows</h3>
       <p>Drag any window's edges or corners to resize it; it remembers its size. Double-click its title to reset it. Charts sit in a grid at half size: click one to enlarge it.</p>
       <h3>Advisers (single player)</h3>
@@ -225,6 +232,7 @@ const CHAPTERS: Chapter[] = [
       <ul>
         <li><b>Seasons</b>: each game year has four (opposite in the two hemispheres). Harvests peak in autumn; winter is hard on armies in cold lands.</li>
         <li><b>Weather</b>: storms ground aircraft and batter ships; droughts and hurricanes strike.</li>
+        <li><b>Shipping</b>: every sea trade agreement sails a lane between the two nations' ports, with merchant ships on it. An enemy warship anywhere on a lane cuts that trade, only for the nations it is at war with; the lane turns red and the ships leave it.</li>
         <li><b>World events</b>: crashes, pandemics, oil shocks and tech booms hit every nation.</li>
         <li><b>Climate</b>: the world's coal and gas warm the planet; low coasts flood and farmland moves toward the poles.</li>
         <li><b>Civil wars</b>: deeply unstable nations can split apart.</li>

@@ -1,5 +1,8 @@
 # Backlog: testing round after the Orbital build
 
+Status: every item below has been worked through (see the git log on this branch); the notes
+at the end record what was learnt about the globe.
+
 Reported while testing the installers from the Orbital redesign build. Map work is held
 until the go-ahead; interface work can go first.
 
@@ -87,6 +90,31 @@ until the go-ahead; interface work can go first.
 28. **Province vignettes**: the short scenes from item 8 drawn on the map, fading in and out.
 
 ## Globe notes (keep for any rebuild of the planet)
+
+Causes found and fixed:
+
+- **Blackouts while zooming**: after each zoom the game called `map.setTerrain()` to change the
+  mountain exaggeration. That destroys MapLibre's terrain and its render-to-texture targets, so
+  everything drawn through them went black for a frame. Fix: change the exaggeration on the live
+  terrain object (`setExaggeration` in `client/src/map.ts`). Never call `setTerrain` while moving.
+- **Pale line along every coast**: the relief tiles had land standing up at the shore against a
+  flattened sea; raised by up to 14x exaggeration it became a wall the photo was stretched down,
+  and the hillshade lit it as a bright line (fading with zoom because hillshade exaggeration falls
+  with zoom). Fix: land ramps up from the shore over ~5 grid cells in `tools/worldgen/dem.py`,
+  exaggeration capped at 8x, gentler hillshade.
+- **Blurry mountains**: relief tiles stopped at zoom 5 from a 4096-wide grid. Now zoom 6, with
+  ridged detail proportional to height (built a band of tiles at a time to fit in memory).
+- **Province colours vs photo coast**: the photo's shore was the height contour plus strong noise,
+  the provinces a nearest-cell grid. Now the photo's shore follows the contour with light noise,
+  and the province colours fade out along a bilinear contour of the same grid.
+- **Shallow-water blobs**: water colour came from depth blurred only ~1.6 cells; now 3.2 cells,
+  softer shelf colours and a thin output-resolution shore wash.
+- **Poles**: the style's background layer shows on the globe only where no tiles are (the poles):
+  it is ice-coloured on the globe and switched to dark space on the flat map.
+- **Diplomacy globe strobing**: its sun was recomputed once a second from a clock running a day
+  every ten seconds; it now moves every frame, with a softer night side.
+
+Earlier notes:
 
 Problems seen in the tested build, with what is known about each:
 
