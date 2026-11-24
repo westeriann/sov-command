@@ -14,6 +14,8 @@ export interface MenuActions {
   manual(): void;
   pause(on: boolean): void;
   music: { level: number; on: boolean; setLevel(v: number): void; toggle(): void; play(): void; pause(): void };
+  /** Sound-effect volumes by group: interface, effects, ambience. */
+  sfx?: { groups: [string, string][]; get(g: string): number; set(g: string, v: number): void };
   /** Shared worlds: who leads what, to pick a nation from the menu. */
   lobby?: () => { id: number; name: string; player?: string; online?: boolean; gdp: number }[];
   claim?: (id: number) => void;
@@ -235,6 +237,10 @@ export class MainMenu {
       else { c.value = t.value; c.dispatchEvent(new Event('input', { bubbles: true })); c.dispatchEvent(new Event('change', { bubbles: true })); }
       const out = t.parentElement?.querySelector('output');
       if (out) out.textContent = `${t.value}%`;
+    } else if (t.dataset.sfx && this.a.sfx) {
+      this.a.sfx.set(t.dataset.sfx, Number(t.value) / 100);
+      const out = t.parentElement?.querySelector('output');
+      if (out) out.textContent = `${t.value}%`;
     } else if (t.id === 'mVol') {
       this.a.music.setLevel(Number(t.value) / 100);
       const out = t.parentElement?.querySelector('output');
@@ -345,6 +351,7 @@ export class MainMenu {
         </section>
         <section><span class="label">SOUND</span>
           <button type="button" class="claim${sound ? ' primary' : ''}" data-m="sound">Sound effects: ${sound ? 'on' : 'off'}</button>
+          ${(this.a.sfx?.groups ?? []).map(([g, label]) => { const v = Math.round((this.a.sfx!.get(g)) * 100); return `<div class="slider"><label for="sfx-${g}"><span>${label.toUpperCase()}</span><output>${v}%</output></label><input id="sfx-${g}" type="range" min="0" max="100" value="${v}" data-sfx="${g}"></div>`; }).join('')}
           <button type="button" class="claim${this.a.music.on ? ' primary' : ''}" data-m="music">Music: ${this.a.music.on ? 'playing' : 'off'}</button>
           <div class="slider"><label><span>MUSIC VOLUME</span><output>${vol}%</output></label><input id="mVol" type="range" min="0" max="100" value="${vol}"></div>
           <p class="hint">Add your own tracks from the ♪ player in the top bar.</p>
@@ -386,6 +393,8 @@ export class MainMenu {
         <li>Typefaces: Oswald, Barlow and IBM Plex Mono (SIL Open Font Licence)</li>
         <li>Desktop app: Electron (MIT licence)</li>
         <li>Soundtrack: composed live in your browser by the game's own synthesiser</li>
+        <li>Sound effects: Kenney (kenney.nl, CC0); NASA, Kennedy Space Center (rocket liftoff, public domain); US civil-defense siren (Wikimedia Commons, public domain); OpenGameArt contributors qubodup, Bobjt, Cokabear, rockseller, WolfTech and others (CC0)</li>
+        <li>Sound effects with credit: "Rubber seal dabbed on ink pad" by Subhashish Panigrahi (CC BY 3.0); "Sonic boom" by AirMan (CC BY 3.0); "Free Crowd Cheering Sounds" by Gregor Quendel (CC BY 4.0); "Light Machine Gun" by KuraiWolf (CC BY 4.0); "Jet Engine Takeoff" by dklon (CC BY 3.0); "Rain and Thunder Loop" by Pompei2 (CC BY 3.0). Trimmed and levelled for the game.</li>
       </ul>
       <div class="menu-row"><button type="button" class="claim" data-m="back">Back</button></div>`;
   }

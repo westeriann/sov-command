@@ -35,12 +35,13 @@ export function reveal(win: HTMLElement, selector: string) {
   window.setTimeout(() => el.classList.remove('glow'), 2600);
 }
 
-export function installScreens(root: HTMLElement, defs: { sel: string; make: () => Piece }[]) {
+export function installScreens(root: HTMLElement, defs: { sel: string; make: () => Piece }[], onOpen?: (open: boolean) => void) {
   const wired = new WeakSet<HTMLElement>();
   const stages = new WeakMap<HTMLElement, { stage: HTMLElement; piece: Piece }>();
 
   const syncOpen = () => {
     const open = [...root.querySelectorAll<HTMLElement>('.econ-window.screen')].some((w) => !w.hidden);
+    if (open !== document.body.classList.contains('screen-open')) onOpen?.(open);
     document.body.classList.toggle('screen-open', open);
   };
 

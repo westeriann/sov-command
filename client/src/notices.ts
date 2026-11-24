@@ -119,9 +119,22 @@ export class Notices {
     if (history) { this.render(); return; }
     if (!this.open) this.unread += fresh.length;
     const worst = fresh.some((n) => n.level === 'urgent') ? 'urgent' : fresh.some((n) => n.level === 'important') ? 'important' : 'info';
-    const cue: Cue = worst === 'urgent' ? 'urgent'
-      : fresh.some((n) => n.kind === 'war') ? 'war' : fresh.some((n) => n.kind === 'peace') ? 'peace'
-      : fresh.some((n) => n.kind === 'research') ? 'research' : 'notice';
+    const has = (re: RegExp) => fresh.some((n) => re.test(n.text));
+    const cue: Cue = has(/nuclear|warhead/i) ? 'nuke'
+      : has(/missiles? (strike|launch)|launches a satellite|satellite (launched|in orbit)/i) ? 'missile_launch'
+      : worst === 'urgent' ? 'urgent'
+      : fresh.some((n) => n.kind === 'war') ? 'war'
+      : has(/bombers|air strike|airstrike/i) ? 'air_strike'
+      : has(/sabotage|destroyed|explosion/i) ? 'explosion'
+      : fresh.some((n) => n.kind === 'peace') || has(/truce|ceasefire/i) ? 'peace'
+      : has(/election|wins the vote|coalition/i) ? 'election'
+      : fresh.some((n) => n.kind === 'research') ? 'research'
+      : has(/trade agreement|supply contract|contract/i) ? 'deal_signed'
+      : has(/(is|are) (built|complete)|finished building|construction/i) ? 'build_done'
+      : has(/(is|are) ready|trained|joins your|raised/i) ? 'recruit_done'
+      : has(/price|shortage|embargo|market/i) ? 'market_alert'
+      : has(/report|agents|spy|envoy|intelligence/i) ? 'dispatch'
+      : worst === 'important' ? 'alert' : 'notice';
     this.sound.play(cue);
     const top = fresh.find((n) => n.level === worst)!;
     if (worst !== 'info') this.notify(worst === 'urgent' ? 'Sovereign Command: URGENT' : 'Sovereign Command', top.text);

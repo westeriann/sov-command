@@ -16,11 +16,12 @@ mkdirSync(out, { recursive: true });
 for (const f of readdirSync(src)) if (f !== 'tiles' && f !== 'dem') copyFileSync(join(src, f), join(out, f));
 execFileSync(process.execPath, [join(root, 'tools/pack-tiles.mjs'), join(src, 'tiles'), out], { stdio: 'inherit' });
 if (existsSync(join(src, 'dem'))) execFileSync(process.execPath, [join(root, 'tools/pack-tiles.mjs'), join(src, 'dem'), out, 'dem'], { stdio: 'inherit' });
-// the music folder (playlist.json and any tracks listed in it) ships beside the game
-const music = join(root, 'client/public/music');
-if (existsSync(music)) {
-  mkdirSync(join(root, 'client/dist-offline/music'), { recursive: true });
-  for (const f of readdirSync(music)) copyFileSync(join(music, f), join(root, 'client/dist-offline/music', f));
+// the music (playlist.json and any tracks listed in it), sound effects and brand images ship beside the game
+for (const dir of ['music', 'sfx', 'brand']) {
+  const from = join(root, 'client/public', dir);
+  if (!existsSync(from)) continue;
+  mkdirSync(join(root, 'client/dist-offline', dir), { recursive: true });
+  for (const f of readdirSync(from)) copyFileSync(join(from, f), join(root, 'client/dist-offline', dir, f));
 }
 // some static hosts serve only known file types: binary data goes out as .bin.wasm (raw bytes either way)
 for (const f of readdirSync(out)) if (f.endsWith('.bin')) renameSync(join(out, f), join(out, `${f}.wasm`));

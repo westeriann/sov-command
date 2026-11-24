@@ -1,3 +1,4 @@
+import { domainOf } from '../../shared/military';
 import type { AuthResponse } from '../../shared/protocol';
 import { DiplomacyPanel } from './diplomacy-panel';
 import { ASSET_BASE, OFFLINE } from './config';
@@ -12,7 +13,7 @@ import { stableClicks } from './stable-clicks';
 import { ResearchPanel } from './research-panel';
 import { RankingsPanel } from './rankings-panel';
 import { Lobby } from './lobby';
-import { Sound } from './sound';
+import { Sound, SOUND_GROUPS, type Group } from './sound';
 import { Tutorial } from './tutorial';
 import { installTooltips } from './tooltip';
 import { Notices } from './notices';
@@ -77,6 +78,7 @@ async function start() {
   let hudRef: Hud | null = null;
   let menuManual = () => {};
   let musicRef: MusicPlayer | null = null;
+let soundRef: Sound | null = null;
   const mainMenu = new MainMenu(hudRoot, {
     offline: OFFLINE, desktop,
     continue: () => menuContinue(), newGame: (iron) => menuNewGame(iron), manual: () => menuManual(), pause: (on) => menuPause(on),
@@ -84,6 +86,7 @@ async function start() {
     lobby: () => (gameRef ? [...gameRef.nations.values()].filter((n) => !n.annexedBy).map((n) => ({ id: n.id, name: polRef?.nations.get(n.id)?.name ?? `Nation ${n.id}`, player: n.player, online: n.online, gdp: gameRef!.economy.get(n.id)?.gdp ?? 0 })) : []),
     claim: (id) => connRef?.claimNation(id),
     mineId: () => gameRef?.mine?.id,
+    sfx: { groups: SOUND_GROUPS, get: (g) => soundRef?.levels[g as Group] ?? 0.7, set: (g, v) => soundRef?.setLevel(g as Group, v) },
     topbar: { items: TOPBAR_ITEMS, defaults: TOPBAR_DEFAULT, get: () => topbarChoice(), set: (ids) => hudRef?.setTopbar(ids) },
     music: {
       get level() { return musicRef?.level ?? 0.45; }, get on() { return musicRef?.on ?? false; },
@@ -136,6 +139,7 @@ async function start() {
   let login: LoginDialog;
 
   const sound = new Sound();
+  soundRef = sound;
   let alerts = false;
   try { alerts = localStorage.getItem('sov.alerts') === 'on'; } catch { /* storage blocked */ }
   let tutorial: Tutorial | null = null;
@@ -324,7 +328,7 @@ async function start() {
     { sel: '.research-window', make: () => researchPiece(game) },
     { sel: '.rankings-window', make: () => rankingsPiece(game, pol) },
     { sel: '.records-window', make: () => recordsPiece(game, pol) },
-  ]));
+  ], (open) => sound.play(open ? 'open' : 'close')));
   const warRoom = new WarRoom(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const eventDialog = new EventDialog(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   eventDialog.onShow = () => sound.play('alert');
@@ -454,7 +458,16 @@ async function start() {
     <dt>K</dt><dd>Rankings</dd><dt>M</dt><dd>Map (close windows)</dd><dt>C</dt><dd>Chat</dd><dt>G</dt><dd>Guide</dd><dt>I</dt><dd>Manual</dd>
     <dt>Q</dt><dd>Selected units: give an order, then click a province</dd><dt>H T L U</dt><dd>Selected units: halt, go to, appoint a general, stand down aircraft</dd><dt>Tab</dt><dd>Next army, fleet or air wing (Shift: back)</dd><dt>Esc</dt><dd>Cancel an order, close windows, clear selection</dd><dt>Arrows, + −</dt><dd>Pan and zoom (map focused)</dd><dt>?</dt><dd>This list</dd></dl>`;
   hudRoot.appendChild(shortcuts);
-  hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.module, .claim, [data-r], [data-d]')) sound.play('click'); });
+  hudRoot.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('[role="tab"], .mk-tabs button, .seg button, [data-lens]')) sound.play('tab');
+    else if (t.closest('.claim.primary, .chip, .col, .tick')) sound.play('confirm');
+    else if (t.closest('.module, .claim, [data-r], [data-d], .piece button')) sound.play('click');
+  });
+  hudRoot.addEventListener('change', (e) => { if ((e.target as HTMLInputElement).type === 'checkbox') sound.play('toggle'); });
+  // a press on a button that cannot be used right now
+  hudRoot.addEventListener('pointerdown', (e) => { if ((e.target as HTMLElement).closest('button:disabled, .claim[disabled]')) sound.play('error'); });
+  hudRoot.addEventListener('pointerover', (e) => { if ((e.target as HTMLElement).closest('.left .module')) sound.play('hover'); });
   // phones: picking a module closes the menu sheet
   hudRoot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('[data-module]')) document.body.classList.remove('show-left'); });
   tutorial = new Tutorial(hudRoot);
@@ -492,6 +505,7 @@ async function start() {
     if (game.mine && pol.provinceAt(lat, lon)?.nation === game.mine.id) setTimeout(() => sound.play('thunder'), 400 + Math.random() * 1600);
   };
   game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
+  game.on((c) => { if (c.has('mine') || c.has('status')) sound.loop('amb_command', game.mine ? 0.6 : 0); });
   gameMap.setMode('political', 0.72);
   gameMap.addNationLabels();
   /** Browser notifications while the tab is in the background (opt-in). */
@@ -517,7 +531,22 @@ async function start() {
       gameMap.setWealth(new Map([...game.economy.values()].map((e) => [e.id, e.gdppc])));
     }
     // news about our own nation: the Notices list plays its sounds and raises alerts
-    if (c.has('war') && game.mine && game.war.battles.some((p) => game.units.some((u) => u.nation === game.mine!.id && u.province === p))) sound.play('battle');
+    if (c.has('war') && game.mine) {
+      const me = game.mine.id;
+      const mineAt = game.war.battles.filter((p) => game.units.some((u) => u.nation === me && u.province === p));
+      if (mineAt.length) {
+        const here = game.units.filter((u) => u.nation === me && mineAt.includes(u.province));
+        if (here.some((u) => domainOf(u.type) === 'air')) sound.play('air_strike');
+        if (mineAt.some((p) => pol.provinces.get(p)?.kind === 'sea')) sound.play('naval_gun');
+        if (mineAt.some((p) => pol.provinces.get(p)?.kind === 'land')) { sound.play('battle'); sound.play('smallarms', 0.7); }
+      } else if (game.war.battles.length && game.war.wars.some((w) => w.a === me || w.b === me)) sound.play('distant_blast', 0.5);
+      // unrest in your land: the crowd murmurs under the game
+      const unrest = Object.entries(game.war.unrest).filter(([p, v]) => v > 30 && pol.provinces.get(Number(p))?.nation === me).length;
+      sound.loop('amb_crowd', unrest ? Math.min(0.9, 0.35 + unrest * 0.08) : 0);
+      // rain while a storm sits over your land
+      const myStorm = game.war.storms.some((s) => pol.provinceAt(s.lat, s.lon)?.nation === me);
+      sound.loop('amb_rain', myStorm ? 0.8 : 0);
+    }
     if (c.has('war')) {
       const moved = pol.transfer(game.war.owners); // borders changed by treaty
       if (moved) void gameMap.refreshBorders();
@@ -591,6 +620,8 @@ async function start() {
     const n = forces?.selected.size ?? 0;
     const r = forces?.preview(p.id);
     forces?.orderAt(p.id);
+    sound.play('order_ack');
+    if (game.units.some((u) => forces?.selected.has(u.id) && (u.type === 'special_forces' || u.type === 'marines'))) sound.play('helicopter', 0.6);
     hud.toast(r ? `${n} unit${n > 1 ? 's' : ''} ordered to ${p.name} · about ${Math.max(1, Math.round(r.days))} days` : `Orders sent to ${n} unit${n > 1 ? 's' : ''}: ${p.name}`);
   };
   map.on('contextmenu', (e) => {
