@@ -96,6 +96,10 @@ until the go-ahead; interface work can go first.
   redrawing windows and map layers: political repaints, lanes, buildings, labels) against
   camera movement; likely too much is redone on every update instead of throttled.
 
+- **Poles**: still not ice caps. A pale background showed through loading tiles, so the
+  background is deep-sea blue; real caps need geometry past 85 degrees (a custom layer).
+- **Arctic sea ice edge**: the painted sea ice ends in a sharp oval; soften it in the generator.
+
 ## Globe notes (keep for any rebuild of the planet)
 
 Causes found and fixed:
