@@ -237,7 +237,8 @@ export class GameMap {
         {
           id: 'sea-zones', type: 'line', source: 'borders', minzoom: 2.5,
           filter: ['==', ['get', 'k'], K_SEA],
-          paint: { 'line-color': '#7fa6b8', 'line-opacity': zoomFade(2.5, 4, 0, 0.25), 'line-width': 0.7, 'line-dasharray': [3, 3] },
+          // sea zones: barely there, so they are not mistaken for shipping lanes
+          paint: { 'line-color': '#7fa6b8', 'line-opacity': zoomFade(3, 4.5, 0, 0.12), 'line-width': 0.6, 'line-dasharray': [1, 4] },
         },
         {
           id: 'province-borders', type: 'line', source: 'borders', minzoom: 2,

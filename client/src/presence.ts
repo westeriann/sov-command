@@ -29,6 +29,8 @@ export class Presence {
     this.render();
   }
 
+  /** Set once Shipping draws the lanes along routed paths through the water. */
+  routedLanes = false;
   private winterNorth: boolean | null = null;
 
   private renderWinter() {
@@ -52,7 +54,7 @@ export class Presence {
     })).filter((f) => f.geometry.coordinates.length > 1);
     this.storms = w.storms ?? [];
     this.drawStorms();
-    (this.map.getSource('lanes') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: lanes });
+    if (!this.routedLanes) (this.map.getSource('lanes') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: lanes });
   }
 
   // ---- storms -------------------------------------------------------------------------

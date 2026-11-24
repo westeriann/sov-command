@@ -1,3 +1,4 @@
+import { Shipping } from './shipping';
 import { ProvinceScenes, provinceMood } from './province-scenes';
 import { RoadTool } from './road-tool';
 import { BuildMode } from './build-mode';
@@ -525,6 +526,8 @@ let soundRef: Sound | null = null;
   const cities = new Cities(gameMap.map, pol, game);
   citiesRef = cities;
   const presence = new Presence(gameMap.map, game, pol);
+  presence.routedLanes = true;
+  new Shipping(gameMap.map, game, pol);
   // thunder you hear: lightning over your own land, a moment after the flash
   presence.onThunder = (lon, lat) => {
     if (game.mine && pol.provinceAt(lat, lon)?.nation === game.mine.id) setTimeout(() => sound.play('thunder'), 400 + Math.random() * 1600);
