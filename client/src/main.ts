@@ -1,3 +1,4 @@
+import { NationCard } from './nation-card';
 import { art } from './art-icons';
 import { domainOf } from '../../shared/military';
 import type { AuthResponse } from '../../shared/protocol';
@@ -339,12 +340,26 @@ let soundRef: Sound | null = null;
   // every data-go link outside the manual (province panel, market, diplomacy...) goes through the same router
   hudRoot.addEventListener('click', (e) => {
     const l = (e.target as HTMLElement).closest<HTMLElement>('[data-go]');
-    if (l) { e.preventDefault(); go(l.dataset.go!); }
+    if (!l) return;
+    e.preventDefault();
+    // a nation's name, outside its own diplomacy page: a quick card about it, not a jump
+    const [k, id] = l.dataset.go!.split(':');
+    if ((k === 'nation' || (k === 'diplo' && !l.closest('.diplo-window'))) && pol.nations.has(Number(id))) {
+      nationCard.show(Number(id), (e as MouseEvent).clientX, (e as MouseEvent).clientY);
+      return;
+    }
+    go(l.dataset.go!);
   });
   const glow = (el: HTMLElement | null | undefined) => {
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('glow'); setTimeout(() => el.classList.remove('glow'), 2400);
   };
+  const nationCard = new NationCard(hudRoot, game, pol, {
+    zoom: (id) => { const n = pol.nations.get(id); const p = n && pol.provinces.get(n.capital); if (p) select(p.label[1], p.label[0], true); },
+    diplomacy: (id) => go(`diplo:${id}`),
+  });
+  const lastPointer: [number, number] = [innerWidth / 2, innerHeight / 2];
+  window.addEventListener('pointerdown', (e) => { lastPointer[0] = e.clientX; lastPointer[1] = e.clientY; }, true);
   function go(target: string) {
       const [kind, a, b] = target.split(':');
       const module = (id: string) => { if (!hudRoot.querySelector(`.left [data-module="${id}"].active`)) hudRoot.querySelector<HTMLElement>(`.left [data-module="${id}"]`)?.click(); };
@@ -388,11 +403,7 @@ let soundRef: Sound | null = null;
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
     borders: (open) => conn.send({ t: 'order', order: { kind: 'borders', open } }),
     buildAt: (id) => buildAt(id),
-    goToNation: (id) => {
-      const n = pol.nations.get(id);
-      const p = n && pol.provinces.get(n.capital);
-      if (p) select(p.label[1], p.label[0], true);
-    },
+    goToNation: (id) => nationCard.show(id, lastPointer[0], lastPointer[1]),
   });
   document.addEventListener('economy-closed', () => hud.setOpenPanel(null));
   document.addEventListener('market-closed', () => hud.setOpenPanel(null));
@@ -410,11 +421,7 @@ let soundRef: Sound | null = null;
   }
   lobby = new Lobby(hudRoot);
   rankings = new RankingsPanel(hudRoot, game, pol, {
-    goToNation: (id) => {
-      const n = pol.nations.get(id);
-      const p = n && pol.provinces.get(n.capital);
-      if (p) select(p.label[1], p.label[0], true);
-    },
+    goToNation: (id) => nationCard.show(id, lastPointer[0], lastPointer[1]),
     showTerritory: (frame) => {
       const live = new Map(Object.entries(game.war.occupied).map(([p, n]) => [Number(p), n]));
       if (!frame) { gameMap.setOccupied(live, true); return; }

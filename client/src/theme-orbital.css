@@ -606,3 +606,55 @@ svg.art { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
 .event-art { display: grid; place-items: center; color: var(--cyan); }
 .event-art svg.art { width: 64px; height: 64px; stroke-width: 1.3; filter: drop-shadow(0 0 10px rgba(124, 196, 255, 0.45)); }
 .star svg.art, .badge svg.art { color: var(--amber); }
+
+/* ---- Nation quick card ---- */
+.nation-card { position: fixed; z-index: 60; width: 300px; max-width: calc(100vw - 20px); padding: 12px 14px; border-radius: 16px;
+  background: rgba(8, 18, 36, 0.96); border: 1px solid var(--edge); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 18px 44px rgba(0, 0, 0, 0.65), 0 0 28px rgba(124, 196, 255, 0.12); }
+.nc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.nc-head > div { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.nc-head b { font: 700 15px var(--f-display); letter-spacing: 0.04em; }
+.nc-head .muted { font-size: 11px; }
+.nc-flag { width: 26px; height: 18px; border-radius: 3px; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.nc-x { font-size: 18px; line-height: 1; padding: 0 4px; }
+.nc-sec { margin-top: 6px; }
+.nc-sec .label { font-size: 9px; }
+.nc-kv { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 12px; }
+.nc-kv span { color: var(--muted); }
+.nc-kv b { font: 600 12px var(--f-mono); text-align: right; display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.nc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.nc-actions { display: flex; gap: 8px; margin-top: 10px; }
+.nc-actions .claim { flex: 1; }
+
+/* ---- Centrepieces fit the height they are given (1280×800 and other short screens) ---- */
+@media (min-width: 761px) {
+  .scr-stage { container: stage / size; }
+  /* under 1300px: the centrepiece takes the whole left column's height; the headline figures sit
+     above the controls on the right */
+  @media (max-width: 1300px) {
+    .scr-grid { grid-template-rows: auto minmax(0, 1fr); }
+    .scr-grid > .scr-stage { grid-column: 1; grid-row: 1 / 3; }
+    .scr-grid > .scr-left { grid-column: 2; grid-row: 1; border-bottom: 1px solid var(--edge-soft); }
+    .scr-grid > .scr-right { grid-column: 2; grid-row: 2; }
+    .scr-left .econ-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  }
+  .scr-stage svg.ring, .scr-stage .chamber-big svg { max-height: calc(100cqh - 190px); width: auto; max-width: min(100%, 460px); }
+  .mk-ring { width: min(100%, 660px, calc(100cqh - 70px)); }
+  .globe-piece .orb-stage { max-width: min(500px, 100%, calc(100cqh - 120px)); }
+}
+/* the globe stands on its own projector, with its readout and key below it rather than on top of the ring */
+.diplo-window.screen .scr-base { display: none; }
+.globe-piece .orb-base { display: block; bottom: -9%; }
+.globe-piece .orb-readout { margin-top: 26px; }
+@container stage (max-height: 660px) {
+  .spy-piece .threat-stack { zoom: 0.8; }
+  .mk-ring { --tk-in: 54px; }
+  .tick { width: 104px; padding: 4px 5px 3px; }
+  .tick .spark { height: 20px; }
+  .mk-core { min-width: 140px; }
+  .scr-caption { margin-top: 4px; font-size: 11px; }
+}
+@container stage (max-height: 560px) {
+  .spy-piece .threat-stack { zoom: 0.66; }
+  .tick { width: 94px; }
+  .scr-stage svg.ring { max-height: calc(100cqh - 160px); }
+}
