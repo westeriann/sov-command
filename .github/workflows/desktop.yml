@@ -40,10 +40,13 @@ jobs:
           name: game
           path: client/dist-offline
           retention-days: 3
+      # the host bundle holds tens of thousands of small map tiles, which the artifact
+      # download cannot unpack on Windows: send it as one archive instead
+      - run: tar -cf host.tar -C desktop host
       - uses: actions/upload-artifact@v4
         with:
           name: host
-          path: desktop/host
+          path: host.tar
           retention-days: 3
 
   desktop:
@@ -61,7 +64,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: game, path: client/dist-offline }
       - uses: actions/download-artifact@v4
-        with: { name: host, path: desktop/host }
+        with: { name: host, path: . }
+      - run: tar -xf host.tar -C desktop && rm host.tar
+        shell: bash
       - run: npm ci || npm install
         working-directory: desktop
       - run: npx electron-builder --publish never
