@@ -244,7 +244,8 @@ export class GameMap {
         {
           id: 'province-borders', type: 'line', source: 'borders', minzoom: 2,
           filter: ['==', ['get', 'k'], K_PROVINCE],
-          paint: { 'line-color': '#141a1e', 'line-opacity': zoomFade(2, 3.5, 0, 0.45), 'line-width': zoomFade(2, 6, 0.4, 1.1) },
+          // bold enough to read the jagged provinces against the political colours
+          paint: { 'line-color': '#141a1e', 'line-opacity': zoomFade(2, 3.5, 0, 0.7), 'line-width': zoomFade(2, 6, 0.6, 1.7) },
         },
         {
           id: 'nation-casing', type: 'line', source: 'borders',

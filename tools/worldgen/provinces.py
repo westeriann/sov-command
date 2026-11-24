@@ -582,6 +582,17 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
     from scipy import ndimage as ndi
     height = np.load(WORLD / "height.npy") if (WORLD / "height.npy").exists() else np.where(is_land[lab2d], 1.0, -1.0).astype(np.float32)
     lake_soft = ndi.gaussian_filter(lake2d.astype(np.float32), 1.0, mode=("nearest", "wrap"))
+    # where the photo shows land but the grid calls the cell sea (the photo's shore runs a little
+    # beyond the grid's), the colour comes from the nearest province: drawing only, the game's
+    # grid is unchanged. Without this a strip of real shore stayed uncoloured.
+    landm = is_land[lab]
+    pad2 = 64
+    wl = np.concatenate([landm[:, -pad2:], landm, landm[:, :pad2]], axis=1)
+    _, (iy, ix) = ndi.distance_transform_edt(~wl, return_indices=True)
+    iy, ix = iy[:, pad2:-pad2], (ix[:, pad2:-pad2] - pad2) % W
+    nearest = lab[iy, ix]
+    lab = np.where(~landm & (height > 0), nearest, lab)
+    wide = np.concatenate([lab[:, -P:], lab, lab[:, :P]], axis=1)
     hwide = np.concatenate([height[:, -P:], height, height[:, :P]], axis=1)
     lwide = np.concatenate([lake_soft[:, -P:], lake_soft, lake_soft[:, :P]], axis=1)
     wide = np.concatenate([lab[:, -P:], lab, lab[:, :P]], axis=1)
@@ -616,17 +627,24 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
         for q in np.unique(sub[is_land[sub]]):
             if q != pid:
                 np.maximum(rival, np.pad(sub == q, 1).astype(np.float32), out=rival)
-        fill_f = np.minimum(np.minimum(win - rival, hwin * 400.0), 0.5 - lwin)
+        # traced on a grid four times finer, each part interpolated first: the coast's height jumps
+        # sharply, so tracing the combined field between cell centres stopped well short of the shore
+        U = 4
+        gy_, gx_ = np.mgrid[0:(win.shape[0] - 1) * U + 1, 0:(win.shape[1] - 1) * U + 1] / U
+        fine = lambda a: ndi.map_coordinates(a, [gy_, gx_], order=1, mode="nearest")
+        fill_f = np.minimum(np.minimum(fine(win - rival), fine(hwin) * 400.0), 0.5 - fine(lwin))
         # only the coasts and lake shores are cut from these outlines; borders between provinces
         # keep their original jagged lines
         for c in measure.find_contours(fill_f, 0.0):
-            if len(c) >= 4:
-                cut_lines(lines, pid, c[:, 0] - 1 + y0, c[:, 1] - 1 + x0, lab, is_land, owner, W, H, coast_only=True)
+            if len(c) >= 4 * U:
+                c = rdp(c[:, ::-1], 0.35)[:, ::-1] if len(c) > 8 else c
+                cut_lines(lines, pid, c[:, 0] / U - 1 + y0, c[:, 1] / U - 1 + x0, lab, is_land, owner, W, H, coast_only=True)
         rings = []
         for c in measure.find_contours(fill_f, 0.0):
             if len(c) < 4:
                 continue
-            yy, xx = c[:, 0] - 1 + y0, c[:, 1] - 1 + x0
+            c = rdp(c[:, ::-1], 0.35)[:, ::-1] if len(c) > 8 else c   # thinned to ~1/10 of a cell
+            yy, xx = c[:, 0] / U - 1 + y0, c[:, 1] / U - 1 + x0
             area = 0.5 * np.sum(xx[:-1] * yy[1:] - xx[1:] * yy[:-1])
             lon = np.round((xx + 0.5) / W * 360 - 180, 3)
             lat = np.round(90 - (yy + 0.5) / H * 180, 3)
