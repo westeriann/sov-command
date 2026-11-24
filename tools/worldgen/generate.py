@@ -617,7 +617,9 @@ def _paint_strip(r0):
         hs = rs(height, ys)
         # the shore follows the same contour as the map's provinces (only a little roughened), so
         # province colours and the photo meet at the same coastline
-        a = smooth(hs + 0.003 * coast_noise, -0.0012, 0.0012)[..., None]
+        # only lightly roughened: the political colours follow the unroughened line, so a stronger
+        # roughening left a strip of uncoloured shore between the colours and the water
+        a = smooth(hs + 0.001 * coast_noise, -0.0012, 0.0012)[..., None]
         # shallows: a soft turquoise wash that thins out from the shore over a few kilometres
         shallow = (smooth(hs, -0.010, 0.0) * 0.32)[..., None]
         ocean = ocean * (1 - shallow) + np.array([44, 118, 128], np.float32) * shallow

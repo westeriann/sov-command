@@ -563,7 +563,7 @@ def main():
     land_lines = write_fills(lab2d, is_land, lake2d, W, H, owner)
     # every border that touches land is cut from the province outlines themselves, so the lines
     # and the coloured fills can never disagree; only sea-zone lines (sea to sea) come from the grid
-    features = [f for f in features if f["properties"]["k"] != 2] + land_lines
+    features = trim_to_land([f for f in features if f["properties"]["k"] != 2], W, H) + land_lines
     (PUBLIC / "borders.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": features},
                                                        separators=(",", ":")))
     sizes = {p.name: f"{p.stat().st_size / 1e6:.1f} MB" for p in PUBLIC.glob("*") if p.suffix in (".json", ".bin", ".geojson")}
@@ -578,7 +578,7 @@ def write_fills(lab2d, is_land, lake2d, W, H, owner):
     from skimage import measure
     P = 48
     lines = []
-    lab = np.where(lake2d, 0, lab2d)
+    lab = lab2d   # lakes stay part of their provinces: the photo's lake shapes are cut out below
     from scipy import ndimage as ndi
     height = np.load(WORLD / "height.npy") if (WORLD / "height.npy").exists() else np.where(is_land[lab2d], 1.0, -1.0).astype(np.float32)
     lake_soft = ndi.gaussian_filter(lake2d.astype(np.float32), 1.0, mode=("nearest", "wrap"))
@@ -683,6 +683,42 @@ def cut_lines(lines, pid, yy, xx, lab, is_land, owner, W, H, coast_only=False):
                     lines.append({"type": "Feature", "properties": {"k": kind, "a": int(pid), "b": int(q)},
                                   "geometry": {"type": "LineString", "coordinates": pts.tolist()}})
             start = i
+
+
+def trim_to_land(features, W, H):
+    """Cut province and nation lines where they would cross the photo's water (lakes, a bay the
+    grid counted as land), so no border is drawn over water the colours leave unpainted."""
+    from scipy import ndimage as ndi
+    height = np.load(WORLD / "height.npy") if (WORLD / "height.npy").exists() else None
+    biome = np.asarray(Image.open(WORLD / "biome_legacy.png")) if (WORLD / "biome_legacy.png").exists() else None
+    if height is None or biome is None:
+        return features
+    lake_soft = ndi.gaussian_filter((biome == BIOMES.index("lake")).astype(np.float32), 1.0, mode=("nearest", "wrap"))
+    def wet(lon, lat):
+        fx, fy = (lon + 180) / 360 * W - 0.5, (90 - lat) / 180 * H - 0.5
+        x0, y0 = int(np.floor(fx)), min(H - 2, max(0, int(np.floor(fy))))
+        tx, ty = fx - np.floor(fx), min(1.0, max(0.0, fy - y0))
+        def at(a):
+            v00, v01 = a[y0, x0 % W], a[y0, (x0 + 1) % W]
+            v10, v11 = a[y0 + 1, x0 % W], a[y0 + 1, (x0 + 1) % W]
+            return (v00 * (1 - tx) + v01 * tx) * (1 - ty) + (v10 * (1 - tx) + v11 * tx) * ty
+        return at(height) <= 0 or at(lake_soft) >= 0.5
+    out = []
+    for f in features:
+        if f["properties"]["k"] == 3:
+            out.append(f)
+            continue
+        run = []
+        for lon, lat in f["geometry"]["coordinates"]:
+            if wet(lon, lat):
+                if len(run) >= 2:
+                    out.append({**f, "geometry": {"type": "LineString", "coordinates": run}})
+                run = []
+            else:
+                run.append([lon, lat])
+        if len(run) >= 2:
+            out.append({**f, "geometry": {"type": "LineString", "coordinates": run}})
+    return out
 
 
 def point_in(x, y, ring):
