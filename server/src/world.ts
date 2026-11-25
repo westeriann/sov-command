@@ -36,6 +36,7 @@ import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import { ROAD, roadCost, roadDays } from '../../shared/roads.ts';
+import { buildSpeed, devLean, development, recruitSpeed } from '../../shared/development.ts';
 import {
   GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
   type Effects, type Government, type ResearchPrivate, type TechId,
@@ -157,7 +158,7 @@ export function nationDefsFrom(rawJson: unknown): { seed: number; nations: Natio
     seed: number;
     nations: Omit<NationDef, 'seed'>[];
     provinces: {
-      id: number; kind: 'land' | 'sea'; nation?: number; area: number; coastal?: boolean; res?: Record<string, number>;
+      id: number; kind: 'land' | 'sea'; nation?: number; area: number; coastal?: boolean; res?: Record<string, number>; city?: boolean; parent?: number;
       label: [number, number]; terrain: string; river?: number; adj: number[]; pop?: number; name: string; elev?: number;
     }[];
   };
@@ -189,6 +190,7 @@ export function nationDefsFrom(rawJson: unknown): { seed: number; nations: Natio
     provinces: raw.provinces.map((p) => ({
       id: p.id, kind: p.kind, label: p.label, terrain: p.terrain, river: p.river, adj: p.adj,
       owner: p.kind === 'land' ? p.nation : undefined, pop: p.pop ?? 0, name: p.name, elev: p.elev, coastal: p.coastal,
+      area: p.area, city: p.city, parent: p.parent,
     })),
   };
 }
@@ -397,6 +399,7 @@ export class World {
     this.military.bonus = (nation, kind) => this.effects(nation)[kind];
     this.military.storm = (p) => this.stormy.has(p);
     this.storms = JSON.parse(getMeta(db, 'storms') ?? '[]');
+    this.military.recruitPace = (n) => recruitSpeed(this.avgDevelopment(n));
     this.military.onEconomicDamage = (nation, share) => {
       const e = this.nations.get(nation)?.econ;
       if (!e) return;
@@ -2106,8 +2109,11 @@ export class World {
       const gdppc = e.gdp * 1e9 / e.pop;
       // beliefs drift: toward the government (faster with propaganda), wealth breeds liberty, war breeds nationalism, trade openness
       const pull = (s.propaganda.mode === 'home' ? 0.004 : 0.0012);
-      ide.liberty += ((GOV_LIBERTY[n.gov.government] ?? 0) - ide.liberty) * pull + (Math.log10(Math.max(1000, gdppc)) - 4) * 0.0004;
-      ide.openness += (atWar ? -0.002 : 0) + d.partners('trade', n.id).length * 0.0003 - (n.policy.openBorders === false ? 0.0006 : 0) + (0 - ide.openness) * 0.0005;
+      // development leans politics: cities and crowded country liberal and open, the remote countryside
+      // authoritarian and looking after its own
+      const lean = devLean(this.avgDevelopment(n.id));
+      ide.liberty += ((GOV_LIBERTY[n.gov.government] ?? 0) - ide.liberty) * pull + (Math.log10(Math.max(1000, gdppc)) - 4) * 0.0004 + lean;
+      ide.openness += (atWar ? -0.002 : 0) + d.partners('trade', n.id).length * 0.0003 - (n.policy.openBorders === false ? 0.0006 : 0) + (0 - ide.openness) * 0.0005 + lean;
       ide.liberty = Math.max(-1, Math.min(1, ide.liberty));
       ide.openness = Math.max(-1, Math.min(1, ide.openness));
       // factions
@@ -2495,6 +2501,17 @@ export class World {
     }
   }
 
+  /** A nation's average development, weighted by people (provinces it holds). */
+  avgDevelopment(nation: number) {
+    let w = 0, t = 0;
+    for (const p of this.military.provinces.values()) {
+      if (p.kind !== 'land' || p.owner !== nation || this.military.controller(p.id) !== nation) continue;
+      const pop = Math.max(1, p.pop);
+      w += pop; t += pop * development(p);
+    }
+    return w ? t / w : 30;
+  }
+
   /** Construction advances daily; finished buildings take effect. */
   private constructionDay() {
     this.factories.clear();
@@ -2516,7 +2533,8 @@ export class World {
       const prov = this.military.provinces.get(p)!;
       for (const b of list) {
         const builder = prov.owner !== undefined ? this.nations.get(prov.owner) : undefined;
-        const lumber = (1 - 0.6 * Math.min(1, builder?.econ.short.timber ?? 0)) * (1 + (builder ? this.specialties(builder.id).bonus.construct : 0)); // timber short: slower; quarries: faster
+        // timber short: slower; quarries: faster; developed provinces (people, cities, roads) much faster
+        const lumber = (1 - 0.6 * Math.min(1, builder?.econ.short.timber ?? 0)) * (1 + (builder ? this.specialties(builder.id).bonus.construct : 0)) * buildSpeed(development(prov));
         if (b.progress < 1) {
           b.progress = Math.min(1, b.progress + lumber / BUILDINGS[b.type].days);
           if (b.progress >= 1) this.finished(prov.owner, p, b.type);

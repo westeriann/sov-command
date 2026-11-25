@@ -57,6 +57,9 @@ export interface Province extends RouteNode {
   elev?: number; // mean metres
   coastal?: boolean;
   name?: string;
+  area?: number; // km2
+  city?: boolean; // a city's own small province
+  parent?: number; // the province a city stands in
 }
 
 export type MilEvent = { kind: 'occupied' | 'liberated' | 'destroyed' | 'battle' | 'bombed' | 'promoted'; province: number; nation: number; other?: number };
@@ -116,6 +119,9 @@ export class Military {
   }
 
   hasRoad(a: number, b: number) { return this.roadLegs.has(roadKey(a, b)); }
+
+  /** Recruitment pace from the nation's development (set by the world each day): x0.9 to x1.1. */
+  recruitPace: (nation: number) => number = () => 1;
   /** Current game time, set by the World before each day's fighting. */
   now = 0;
   /** Set by the World: provinces and sea zones under a storm today. */
@@ -712,7 +718,7 @@ export class Military {
       if (mil.funds >= daily && mil.equipment >= kit) {
         mil.funds -= daily;
         mil.equipment -= kit;
-        item.progress = Math.min(1, item.progress + (1 + this.bonus(nation, 'build')) / spec.days);
+        item.progress = Math.min(1, item.progress + ((1 + this.bonus(nation, 'build')) * this.recruitPace(nation)) / spec.days);
         if (item.progress >= 1) {
           mil.queue.shift();
           const u = this.spawn(nation, item.type, where);

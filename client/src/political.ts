@@ -22,6 +22,8 @@ export interface Province {
   river?: number; // biggest river: 0 none .. 5 great river
   lake?: number; // km² of lake water
   res?: Partial<Record<ResourceId, number>>; // 0..100
+  city?: boolean; // a city's own small province
+  parent?: number; // the province a city stands in
 }
 
 export interface Nation {
