@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { TIER_COST } from '../../shared/research.ts';
+import { MAX_TIER, TECHS, TECH_BY_ID, TIER_COST, pathTo } from '../../shared/research.ts';
 import { openDb } from '../src/db.ts';
 import type { Province } from '../src/military.ts';
 import { World, type NationDef } from '../src/world.ts';
@@ -135,15 +135,48 @@ test('a research queue starts the next technology when one finishes, once its pr
   w.claim({ id: 1, name: 'alice', guest: false }, 1);
   assert.equal(w.submit(1, { kind: 'research_queue', tech: 'automation' }, 'human').ok, true, 'empty: starts at once');
   assert.equal(w.submit(1, { kind: 'research_queue', tech: 'logistics_ai' }, 'human').ok, true, 'its follow-up can be lined up');
-  assert.equal(w.submit(1, { kind: 'research_queue', tech: 'fusion_grid' }, 'human').ok, true);
+  assert.equal(w.submit(1, { kind: 'research_queue', tech: 'i_cobots' }, 'human').ok, true);
   assert.equal(w.submit(1, { kind: 'research_queue', tech: 'stealth' }, 'human').ok, false, 'not without its prerequisite');
   const n = w.nations.get(1)!;
   assert.equal(n.tech.current, 'automation');
-  assert.deepEqual(n.tech.queue, ['logistics_ai', 'fusion_grid']);
+  assert.deepEqual(n.tech.queue, ['logistics_ai', 'i_cobots']);
   w.submit(1, { kind: 'research_queue', tech: 'logistics_ai', remove: true }, 'human');
   assert.deepEqual(n.tech.queue, [], 'removing one drops what depended on it');
   w.submit(1, { kind: 'research_queue', tech: 'logistics_ai' }, 'human');
   for (let d = 1; d <= 400 && !n.tech.done.includes('automation'); d++) w.tick(Date.now() + (DAY / 8640) * d);
   assert.ok(n.tech.done.includes('automation'));
   assert.equal(n.tech.current, 'logistics_ai', 'the queue moved on by itself');
+});
+
+test('the technology tree hangs together: every link points back an era, and all of it can be reached', () => {
+  assert.ok(TECHS.length >= 200, 'a big tree');
+  for (const t of TECHS) {
+    if (t.tier > 1) assert.ok(t.needs.length > 0, `${t.id} needs something`);
+    for (const id of t.needs) {
+      const p = TECH_BY_ID.get(id);
+      assert.ok(p, `${t.id} needs unknown ${id}`);
+      assert.ok(p!.tier < t.tier, `${t.id} needs ${id} from an earlier era`);
+    }
+    assert.ok(t.text && t.text !== 'No bonus' || t.unlock, `${t.id} does something`);
+  }
+  assert.equal(new Set(TECHS.map((t) => t.id)).size, TECHS.length, 'ids are unique');
+  const capstones = TECHS.filter((t) => t.capstone);
+  assert.ok(capstones.length >= 9 && capstones.every((t) => t.tier === MAX_TIER), 'each branch ends in a capstone in the last era');
+  const path = pathTo(TECH_BY_ID.get('x_singularity')!, new Set());
+  assert.equal(path.at(-1)!.id, 'x_singularity', 'the path ends at the goal');
+  const seen = new Set<string>();
+  for (const t of path) { assert.ok(t.needs.every((id) => seen.has(id)), `${t.id} comes after what it needs`); seen.add(t.id); }
+});
+
+test('a technology with several prerequisites waits for all of them, and the whole path can be queued', () => {
+  const w = setup();
+  const n = w.nations.get(1)!;
+  n.tech.done.push('e_fintech', 'e_trade_ai');
+  // Smart ports needs Algorithmic trading and AI logistics
+  assert.equal(w.submit(1, { kind: 'research', tech: 'e_smart_ports' }, 'human').ok, false, 'AI logistics is still missing');
+  const path = pathTo(TECH_BY_ID.get('e_smart_ports')!, new Set(n.tech.done));
+  assert.deepEqual(path.map((t) => t.id), ['automation', 'logistics_ai', 'e_smart_ports']);
+  for (const t of path) assert.equal(w.submit(1, { kind: 'research_queue', tech: t.id }, 'human').ok, true, `queue ${t.id}`);
+  assert.equal(n.tech.current, 'automation');
+  assert.deepEqual(n.tech.queue, ['logistics_ai', 'e_smart_ports']);
 });

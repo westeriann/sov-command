@@ -367,6 +367,18 @@ table.league .link i { width: 9px; height: 9px; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* R&D window */
+.tech-tabs { justify-content: flex-start; margin: 12px 0 4px; }
+.tech-tree { margin: 8px 0 16px; }
+.tech-tree .era { margin: 14px 0 0; }
+.tech-tree .era > .label { display: block; margin-bottom: 6px; }
+.tech-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.tech.locked { opacity: 0.6; }
+.tech.capstone { border-color: rgba(255, 191, 71, 0.6); }
+.tech .needs { font-size: 10.5px; }
+.tech .needs i { font-style: normal; }
+.tech .needs i.ok { color: var(--cyan); }
+.tech .needs i.lined { color: #b9a4ff; }
+.tech .needs i.no { color: #ff9a8a; }
 .tech-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0 16px; }
 .gov-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 8px 0 12px; }
 .tech-grid section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

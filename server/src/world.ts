@@ -38,7 +38,7 @@ import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import { ROAD, roadCost, roadDays } from '../../shared/roads.ts';
 import { buildSpeed, devLean, development, MILITARY_WORKS, recruitSpeed } from '../../shared/development.ts';
 import {
-  GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
+  GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, missing, ready,
   type Effects, type Government, type ResearchPrivate, type TechId,
 } from '../../shared/research.ts';
 import {
@@ -1110,8 +1110,8 @@ export class World {
         const t = TECH_BY_ID.get(order.tech);
         if (!t) return fail('bad_request', 'Unknown technology.');
         if (n.tech.done.includes(t.id)) return fail('not_allowed', 'Already researched.');
-        const pre = prerequisite(t);
-        if (pre && !n.tech.done.includes(pre.id)) return fail('not_allowed', `Research ${pre.name} first.`);
+        const pre = missing(t, new Set(n.tech.done));
+        if (pre) return fail('not_allowed', `Research ${pre.name} first.`);
         n.tech.current = t.id; // progress on any other tech is kept for later
         n.tech.queue = (n.tech.queue ?? []).filter((q) => q !== t.id);
         this.touch(n, false);
@@ -1124,15 +1124,16 @@ export class World {
         if (order.remove) {
           // anything later in the queue that needed it goes too
           const gone = new Set([t.id]);
-          n.tech.queue = queue.filter((q) => { const pre = prerequisite(TECH_BY_ID.get(q)!); if (gone.has(q) || (pre && gone.has(pre.id))) { gone.add(q); return false; } return true; });
+          n.tech.queue = queue.filter((q) => { const x = TECH_BY_ID.get(q); if (gone.has(q) || !x || x.needs.some((id) => gone.has(id))) { gone.add(q); return false; } return true; });
           this.touch(n, false);
           return ok;
         }
         if (n.tech.done.includes(t.id) || n.tech.current === t.id || queue.includes(t.id)) return fail('not_allowed', 'Already researched or lined up.');
         if (queue.length >= MAX_RESEARCH_QUEUE) return fail('not_allowed', `The queue holds ${MAX_RESEARCH_QUEUE} technologies.`);
-        const pre = prerequisite(t);
-        if (pre && !n.tech.done.includes(pre.id) && n.tech.current !== pre.id && !queue.includes(pre.id)) return fail('not_allowed', `Line up ${pre.name} first.`);
-        if (!n.tech.current && (!pre || n.tech.done.includes(pre.id))) n.tech.current = t.id; // nothing under way: start at once
+        const known = new Set(n.tech.done), lined = new Set([...n.tech.done, ...queue, ...(n.tech.current ? [n.tech.current] : [])]);
+        const pre = missing(t, lined);
+        if (pre) return fail('not_allowed', `Line up ${pre.name} first.`);
+        if (!n.tech.current && ready(t, known)) n.tech.current = t.id; // nothing under way: start at once
         else n.tech.queue = [...queue, t.id];
         this.touch(n, false);
         return ok;
@@ -1787,7 +1788,7 @@ export class World {
         extraUse: this.extraUse(n),
         ...this.seasonFactors(n),
         bonusStability: this.effects(n.id).stability,
-        foodBonus: this.specialties(n.id).bonus.food,
+        foodBonus: this.specialties(n.id).bonus.food + this.effects(n.id).food,
         spendFactor: this.hasLaw(n, 'austerity') ? 0.9 : 1,
         shortageFactor: this.hasLaw(n, 'rationing') ? 0.5 : 1,
         stockFactor: this.hasLaw(n, 'strategic_reserves') ? 1.5 : 1,
@@ -1873,11 +1874,12 @@ export class World {
         if (!t || t.annexedBy) continue;
         const T = this.defs.get(t.id)!.name, A = this.defs.get(n.id)!.name;
         const net = n.spy?.nets[t.id] ?? 0;
-        const chance = Math.min(0.9, Math.max(0.2, 0.55 - t.econ.stability / 250 + (n.tech.done.length - t.tech.done.length) * 0.02 + net / 250 - (t.spy?.counter ?? 0) * 0.08));
+        const chance = Math.min(0.9, Math.max(0.2, 0.55 - t.econ.stability / 250 + (n.tech.done.length - t.tech.done.length) * 0.005 + this.effects(n.id).spy - this.effects(t.id).spy * 0.5 + net / 250 - (t.spy?.counter ?? 0) * 0.08));
         const success = this.rand() < chance;
         if (success) {
           if (op.mission === 'steal') {
-            const pick = TECHS_LIST.find((x) => t.tech.done.includes(x.id) && !n.tech.done.includes(x.id) && (!prerequisite(x) || n.tech.done.includes(prerequisite(x)!.id)));
+            const mineKnown = new Set(n.tech.done), theirs = new Set(t.tech.done);
+            const pick = TECHS_LIST.find((x) => theirs.has(x.id) && !mineKnown.has(x.id) && ready(x, mineKnown));
             if (pick) { n.tech.partial[pick.id] = (n.tech.partial[pick.id] ?? 0) + TIER_COST[pick.tier] * 0.4; this.report(n, `Our agents in the ${T} stole research on ${pick.name}.`); }
             else this.report(n, `Our agents found nothing worth stealing in the ${T}.`);
           } else if (op.mission === 'sabotage') {
@@ -2541,7 +2543,7 @@ export class World {
       for (const b of list) {
         const builder = prov.owner !== undefined ? this.nations.get(prov.owner) : undefined;
         // timber short: slower; quarries: faster; developed provinces (people, cities, roads) much faster
-        const lumber = (1 - 0.6 * Math.min(1, builder?.econ.short.timber ?? 0)) * (1 + (builder ? this.specialties(builder.id).bonus.construct : 0)) * buildSpeed(this.devOf(prov));
+        const lumber = (1 - 0.6 * Math.min(1, builder?.econ.short.timber ?? 0)) * (1 + (builder ? this.specialties(builder.id).bonus.construct + this.effects(builder.id).construct : 0)) * buildSpeed(this.devOf(prov));
         if (b.progress < 1) {
           b.progress = Math.min(1, b.progress + lumber / BUILDINGS[b.type].days);
           if (b.progress >= 1) this.finished(prov.owner, p, b.type);
@@ -2579,7 +2581,7 @@ export class World {
     }
     // geothermal springs add steady power on top of any stations
     for (const n of this.nations.values()) {
-      const geo = this.specialties(n.id).bonus.power;
+      const geo = this.specialties(n.id).bonus.power + this.effects(n.id).power; // geothermal springs and energy technology
       if (!geo) continue;
       const t = this.plants.get(n.id) ?? { share: 0, thermal: 0, coal: 0, gas: 0 };
       t.share += geo;
@@ -2606,14 +2608,14 @@ export class World {
     this.spyDay(day);
     for (const n of this.nations.values()) {
       if (n.annexedBy) continue;
-      n.econ.treasury += (n.econ.gdp * this.specialties(n.id).bonus.treasury) / 365; // gold fields and gem mines
+      n.econ.treasury += (n.econ.gdp * (this.specialties(n.id).bonus.treasury + this.effects(n.id).treasury)) / 365; // gold fields, gem mines, financial technology
       this.domesticDay(n, day);
       this.statecraftDay(n, day);
       const name = this.defs.get(n.id)!.name;
       const human = n.controller === 'human';
       const cur = n.tech.current;
       const rate = this.researchRate(n);
-      if (!cur) n.econ.research = Math.min(TIER_COST[3] * 2, n.econ.research + rate); // nothing under way: bank the points
+      if (!cur) n.econ.research = Math.min(TIER_COST[6], n.econ.research + rate); // nothing under way: bank the points
       if (cur) {
         const t = TECH_BY_ID.get(cur)!;
         const fromBank = Math.min(n.econ.research, rate * 0.5);
@@ -2626,9 +2628,10 @@ export class World {
           n.tech.current = undefined;
           this.effectCache.delete(n.id);
           if (human) this.event('research', n.id, `${name}: researchers complete ${t.name} (${t.text}).`);
-          // the next in the queue whose prerequisite is now known
+          // the next in the queue whose prerequisites are now known
           const queue = n.tech.queue ?? [];
-          const next = queue.find((q) => { const pre = prerequisite(TECH_BY_ID.get(q)!); return !pre || n.tech.done.includes(pre.id); });
+          const known = new Set(n.tech.done);
+          const next = queue.find((q) => { const x = TECH_BY_ID.get(q); return !!x && ready(x, known); });
           if (next) { n.tech.current = next; n.tech.queue = queue.filter((q) => q !== next); }
           else if (n.controller === 'ai' || n.autopilot) n.tech.current = this.brain.pickResearch(n);
           this.touch(n, human);
@@ -2701,7 +2704,7 @@ export class World {
         else if (r < 0.35) { e.stability -= 6; text = 'a general strike paralyses the country (−6 stability)'; }
         else if (r < 0.5) { e.gdp *= 0.993; e.stability -= 3; text = 'floods and storms damage cities and farmland'; }
         else if (r < 0.65) { e.stability -= n.gov.government === 'democracy' ? 7 : 4; text = 'a corruption scandal shakes the government'; }
-        else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + 250; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
+        else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + TIER_COST[TECH_BY_ID.get(cur)!.tier] * 0.15; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
         else if (r < 0.88 && e.capacity.food > 0) { e.capacity.food *= 0.94; e.stability -= 2; text = 'a severe drought withers the harvest (food output −6%)'; }
         else if (r < 0.94) { e.gdp *= 0.997; e.stability -= 2; text = 'a heatwave strains power grids and hospitals'; }
         else { e.stability += 4; text = 'a national celebration lifts the public mood (+4 stability)'; }

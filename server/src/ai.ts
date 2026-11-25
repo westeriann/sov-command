@@ -24,17 +24,17 @@ const LAW_TASTE: Record<Personality, LawId[]> = {
   opportunist: ['infrastructure_act', 'free_trade', 'research_grants', 'strategic_reserves'],
   idealist: ['press_freedom', 'research_grants', 'green_energy', 'free_trade', 'infrastructure_act'],
 };
-import { TECHS, prerequisite, type Branch, type TechId } from '../../shared/research.ts';
+import { TECHS, TIER_COST, ready, type Branch, type TechId } from '../../shared/research.ts';
 import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
 import { ideologyGap } from '../../shared/society.ts';
 import { MISSILE_COST, STRIKERS, WARHEAD_COST } from '../../shared/military.ts';
 
 const RESEARCH_ORDER: Record<Personality, Branch[]> = {
-  expansionist: ['land', 'sea_air', 'economy', 'society'],
-  trader: ['economy', 'society', 'sea_air', 'land'],
-  turtle: ['land', 'society', 'economy', 'sea_air'],
-  opportunist: ['economy', 'land', 'sea_air', 'society'],
-  idealist: ['society', 'economy', 'sea_air', 'land'],
+  expansionist: ['land', 'air', 'industry', 'sea', 'space', 'economy', 'energy', 'science', 'society'],
+  trader: ['economy', 'energy', 'industry', 'society', 'science', 'sea', 'space', 'air', 'land'],
+  turtle: ['land', 'society', 'industry', 'air', 'economy', 'energy', 'science', 'space', 'sea'],
+  opportunist: ['economy', 'industry', 'land', 'science', 'air', 'energy', 'sea', 'space', 'society'],
+  idealist: ['society', 'science', 'economy', 'energy', 'industry', 'space', 'air', 'sea', 'land'],
 };
 
 const BASE: Record<Personality, Record<Focus, number>> = {
@@ -467,9 +467,9 @@ export class AiBrain {
     if (areas.has('research')) {
       if (!n.tech.current) { const t = this.pickResearch(n); if (t) keep.push({ kind: 'research', tech: t }); }
       else if ((n.tech.queue ?? []).length < 2) {
-        const taken = new Set([n.tech.current, ...(n.tech.queue ?? []), ...n.tech.done]);
-        const next = TECHS.find((t) => !taken.has(t.id) && (!prerequisite(t) || taken.has(prerequisite(t)!.id)));
-        if (next) keep.push({ kind: 'research_queue', tech: next.id });
+        const taken = new Set<string>([n.tech.current, ...(n.tech.queue ?? []), ...n.tech.done]);
+        const next = this.pickResearch(n, taken);
+        if (next) keep.push({ kind: 'research_queue', tech: next });
       }
     }
     return keep;
@@ -505,12 +505,20 @@ export class AiBrain {
     return target && force.length >= 3 ? [{ kind: 'move', units: force, to: target.id }] : [];
   }
 
-  /** Next technology: cheapest tier first, this personality's favourite branches first within a tier. */
-  pickResearch(n: NationState): TechId | undefined {
+  /**
+   * Next technology among those whose prerequisites are in hand (known, or lined up when
+   * given): cheapest first, weighed by this personality's favourite branches, so a warlike
+   * nation reaches a little further along the land and air lines than the rest.
+   */
+  pickResearch(n: NationState, have: Set<string> = new Set(n.tech.done)): TechId | undefined {
     const order = RESEARCH_ORDER[n.personality];
-    const open = TECHS.filter((t) => !n.tech.done.includes(t.id) && (!prerequisite(t) || n.tech.done.includes(prerequisite(t)!.id)));
-    open.sort((a, b) => a.tier * 4 + order.indexOf(a.branch) - (b.tier * 4 + order.indexOf(b.branch)));
-    return open[0]?.id;
+    let best: TechId | undefined, score = Infinity;
+    for (const t of TECHS) {
+      if (have.has(t.id) || !ready(t, have)) continue;
+      const s = TIER_COST[t.tier] * (1 + order.indexOf(t.branch) * 0.12) + (n.id * 7 + t.id.length * 13) % 50; // a little variety between nations
+      if (s < score) { score = s; best = t.id; }
+    }
+    return best;
   }
 
   /** How this government votes in the world council (undefined: abstain). */

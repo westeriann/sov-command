@@ -3,6 +3,7 @@
 import { resolve } from 'node:path';
 import { COMMODITIES, COMMODITY_INFO } from '../../shared/economy.ts';
 import { DAY } from '../../shared/clock.ts';
+import { TECHS, TECH_BY_ID } from '../../shared/research.ts';
 import { openDb } from '../src/db.ts';
 import { loadNationDefs, World } from '../src/world.ts';
 
@@ -29,7 +30,7 @@ function report(label: string) {
   { const live = [...w.nations.values()].filter((n) => !n.annexedBy && !n.born);
     const done = live.map((n) => n.tech.done.length).sort((x, y) => x - y);
     const rates = live.map((n) => w.researchRate(n)).sort((x, y) => x - y);
-    console.log(`   research: techs known min ${done[0]} median ${done[Math.floor(done.length / 2)]} max ${done[done.length - 1]} (of 13); ${live.filter((n) => !n.tech.current).length} idle; points/day median ${rates[Math.floor(rates.length / 2)].toFixed(1)}`); }
+    console.log(`   research: techs known min ${done[0]} median ${done[Math.floor(done.length / 2)]} max ${done[done.length - 1]} (of ${TECHS.length}); furthest era ${Math.max(0, ...live.flatMap((n) => n.tech.done.map((id) => TECH_BY_ID.get(id)?.tier ?? 0)))}; ${live.filter((n) => !n.tech.current).length} idle; points/day median ${rates[Math.floor(rates.length / 2)].toFixed(1)}`); }
   const m = w.military;
   const by = (d: string) => [...m.units.values()].filter((u) => ['infantry','mechanized','armored'].includes(u.type) === (d === 'land') && (d === 'land' || (d === 'sea') === ['destroyers','submarines','carrier'].includes(u.type))).length;
   console.log(`   forces: ${by('land')} land, ${by('sea')} naval, ${by('air')} air; ${m.wars.length} wars now; ${m.occupied.size} provinces occupied`);

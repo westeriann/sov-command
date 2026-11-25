@@ -13,7 +13,7 @@ import { EVENTS, EVENT_DAYS, type EventKey } from '../../shared/events';
 import { AUTONOMY_COST, CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST } from '../../shared/parties';
 import { MAX_NETWORKS, NETWORK_GROWTH } from '../../shared/diplomacy';
 import { UNIT_ROLE, UNIT_SPECS, UNIT_TYPES } from '../../shared/military';
-import { GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_DAYS, TECHS, TIER_COST } from '../../shared/research';
+import { BRANCHES, BRANCH_NAMES, ERA_NAMES, GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, MAX_TIER, REFORM_DAYS, TECHS, TIER_COST } from '../../shared/research';
 
 /**
  * Link targets, as data-go values:
@@ -224,10 +224,20 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'research', title: 'Research and government', html: () => `
-      <p>Open ${L('module:research', 'R&amp;D')} (<kbd>R</kbd>). Points come from the research budget. Press <b>Research now</b> to start a technology, or <b>Queue</b> to line up to ${MAX_RESEARCH_QUEUE} after it: the next starts by itself.</p>
-      <table class="man-table"><thead><tr><th>Technology</th><th>Tier</th><th>Points</th><th>Effect</th></tr></thead><tbody>
-        ${TECHS.map((t) => `<tr><td>${esc(t.name)}</td><td>${t.tier}</td><td>${TIER_COST[t.tier].toLocaleString('en-US')}</td><td>${esc(t.text)}</td></tr>`).join('')}
+      <p>Open ${L('module:research', 'R&amp;D')} (<kbd>R</kbd>). Points come from the research budget. The tree holds ${TECHS.length} technologies in ${BRANCHES.length} branches over ${MAX_TIER} eras, from today's drones to a spacefaring civilisation: no nation learns it all quickly, and the far end is the long game.</p>
+      <ul>
+        <li><b>Available</b> lists everything you can start now. Each branch's tab shows its whole line, era by era.</li>
+        <li>A technology needs every one it names, often from another branch. Press <b>Research now</b> to start one, <b>Queue</b> to line it up (up to ${MAX_RESEARCH_QUEUE}), or <b>Queue with … before it</b> to line up the whole path to a far technology at once. The next in the queue starts by itself.</li>
+        <li>Bonuses are permanent and grow each era. Each branch ends in a <b>capstone</b> with a great deal more.</li>
+        <li>Research partners who already know a technology cut its cost by a fifth. Spies can steal it, and a technology lead makes your own agents a little likelier to succeed.</li>
+      </ul>
+      <table class="man-table"><thead><tr><th>Era</th><th>Points each</th><th>Technologies</th></tr></thead><tbody>
+        ${Array.from({ length: MAX_TIER }, (_, i) => i + 1).map((k) => `<tr><td>${k}. ${esc(ERA_NAMES[k])}</td><td>${TIER_COST[k].toLocaleString('en-US')}</td><td>${TECHS.filter((t) => t.tier === k).length}</td></tr>`).join('')}
       </tbody></table>
+      <h3>Branches</h3>
+      <table class="man-table"><tbody>${BRANCHES.map((b) => `<tr><td>${esc(BRANCH_NAMES[b])}</td><td>${TECHS.filter((t) => t.branch === b).length} technologies; ends in <b>${esc(TECHS.find((t) => t.branch === b && t.capstone)?.name ?? '')}</b></td></tr>`).join('')}</tbody></table>
+      <h3>What technologies unlock</h3>
+      <table class="man-table"><tbody>${TECHS.filter((t) => t.unlock).map((t) => `<tr><td>${esc(t.name)}</td><td>${esc(t.unlock!)}</td></tr>`).join('')}</tbody></table>
       <h3>Government</h3>
       <table class="man-table"><tbody>${GOVERNMENTS.map((g) => `<tr><td>${esc(GOVERNMENT_INFO[g].name)}</td><td>${esc(GOVERNMENT_INFO[g].text)}</td></tr>`).join('')}</tbody></table>
       <p>A reform takes ${REFORM_DAYS} game days of turmoil (<r>−10 stability</r>) and is possible once a game year. Democracies hold elections; losing one blocks new wars for six months. Government reform, the people's beliefs, factions and propaganda are in ${L('module:politics', 'Politics')}.</p>`,

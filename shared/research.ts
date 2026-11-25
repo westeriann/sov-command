@@ -1,8 +1,7 @@
-// Research and government: shared by server and client.
+// Research and government: shared by server and client. The tree itself is in tech-tree.ts.
 
-export type Branch = 'economy' | 'land' | 'sea_air' | 'society';
-export const BRANCHES: Branch[] = ['economy', 'land', 'sea_air', 'society'];
-export const BRANCH_NAMES: Record<Branch, string> = { economy: 'Economy', land: 'Land warfare', sea_air: 'Sea and air', society: 'Society' };
+import { BRANCHES, BRANCH_NAMES, BRANCH_SHORT, ERA_NAMES, MAX_TIER, TECH_DEFS, TIER_COST, type Branch, type TechDef } from './tech-tree';
+export { BRANCHES, BRANCH_NAMES, BRANCH_SHORT, ERA_NAMES, MAX_TIER, TIER_COST, type Branch };
 
 /** Bonuses from technology and government. All additive shares (0.1 = +10%). */
 export interface Effects {
@@ -15,50 +14,79 @@ export interface Effects {
   manpower: number; // reservists
   build: number; // unit production speed
   research: number; // research speed
+  construct: number; // buildings and repairs go up faster
+  food: number; // food output
+  treasury: number; // a share of GDP paid into the treasury each year
+  power: number; // added electricity supply (share of demand)
+  spy: number; // agents' chance of success
 }
-export const NO_EFFECTS: Effects = { growth: 0, stability: 0, landAttack: 0, landDefense: 0, naval: 0, air: 0, manpower: 0, build: 0, research: 0 };
+export const NO_EFFECTS: Effects = { growth: 0, stability: 0, landAttack: 0, landDefense: 0, naval: 0, air: 0, manpower: 0, build: 0, research: 0, construct: 0, food: 0, treasury: 0, power: 0, spy: 0 };
 
-export type TechId =
-  | 'automation' | 'logistics_ai' | 'fusion_grid'
-  | 'drones' | 'active_armor' | 'robotic_infantry'
-  | 'hypersonics' | 'stealth' | 'orbital_recon' | 'nuclear'
-  | 'digital_state' | 'healthcare' | 'social_cohesion';
+export type TechId = string;
 
-export interface Tech {
-  id: TechId;
-  name: string;
-  branch: Branch;
-  tier: 1 | 2 | 3 | 4;
-  effects: Partial<Effects>;
+export interface Tech extends TechDef {
+  /** Its bonuses and what it unlocks, in words. */
   text: string;
 }
 
-/** Research points per tier. At the default 15% research budget a tier-1 tech takes about 5 game weeks (6 real minutes). */
-export const TIER_COST = { 1: 1200, 2: 2700, 3: 5400, 4: 9000 } as const;
-/** Technologies a nation can line up after the current one. */
-export const MAX_RESEARCH_QUEUE = 8;
-
-export const TECHS: Tech[] = [
-  { id: 'automation', name: 'Industrial automation', branch: 'economy', tier: 1, effects: { growth: 0.002 }, text: '+0.2% growth a year' },
-  { id: 'logistics_ai', name: 'AI logistics', branch: 'economy', tier: 2, effects: { growth: 0.003, build: 0.15 }, text: '+0.3% growth, units built 15% faster' },
-  { id: 'fusion_grid', name: 'Fusion power grid', branch: 'economy', tier: 3, effects: { growth: 0.005 }, text: '+0.5% growth a year' },
-  { id: 'drones', name: 'Battlefield drones', branch: 'land', tier: 1, effects: { landAttack: 0.08 }, text: '+8% land attack' },
-  { id: 'active_armor', name: 'Active protection', branch: 'land', tier: 2, effects: { landDefense: 0.12 }, text: '+12% land defense' },
-  { id: 'robotic_infantry', name: 'Robotic infantry', branch: 'land', tier: 3, effects: { landAttack: 0.12, manpower: 0.2 }, text: '+12% land attack, +20% reservists' },
-  { id: 'hypersonics', name: 'Hypersonic missiles', branch: 'sea_air', tier: 1, effects: { naval: 0.1 }, text: '+10% naval power' },
-  { id: 'stealth', name: 'Stealth airframes', branch: 'sea_air', tier: 2, effects: { air: 0.15 }, text: '+15% air power' },
-  { id: 'orbital_recon', name: 'Orbital reconnaissance', branch: 'sea_air', tier: 3, effects: { naval: 0.1, air: 0.1 }, text: '+10% naval and air power' },
-  { id: 'nuclear', name: 'Nuclear deterrent', branch: 'sea_air', tier: 4, effects: {}, text: 'Lets you build nuclear warheads ($40bn each)' },
-  { id: 'digital_state', name: 'Digital government', branch: 'society', tier: 1, effects: { stability: 2, research: 0.1 }, text: '+2 stability, research 10% faster' },
-  { id: 'healthcare', name: 'Universal genomics', branch: 'society', tier: 2, effects: { stability: 3, manpower: 0.1 }, text: '+3 stability, +10% reservists' },
-  { id: 'social_cohesion', name: 'Civic renewal', branch: 'society', tier: 3, effects: { stability: 4, growth: 0.002 }, text: '+4 stability, +0.2% growth' },
-];
-export const TECH_BY_ID = new Map(TECHS.map((t) => [t.id, t]));
-
-/** A tech needs the one before it in its branch. */
-export function prerequisite(t: Tech): Tech | undefined {
-  return TECHS.find((x) => x.branch === t.branch && x.tier === t.tier - 1);
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+/** A set of bonuses in words, e.g. "+8% land attack, research 5% faster". */
+export function effectText(e: Partial<Effects>): string[] {
+  const out: string[] = [];
+  const v = (k: keyof Effects) => e[k] ?? 0;
+  if (v('growth')) out.push(`+${(v('growth') * 100).toFixed(2).replace(/0$/, '')}% growth a year`);
+  if (v('stability')) out.push(`+${Math.round(v('stability') * 2) / 2} stability`);
+  if (v('landAttack')) out.push(`+${pct(v('landAttack'))} land attack`);
+  if (v('landDefense')) out.push(`+${pct(v('landDefense'))} land defense`);
+  if (v('naval')) out.push(`+${pct(v('naval'))} naval power`);
+  if (v('air')) out.push(`+${pct(v('air'))} air power`);
+  if (v('manpower')) out.push(`+${pct(v('manpower'))} reservists`);
+  if (v('build')) out.push(`units built ${pct(v('build'))} faster`);
+  if (v('research')) out.push(`research ${pct(v('research'))} faster`);
+  if (v('construct')) out.push(`buildings go up ${pct(v('construct'))} faster`);
+  if (v('food')) out.push(`+${pct(v('food'))} food output`);
+  if (v('treasury')) out.push(`+${(v('treasury') * 100).toFixed(2)}% of GDP a year to the treasury`);
+  if (v('power')) out.push(`+${(v('power') * 100).toFixed(1).replace(/\.0$/, '')}% electricity supply`);
+  if (v('spy')) out.push(`agents ${pct(v('spy'))} likelier to succeed`);
+  return out;
 }
+
+/** Technologies a nation can line up after the current one. */
+export const MAX_RESEARCH_QUEUE = 20;
+
+const sentence = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+export const TECHS: Tech[] = TECH_DEFS.map((d) => ({ ...d, text: sentence([effectText(d.effects).join(', '), d.unlock ?? ''].filter(Boolean).join('; ')) || 'No bonus' }));
+export const TECH_BY_ID = new Map<string, Tech>(TECHS.map((t) => [t.id, t]));
+
+/** The technologies a technology needs. */
+export function prerequisites(t: Tech): Tech[] {
+  return t.needs.map((id) => TECH_BY_ID.get(id)!).filter(Boolean);
+}
+/** Whether every prerequisite is in the set (known, or known-or-lined-up). */
+export function ready(t: Tech, have: { has(id: string): boolean }) {
+  return t.needs.every((id) => have.has(id));
+}
+/** The first prerequisite not in the set, for "Research X first". */
+export function missing(t: Tech, have: { has(id: string): boolean }): Tech | undefined {
+  return prerequisites(t).find((p) => !have.has(p.id));
+}
+/**
+ * Everything still to research to reach a technology, its prerequisites first
+ * (the technology last), leaving out what is already in the set.
+ */
+export function pathTo(t: Tech, have: { has(id: string): boolean }): Tech[] {
+  const out: Tech[] = [], seen = new Set<string>();
+  const visit = (x: Tech) => {
+    if (seen.has(x.id) || have.has(x.id)) return;
+    seen.add(x.id);
+    for (const p of prerequisites(x)) visit(p);
+    out.push(x);
+  };
+  visit(t);
+  return out;
+}
+/** Research points still to spend on a list of technologies. */
+export const pathCost = (ts: Tech[]) => ts.reduce((a, t) => a + TIER_COST[t.tier], 0);
 
 export type Government = 'democracy' | 'autocracy' | 'junta' | 'technocracy';
 export const GOVERNMENTS: Government[] = ['democracy', 'autocracy', 'junta', 'technocracy'];

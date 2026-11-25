@@ -5,7 +5,7 @@ import type { Political } from './political';
 import { proxy, reveal, type Piece } from './screens';
 import { BUDGET_KEYS, COMMODITIES, COMMODITY_INFO, money, type Budget } from '../../shared/economy';
 import { UNIT_SPECS, UNIT_TYPES, type Domain } from '../../shared/military';
-import { BRANCHES, BRANCH_NAMES, TECHS, TIER_COST, prerequisite } from '../../shared/research';
+import { BRANCHES, BRANCH_SHORT, TECHS, TECH_BY_ID, TIER_COST, prerequisites, ready } from '../../shared/research';
 import { CHAMBER, blocsFor, chamberLegend, chamberSvg, memberName, memberPick, type Bloc } from './chamber';
 import { threatStackHtml } from './threat-stack';
 import { MAX_SPY_OPS } from '../../shared/diplomacy';
@@ -306,11 +306,15 @@ export function researchPiece(game: Game): Piece {
     if (t.dataset.rt) { pick = t.dataset.rt; this_update(); return; }
     if (t.dataset.ra === 'now') proxy(win, `[data-r="tech"][data-tech="${pick}"]`);
     if (t.dataset.ra === 'queue') proxy(win, `[data-r="queue"][data-tech="${pick}"]`);
-    if (t.dataset.ra === 'show') reveal(win, `[data-tech="${pick}"]`);
+    if (t.dataset.ra === 'show') {
+      const tech = pick ? TECH_BY_ID.get(pick) : undefined;
+      if (tech && !win.querySelector(`.tech[data-tech="${pick}"]`)) proxy(win, `[data-r="tab"][data-tab="${tech.branch}"]`);
+      reveal(win, `.tech[data-tech="${pick}"]`);
+    }
   });
   let this_update = () => {};
   return {
-    el, caption: 'Rings are tiers, quarters are branches. Pick a technology to research it now or queue it.',
+    el, caption: 'Rings are eras, slices are branches; the outer ring is the far future. Pick a technology to research it now or queue it.',
     update(w) {
       win = w;
       this_update = () => this.update(w);
@@ -318,38 +322,38 @@ export function researchPiece(game: Game): Piece {
       if (!r) { el.innerHTML = '<p class="hint">Take command of a nation to direct its research.</p>'; return; }
       const done = new Set<string>(r.done), queue: string[] = r.queue ?? [];
       const tiers = Math.max(...TECHS.map((t) => t.tier));
-      const radius = (tier: number) => 70 + (tier - 1) * (115 / Math.max(1, tiers - 1));
+      const radius = (tier: number) => 62 + (tier - 1) * (124 / Math.max(1, tiers - 1));
+      const slice = 360 / BRANCHES.length, mid = (bi: number) => -90 + (bi + 0.5) * slice;
       const pos = new Map<string, readonly [number, number]>();
       BRANCHES.forEach((b, bi) => {
         for (let tier = 1; tier <= tiers; tier++) {
           const ts = TECHS.filter((t) => t.branch === b && t.tier === tier);
-          ts.forEach((t, i) => { pos.set(t.id, pt(200, 200, radius(tier), -135 + bi * 90 + ((i + 1) / (ts.length + 1) - 0.5) * 70)); });
+          ts.forEach((t, i) => { pos.set(t.id, pt(200, 200, radius(tier), mid(bi) + ((i + 1) / (ts.length + 1) - 0.5) * slice * 0.8)); });
         }
       });
       const state = (id: string) => {
         if (done.has(id)) return 'done';
         if ((r.current as string | undefined) === id) return 'current';
         if (queue.includes(id)) return 'queued';
-        const t = TECHS.find((x) => x.id === id)!, pre = prerequisite(t);
-        return !pre || done.has(pre.id) ? 'open' : 'locked';
+        return ready(TECH_BY_ID.get(id)!, done) ? 'open' : 'locked';
       };
-      const links = TECHS.map((t) => { const p = prerequisite(t); if (!p) return ''; const [a, b] = [pos.get(p.id)!, pos.get(t.id)!]; return `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" class="lk ${done.has(p.id) ? 'lit' : ''}"></line>`; }).join('');
+      const links = TECHS.flatMap((t) => prerequisites(t).map((p) => { const [a, b] = [pos.get(p.id)!, pos.get(t.id)!]; return `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" class="lk ${done.has(p.id) ? 'lit' : ''}${p.branch !== t.branch ? ' cross' : ''}"></line>`; })).join('');
       const nodes = TECHS.map((t) => {
         const [x, y] = pos.get(t.id)!, s = state(t.id);
         const q = queue.indexOf(t.id);
-        return `<g class="tn ${s}${pick === t.id ? ' on' : ''}" data-rt="${t.id}" role="button" tabindex="0" aria-label="${esc(t.name)}: ${s}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${pick === t.id ? 11 : 8}"></circle>${q >= 0 ? `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" class="qn">${q + 1}</text>` : ''}<title>${esc(t.name)}</title></g>`;
+        return `<g class="tn ${s}${pick === t.id ? ' on' : ''}" data-rt="${t.id}" role="button" tabindex="0" aria-label="${esc(t.name)}: ${s}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${pick === t.id ? 7 : t.capstone ? 5.5 : 3.6}"></circle>${q >= 0 ? `<text x="${x.toFixed(1)}" y="${(y - 6).toFixed(1)}" class="qn">${q + 1}</text>` : ''}<title>${esc(t.name)}</title></g>`;
       }).join('');
-      const sectors = BRANCHES.map((b, bi) => { const [x, y] = pt(200, 200, 198, -135 + bi * 90); return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="br">${esc(BRANCH_NAMES[b].toUpperCase())}</text>`; }).join('');
+      const sectors = BRANCHES.map((b, bi) => { const [x, y] = pt(200, 200, 204, mid(bi)); return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="br">${esc(BRANCH_SHORT[b].toUpperCase())}</text>`; }).join('');
       const cur = r.current ? TECHS.find((t) => t.id === r.current) : undefined;
-      const prog = cur ? Math.min(1, r.progress / TIER_COST[cur.tier as keyof typeof TIER_COST]) : 0;
+      const prog = cur ? Math.min(1, r.progress / TIER_COST[cur.tier]) : 0;
       const sel = pick ? TECHS.find((t) => t.id === pick) : undefined;
       const ss = sel ? state(sel.id) : '';
       el.innerHTML = `<svg viewBox="-10 -10 420 420" class="orbit" role="img" aria-label="Research orbit">
           ${Array.from({ length: tiers }, (_, i) => `<circle cx="200" cy="200" r="${radius(i + 1)}" class="track thin"></circle>`).join('')}
-          <line x1="200" y1="0" x2="200" y2="400" class="axis"></line><line x1="0" y1="200" x2="400" y2="200" class="axis"></line>
+          ${BRANCHES.map((_, bi) => { const [x0, y0] = pt(200, 200, 56, -90 + bi * slice), [x1, y1] = pt(200, 200, 192, -90 + bi * slice); return `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" class="axis"></line>`; }).join('')}
           ${links}${nodes}${sectors}
-          <circle cx="200" cy="200" r="50" class="core"></circle>
-          ${cur ? `<path d="${arc(200, 200, 50, -90, -90 + Math.max(1, prog * 359.9))}" class="prog"></path>` : ''}
+          <circle cx="200" cy="200" r="46" class="core"></circle>
+          ${cur ? `<path d="${arc(200, 200, 46, -90, -90 + Math.max(1, prog * 359.9))}" class="prog"></path>` : ''}
           <text x="200" y="196" class="k tiny">${cur ? 'RESEARCHING' : 'IDLE'}</text><text x="200" y="216" class="v small">${cur ? `${Math.round(prog * 100)}%` : '—'}</text>
         </svg>
         <div class="piece-bar">${sel ? `<b>${esc(sel.name)}</b><span class="mono">${esc(sel.text)}</span>
