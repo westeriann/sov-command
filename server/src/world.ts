@@ -36,7 +36,7 @@ import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import { ROAD, roadCost, roadDays } from '../../shared/roads.ts';
-import { buildSpeed, devLean, development, recruitSpeed } from '../../shared/development.ts';
+import { buildSpeed, devLean, development, MILITARY_WORKS, recruitSpeed } from '../../shared/development.ts';
 import {
   GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, prerequisite,
   type Effects, type Government, type ResearchPrivate, type TechId,
@@ -2501,13 +2501,20 @@ export class World {
     }
   }
 
+  /** A province's development: how urban it is, how rich its owner is per person, and what is built there. */
+  devOf(p: { id: number; pop?: number; area?: number; city?: boolean; kind?: string; owner?: number }) {
+    const e = p.owner !== undefined ? this.nations.get(p.owner)?.econ : undefined;
+    const built = (this.military.buildings.get(p.id) ?? []).filter((b) => b.progress >= 1 && !MILITARY_WORKS.has(b.type)).length;
+    return development({ ...p, gdppc: e && e.pop > 0 ? (e.gdp * 1e9) / e.pop : undefined, built });
+  }
+
   /** A nation's average development, weighted by people (provinces it holds). */
   avgDevelopment(nation: number) {
     let w = 0, t = 0;
     for (const p of this.military.provinces.values()) {
       if (p.kind !== 'land' || p.owner !== nation || this.military.controller(p.id) !== nation) continue;
       const pop = Math.max(1, p.pop);
-      w += pop; t += pop * development(p);
+      w += pop; t += pop * this.devOf(p);
     }
     return w ? t / w : 30;
   }
@@ -2534,7 +2541,7 @@ export class World {
       for (const b of list) {
         const builder = prov.owner !== undefined ? this.nations.get(prov.owner) : undefined;
         // timber short: slower; quarries: faster; developed provinces (people, cities, roads) much faster
-        const lumber = (1 - 0.6 * Math.min(1, builder?.econ.short.timber ?? 0)) * (1 + (builder ? this.specialties(builder.id).bonus.construct : 0)) * buildSpeed(development(prov));
+        const lumber = (1 - 0.6 * Math.min(1, builder?.econ.short.timber ?? 0)) * (1 + (builder ? this.specialties(builder.id).bonus.construct : 0)) * buildSpeed(this.devOf(prov));
         if (b.progress < 1) {
           b.progress = Math.min(1, b.progress + lumber / BUILDINGS[b.type].days);
           if (b.progress >= 1) this.finished(prov.owner, p, b.type);

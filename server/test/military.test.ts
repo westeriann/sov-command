@@ -94,6 +94,7 @@ test('production builds units over game days, paid from the defence budget', () 
   n.mil.funds = 50;
   w.submit(1, { kind: 'policy', policy: { focus: 'economy' } }, 'human'); // base build speed (a military focus builds faster)
   n.pol!.laws = []; // and no conscription law
+  w.military.recruitPace = () => 1; // and no lift from development
   assert.equal(w.submit(1, { kind: 'recruit', unit: 'infantry' }, 'human').ok, true);
   let t = Date.now();
   for (let d = 0; d < UNIT_SPECS.infantry.days - 2; d++) { t += realPerDay; w.tick(t); }

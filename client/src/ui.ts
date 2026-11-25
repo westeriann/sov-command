@@ -16,7 +16,7 @@ import { DIPLO_CATS, type DiploCat } from './diplo-map';
 import { RESOURCE_NAMES, type Nation, type Political, type Province, type ResourceId } from './political';
 import { BIOME_INFO, formatLatLon, type BiomeId, type Sample, type World } from './world';
 import { attr, effectLines, tip } from './tooltip';
-import { buildSpeed, devLabel, development } from '../../shared/development';
+import { buildSpeed, devLabel, development, MILITARY_WORKS } from '../../shared/development';
 import { ASSET_BASE } from './config';
 import { SPECIALTIES, SPECIALTY_LIST, specialtyOf } from '../../shared/specialties';
 
@@ -1103,7 +1103,7 @@ export class Hud {
       <div class="kv mono">
         <span>Population</span><span>${mineHere ? go('module:economy', people(p.pop ?? 0), 'Grows with prosperity and stability: see Economy') : people(p.pop ?? 0)}</span>
         <span>Area</span><span>${km2(p.area)}</span>
-        ${(() => { const dv = development(p); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), [`Building here ${Math.round(buildSpeed(dv) * 100)}% of normal speed`, dv >= 50 ? 'good' : 'bad'], 'Grows with people and cities; developed nations recruit a little faster', dv >= 50 ? 'Cities and crowded country lean liberal and open' : 'The remote countryside leans authoritarian and looks after its own'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}
+        ${(() => { const dv = development({ ...p, gdppc: n ? this.game.economy.get(n.id)?.gdppc : undefined, built: (this.game.war.buildings[p.id] ?? []).filter((b) => b.progress >= 1 && !MILITARY_WORKS.has(b.type)).length }); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), [`Building here ${Math.round(buildSpeed(dv) * 100)}% of normal speed`, dv >= 50 ? 'good' : 'bad'], 'Grows with crowding and cities together with the nation\'s wealth per person, and with works built here; developed nations recruit a little faster', dv >= 50 ? 'Cities and crowded country lean liberal and open' : 'The remote countryside leans authoritarian and looks after its own'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}
         <span>Mean elevation</span><span>${go('mode:elevation', describeElevation(p.elev), 'Show the elevation map')}</span>
         <span>Highest point</span><span>${go('mode:terrain', describeElevation(p.peak ?? p.elev), 'Show the terrain map')}</span>
         <span>Climate here</span><span>${go('mode:climate', `${s.temperature} °C · ${rainfallWord(s.rainfall)}`, 'Show the temperature map')}</span>
