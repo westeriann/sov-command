@@ -118,6 +118,14 @@ until the go-ahead; interface work can go first.
 19. Borders that do not follow the coloured outline: find and fix every such spot.
 20. Each placed city becomes its own very small province inside its current province.
 
+Status of the third round: all done. Cities (14, 20) are 2,778 small provinces carved by
+`carve_cities` in `tools/worldgen/provinces.py`, numbered after the existing ones so no
+province, name, nation or neighbour changes; each takes about half its province's people and
+every capital moves into its city. In the 3D layer the core buildings of a city keep apart
+(they may clip by 12% of their size, also across neighbouring cities) while the low sprawl
+overlaps freely. Mountainsides at the coast (7) got a shading taper in the planet build: check
+it in the next installer.
+
 ## Fixed after the preview round
 
 - **Lag at high game speed** (worst while moving): every game tick re-sent all trade lanes

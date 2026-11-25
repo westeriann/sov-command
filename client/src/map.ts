@@ -850,7 +850,7 @@ export class GameMap {
     if (this.showProvinceNames && z >= 4.2) {
       const b = this.map.getBounds();
       for (const p of this.pol.provinces.values()) {
-        if (p.kind !== 'land') continue;
+        if (p.kind !== 'land' || p.city) continue; // a city shares its province's name
         const [lon, lat] = p.label;
         if (lat < b.getSouth() || lat > b.getNorth() || lon < b.getWest() || lon > b.getEast()) continue;
         wanted.add(p.id);

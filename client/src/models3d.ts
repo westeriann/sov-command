@@ -27,6 +27,8 @@ const RAD = Math.PI / 180;
 /** Zoom where models start to appear, and where they are fully grown. */
 export const MODELS_FROM = 3.3;
 /** A building's size on the ground, metres: big enough to read from the zoom models appear at. */
+const CLIP = 0.12;          // how far two core buildings' footprints may overlap, as a share of their size
+const SPACING_CELL = 12000; // metres: grid cell for the spacing check
 const BUILDING_M = 9000;
 const MODELS_FULL = 3.8;
 
@@ -470,9 +472,13 @@ export class Models3D implements CustomLayerInterface {
   sizePx = 0;
   onSize: (px: number) => void = () => {};
 
+  /** Core building footprints placed so far, in metres on a grid of SPACING_CELL, for the spacing rule. */
+  private footprints = new Map<string, { x: number; z: number; r: number }[]>();
+
   constructor(private map: MLMap, private game: Game, private pol: Political, private forces: Forces, shapes: Map<number, CityShape>) {
     for (const [id, shape] of shapes) this.cities.push(this.planCity(id, shape));
     this.cityById = new Map(this.cities.map((c) => [c.id, c]));
+    this.footprints.clear();
   }
 
   setEnabled(on: boolean) {
@@ -495,24 +501,43 @@ export class Models3D implements CustomLayerInterface {
     const tones = arid ? ['#c9b48f', '#d8c7a5', '#b59f7c', '#e2d6bd'] : ['#a9a59e', '#bdb8ae', '#8f949a', '#cfc8ba', '#9aa3ab'];
     const block = c.km * 1000 * 0.3; // footprint of one block: chunky, sized to the city
     const towers: City['towers'] = [];
-    const sample = (ring: Pos[], n: number, place: (x: number, z: number, centrality: number) => void) => {
+    // place() answers false when the spot is taken, and another spot is tried
+    const sample = (ring: Pos[], n: number, place: (x: number, z: number, centrality: number) => boolean | void) => {
       const xs = ring.map((q) => q[0]), ys = ring.map((q) => q[1]);
       const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
       const rMax = Math.max(1, Math.hypot(...local([x1, y1])), Math.hypot(...local([x0, y0])));
-      for (let i = 0, tries = 0; i < n && tries < n * 12; tries++) {
+      for (let i = 0, tries = 0; i < n && tries < n * 30; tries++) {
         const lon = x0 + rand() * (x1 - x0), lat = y0 + rand() * (y1 - y0);
         if (!inRing(lon, lat, ring)) continue;
         const [x, z] = local([lon, lat]);
-        place(x, z, 1 - Math.min(1, Math.hypot(x, z) / rMax));
+        if (place(x, z, 1 - Math.min(1, Math.hypot(x, z) / rMax)) === false) continue;
         i++;
       }
+    };
+    // the core's buildings keep their distance: footprints may clip a little (CLIP of their
+    // size), never stand inside one another, in this city or a neighbouring one. The low sprawl
+    // around them is left to overlap freely, so a big city reads as one dense mass.
+    const free = (x: number, z: number, r: number) => {
+      const gx = lon0 * kx + x, gz = -lat0 * kz + z;
+      const cx = Math.floor(gx / SPACING_CELL), cz = Math.floor(gz / SPACING_CELL);
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        for (const o of this.footprints.get(`${cx + a},${cz + b}`) ?? []) {
+          if (Math.hypot(o.x - gx, o.z - gz) < (o.r + r) * (1 - CLIP)) return false;
+        }
+      }
+      const k = `${cx},${cz}`;
+      if (!this.footprints.has(k)) this.footprints.set(k, []);
+      this.footprints.get(k)!.push({ x: gx, z: gz, r });
+      return true;
     };
     // the core: denser and taller toward the middle
     c.core.forEach((ring, k) => sample(ring, Math.round(Math.min(34, Math.max(5, c.km * 1.5)) * (k ? 0.35 : 1)), (x, z, central) => {
       const tall = big && !k && central > 0.35 && rand() < 0.55;
       const w = block * (tall ? 0.7 + rand() * 0.4 : 0.8 + rand() * 0.6);
+      const d = w * (0.7 + rand() * 0.6);
+      if (!free(x, z, Math.max(w, d) / 2)) return false;
       const h = tall ? w * (2.2 + rand() * 2.8) * (c.pop > 9e6 ? 1.3 : 1) : w * (0.4 + rand() * 0.6 + central * 0.6);
-      towers.push({ x, z, w, d: w * (0.7 + rand() * 0.6), h, color: new THREE.Color(tall && rand() < 0.5 ? GLASS : tones[Math.floor(rand() * tones.length)]) });
+      towers.push({ x, z, w, d, h, color: new THREE.Color(tall && rand() < 0.5 ? GLASS : tones[Math.floor(rand() * tones.length)]) });
     }));
     // suburbs: scattered low houses and sheds, outside the core
     sample(c.suburbs, Math.round(Math.min(30, Math.max(4, c.km * 1.2))), (x, z) => {

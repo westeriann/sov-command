@@ -1094,11 +1094,11 @@ export class Hud {
     const capital = n?.capital === p.id;
     const mineHere = !!n && this.game.mine?.id === n.id;
     return `
-      <div class="row-between"><span class="label">PROVINCE${capital ? ' · CAPITAL' : ''}</span><span class="mono coords">${formatLatLon(s.lat, s.lon)}</span></div>
+      <div class="row-between"><span class="label">${p.city ? 'CITY' : 'PROVINCE'}${capital ? ' · CAPITAL' : ''}</span><span class="mono coords">${formatLatLon(s.lat, s.lon)}</span></div>
       <div class="place">
         <i style="background:${t.color}" aria-hidden="true"></i>
         <div><div class="name">${esc(p.name.toUpperCase())}</div>
-        <div class="muted">${esc(t.name)}${p.coastal ? ' · coastal' : ''}</div></div>
+        <div class="muted">${esc(t.name)}${p.coastal ? ' · coastal' : ''}${p.city && p.parent !== undefined ? ` · in ${esc(this.pol.provinces.get(p.parent)?.name ?? '?')} province` : ''}</div></div>
       </div>
       <div class="kv mono">
         <span>Population</span><span>${mineHere ? go('module:economy', people(p.pop ?? 0), 'Grows with prosperity and stability: see Economy') : people(p.pop ?? 0)}</span>

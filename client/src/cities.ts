@@ -249,15 +249,20 @@ export class Cities {
     const capitals = new Set([...pol.nations.values()].map((n) => n.capital));
     const areas: GeoJSON.Feature[] = [];
     const cores: GeoJSON.Feature[] = [];
+    // a planet with city provinces: each city stands in its own, placed by its surroundings
+    // (shore, lake, river, valley, the foot of the mountains); the town and the province it
+    // grew in share their people, so the city is drawn for both together
+    const hasCities = [...pol.provinces.values()].some((p) => p.city);
     for (const p of pol.provinces.values()) {
       if (p.kind !== 'land') continue;
-      const capital = capitals.has(p.id);
-      const pop = p.pop ?? 0;
-      if (pop < MIN_POP && !capital) continue;
+      if (hasCities && !p.city) continue;
+      const capital = capitals.has(p.id) || (p.parent !== undefined && capitals.has(p.parent));
+      const pop = (p.pop ?? 0) + (hasCities ? pol.provinces.get(p.parent ?? -1)?.pop ?? 0 : 0);
+      if (!hasCities && pop < MIN_POP && !capital) continue;
       const rand = rng(p.id * 7919);
       // port cities sit toward the shore, but always on dry land
       let [lon, lat] = p.label;
-      const sea = p.adj.map((q) => pol.provinces.get(q)).find((q) => q?.kind === 'sea');
+      const sea = hasCities ? undefined : p.adj.map((q) => pol.provinces.get(q)).find((q) => q?.kind === 'sea');
       if (sea) {
         const dl = Math.max(-1.2, Math.min(1.2, (sea.label[0] - lon) * 0.3)), dt = Math.max(-1.2, Math.min(1.2, (sea.label[1] - lat) * 0.3));
         // walk toward the sea and stop well short of the water's edge
@@ -293,7 +298,7 @@ export class Cities {
     }
     const rural: GeoJSON.Feature[] = [];
     for (const p of pol.provinces.values()) {
-      if (p.kind !== 'land' || !(p.pop ?? 0) || p.terrain === 'ice') continue;
+      if (p.kind !== 'land' || p.city || !(p.pop ?? 0) || p.terrain === 'ice') continue;
       const rand = rng(p.id * 104729 + 5);
       const n = Math.max(1, Math.min(7, Math.round((p.pop ?? 0) / 350_000)));
       const spread = Math.sqrt(p.area) / 111 * 0.45, cos = Math.max(0.2, Math.cos((p.label[1] * Math.PI) / 180));

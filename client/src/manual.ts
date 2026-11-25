@@ -55,6 +55,8 @@ const CHAPTERS: Chapter[] = [
         <li>Right-drag (or <kbd>Ctrl</kbd>-drag) tilts and turns the view. The camera also leans over the map as you zoom in: switch that off with ${L('view:tilt', 'Tilt with zoom')}.</li>
         <li>${L('view:relief', 'Relief (3D)')} raises or flattens the mountains; ${L('view:models3d', '3D models')} shows troops, ships, aircraft, cities and buildings when zoomed in.</li>
         <li>Click a province or sea zone to inspect it; right-click for a menu of what you can do there. Hover over a foreign nation to see what it thinks of you. Each place sounds and stirs a little when you click it: a city's traffic, farm animals, forest birds, mountain wind, waves and gulls.</li>
+        <li><b>Cities</b> are small provinces of their own inside the province they grew in, placed by the land around them: on a shore, a lake or a river, at the foot of the mountains, in a valley, now and then on an island. Each holds about half its area's people and can be built in, defended and taken on its own. A star marks every capital, coloured by its form of government.</li>
+        <li>Click the name of a hurricane (or its eye) for its strength, winds, heading and what it threatens.</li>
         <li>Lost? The round button by the MAP arrow (or the <kbd>Home</kbd> key) flies you back to your capital.</li>
         <li>Clicking a nation's name in any window opens a small card about it (country, economy, military, diplomacy) with a button to zoom to it.</li>
         <li>The flat map (Globe or Flat, at the bottom of the map drawer) stays centred on the world.</li>
@@ -105,6 +107,9 @@ const CHAPTERS: Chapter[] = [
         <li><b>Welfare</b>: stability and population growth.</li>
         <li><b>Research</b>: research points and a little growth.</li>
       </ul>
+      <p>Move the sliders freely; a <b>Finalize budget</b> button then confirms the new split (<b>Even out</b> balances it to 100%, <b>Undo</b> drops the changes). Nothing moves on its own.</p>
+      <h3>Development</h3>
+      <p>Every province has a <b>development</b> score from 0 to 100: more people on less land, and a city, mean more developed; the open countryside is less. It matters a lot for building (from half speed in the wilds to one and a half times in a big city) and a little for recruiting, which follows your nation's average. It leans politics too: cities and crowded country pull toward liberal, open policies, the remote countryside toward authoritarian ones that look after their own.</p>
       <p><b>Treasury</b>: taxes above spending pay down debt; below it, you borrow, and debt charges interest. <b>Stability</b> (approval) falls with high taxes, shortages, blackouts, debt, occupation and war; <r>below 25, coups and revolutions become possible</r>.</p>
       <h3>Buildings</h3>
       <p>Build from a province's panel (click one of your provinces). Up to 4 projects at once, paid from the treasury:</p>

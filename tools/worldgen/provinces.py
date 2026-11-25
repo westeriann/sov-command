@@ -509,6 +509,10 @@ def main():
             "neighbours": sorted(int(j) + 1 for j in nat_adj[k]),
         })
 
+    # ---- cities: each big town (and every capital) becomes its own small province -------
+    is_land, owner = carve_cities(lab2d, provinces, nations, is_land, owner, elev, river_class, lake2d,
+                                  land2d, hab.reshape(H, W), cell_km2.reshape(H, W), lat, lon, seed)
+
     PUBLIC.mkdir(parents=True, exist_ok=True)
     (PUBLIC / "provinces.json").write_text(json.dumps(
         {"seed": seed, "land": n_land, "sea": n_sea, "provinces": provinces, "nations": nations},
@@ -568,6 +572,141 @@ def main():
                                                        separators=(",", ":")))
     sizes = {p.name: f"{p.stat().st_size / 1e6:.1f} MB" for p in PUBLIC.glob("*") if p.suffix in (".json", ".bin", ".geojson")}
     log(f"wrote {len(features):,} border lines; {sizes}")
+
+
+CITY_POP = 900_000
+
+
+def carve_cities(lab2d, provinces, nations, is_land, owner, elev, river_class, lake2d, land2d, hab, cell_km2, lat, lon, seed):
+    """Every province with a big town (or a capital) gives a few cells to a city province of its own,
+    placed by what is around it: a shore, a lake, a river, the foot of the mountains, a valley or an
+    island, each province weighing these its own way. The existing provinces keep their ids, names
+    and nations; the new ones are numbered after them. The city takes about half the people.
+    Changes lab2d in place; returns is_land and owner extended to the new ids."""
+    H, W = lab2d.shape
+    first = len(provinces) + 1
+    capitals = {n["capital"] for n in nations}
+    picked = [r for r in provinces if r["kind"] == "land" and (r["pop"] >= CITY_POP or r["id"] in capitals)]
+    log(f"carving {len(picked)} city provinces")
+    landish = land2d & ~lake2d & (ndimage.gaussian_filter(lake2d.astype(np.float32), 1.0, mode=("nearest", "wrap")) < 0.3)
+    if (WORLD / "height.npy").exists():                   # and land in the photo too
+        hgt = np.load(WORLD / "height.npy")
+        landish &= (hgt > 0.004) & (ndimage.uniform_filter(hgt, 3, mode=("nearest", "wrap")) > 0.004)
+    d_sea = wrap_edt(land2d)                      # cells to the nearest sea cell
+    d_lake = wrap_edt(~lake2d)
+    d_river = wrap_edt(river_class == 0)
+    e = elev.astype(np.float32)
+    high = ndimage.maximum_filter(e, size=(9, 9), mode=("nearest", "wrap"))
+    mean = ndimage.uniform_filter(e, size=(9, 9), mode=("nearest", "wrap"))
+    f_coast = np.where(landish, np.exp(-(d_sea - 1) / 1.5), 0)
+    f_lake = np.where(landish, np.exp(-(d_lake - 1) / 1.5), 0)
+    f_river = np.exp(-d_river / 1.2)
+    f_foot = np.clip((high - e - 500) / 1500, 0, 1) * (e < 1200)
+    f_valley = np.clip((mean - e) / 300, 0, 1) * (high > 1500)
+    f_alt = np.clip((e - 1500) / 1500, 0, 1)
+    habn = hab / max(float(hab.max()), 1e-6)
+    # cells next to another land province: a city keeps two cells clear of them, so the old
+    # provinces keep every neighbour they had
+    other = np.zeros((H, W), bool)
+    for b_ in (np.roll(lab2d, -1, 1), np.roll(lab2d, 1, 1)):
+        other |= (lab2d != b_) & is_land[b_]
+    other[:-1] |= (lab2d[:-1] != lab2d[1:]) & is_land[lab2d[1:]]
+    other[1:] |= (lab2d[1:] != lab2d[:-1]) & is_land[lab2d[:-1]]
+    other &= is_land[lab2d]                               # (sea cells along the shore do not count)
+    d_other = wrap_edt(~other)
+    objs = ndimage.find_objects(lab2d)
+    new_land, new_owner = [], []
+    nid = first
+    city_of = {}
+    for r in picked:
+        pid = r["id"]
+        sl = objs[pid - 1]
+        if sl is None:
+            continue
+        sub = lab2d[sl] == pid
+        rng = np.random.default_rng(seed * 7919 + pid)
+        w = rng.uniform(0.2, 1.6, 6)
+        ok = sub & landish[sl] & (d_other[sl] >= 2)
+        if ok.sum() < 3:
+            continue
+        # a small separate piece of land inside the province is an island
+        comp, nc = connected(sub & landish[sl], connectivity=1, return_num=True)
+        f_isle = np.zeros(sub.shape, np.float32)
+        if nc > 1 and rng.random() < 0.35:
+            sizes = np.bincount(comp.ravel())
+            sizes[0] = 0
+            big = sizes.argmax()
+            small = (sizes >= 3) & (np.arange(len(sizes)) != big)
+            f_isle = small[comp].astype(np.float32)
+        score = (w[0] * f_coast[sl] + w[1] * f_lake[sl] + w[2] * f_river[sl] + w[3] * f_foot[sl]
+                 + w[4] * f_valley[sl] + w[5] * 1.2 * f_isle + 0.5 * habn[sl] - 1.5 * f_alt[sl]
+                 + 0.35 * rng.random(sub.shape))
+        score = np.where(ok, score, -np.inf)
+        n_cells = 1 + (r["pop"] >= 2_500_000) + (r["pop"] >= 6_000_000) + (pid in capitals)
+        comps_before = connected(sub, connectivity=1, return_num=True)[1]
+        chosen = None
+        for flat in np.argsort(-score, axis=None)[:12]:
+            y, x = np.unravel_index(flat, sub.shape)
+            if not np.isfinite(score[y, x]):
+                break
+            cells = [(y, x)]
+            while len(cells) < n_cells:
+                best, bv = None, -np.inf
+                for cy, cx in cells:
+                    for ny, nx in ((cy + 1, cx), (cy - 1, cx), (cy, cx + 1), (cy, cx - 1)):
+                        if 0 <= ny < sub.shape[0] and 0 <= nx < sub.shape[1] and (ny, nx) not in cells and score[ny, nx] > bv:
+                            best, bv = (ny, nx), score[ny, nx]
+                if best is None:
+                    break
+                cells.append(best)
+            rest = sub.copy()
+            for c in cells:
+                rest[c] = False
+            if connected(rest, connectivity=1, return_num=True)[1] == comps_before:
+                chosen = cells
+                break
+        if chosen is None:
+            continue
+        ys = np.array([c[0] for c in chosen]) + sl[0].start
+        xs = np.array([c[1] for c in chosen]) + sl[1].start
+        lab2d[ys, xs] = nid
+        km2 = float(cell_km2[ys, xs].sum())
+        share = rng.uniform(0.42, 0.58)
+        pop = int(r["pop"] * share)
+        r["pop"] -= pop
+        r["area"] = int(max(1, r["area"] - km2))
+        y0, x0 = ys[0], xs[0]
+        provinces.append({
+            "id": nid, "name": r["name"], "kind": "land",
+            "label": [round(float(lon[x0]), 3), round(float(lat[y0]), 3)],
+            "area": int(round(km2)), "terrain": r["terrain"], "elev": int(elev[ys, xs].mean()), "adj": [],
+            "nation": r["nation"], "coastal": False, "pop": pop, "peak": int(elev[ys, xs].max()),
+            "river": int(river_class[ys, xs].max()), "lake": 0, "res": {}, "city": True, "parent": pid,
+        })
+        r["cityProvince"] = nid
+        city_of[pid] = nid
+        new_land.append(True)
+        new_owner.append(owner[pid])
+        nid += 1
+    is_land = np.concatenate([is_land, np.array(new_land, bool)])
+    owner = np.concatenate([owner, np.array(new_owner, owner.dtype)])
+    # neighbours of the new provinces, both ways
+    byid = {r["id"]: r for r in provinces}
+    for a_, b_ in ((lab2d, np.roll(lab2d, -1, 1)), (lab2d[:-1], lab2d[1:])):
+        m = (a_ != b_) & ((a_ >= first) | (b_ >= first))
+        for pa, pb in np.unique(np.stack([np.minimum(a_[m], b_[m]), np.maximum(a_[m], b_[m])], 1), axis=0):
+            pa, pb = int(pa), int(pb)
+            for p, q in ((pa, pb), (pb, pa)):
+                if q not in byid[p]["adj"]:
+                    byid[p]["adj"].append(q)
+    for r in provinces[first - 1:]:
+        r["coastal"] = any(byid[q]["kind"] == "sea" for q in r["adj"])
+    for n in nations:
+        if n["capital"] in city_of:
+            n["capital"] = city_of[n["capital"]]
+        n["provinces"] = sum(1 for r in provinces if r.get("nation") == n["id"])
+    log(f"{nid - first} city provinces carved")
+    return is_land, owner
 
 
 def write_fills(lab2d, is_land, lake2d, W, H, owner):
