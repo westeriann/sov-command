@@ -10,7 +10,7 @@ export type Cue =
   | 'dispatch' | 'election' | 'smallarms' | 'air_strike' | 'helicopter' | 'naval_gun' | 'explosion' | 'distant_blast'
   | 'missile_launch' | 'nuke' | 'order_ack' | 'recruit_done' | 'build_done' | 'deal_signed' | 'market_alert'
   | 'ring' | 'p_city' | 'p_farm' | 'p_wind' | 'p_goat' | 'p_forest' | 'p_desert' | 'p_waves' | 'p_gulls' | 'p_industry' | 'p_base';
-export type Loop = 'amb_command' | 'amb_rain' | 'amb_crowd';
+export type Loop = 'amb_rain' | 'amb_crowd';
 export type Group = 'ui' | 'fx' | 'amb';
 
 /** Each cue: its files (played together) and its volume group. */
@@ -34,7 +34,7 @@ const CUES: Record<Cue, [string[], Group]> = {
 const PICK_ONE = new Set<Cue>(['p_farm']);
 /** Played faster (higher) than recorded. */
 const RATE: Partial<Record<Cue, number>> = { ring: 1.45 };
-const LOOPS: Loop[] = ['amb_command', 'amb_rain', 'amb_crowd'];
+const LOOPS: Loop[] = ['amb_rain', 'amb_crowd'];
 /** How long before the same cue may sound again (ms): no machine-gun repeats. */
 const GAP: Partial<Record<Cue, number>> = { battle: 4000, smallarms: 3000, thunder: 9000, air_strike: 6000, naval_gun: 4000, distant_blast: 5000,
   election: 8000, war: 6000, urgent: 3000, missile_launch: 8000, nuke: 8000, hover: 70, helicopter: 6000, order_ack: 400, ring: 90,

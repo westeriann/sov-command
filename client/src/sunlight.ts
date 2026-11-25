@@ -1,3 +1,4 @@
+import type { Scene } from './province-scenes';
 // Sunlight on the map, from a distant sun placed by the game's date and time:
 // the night side dims, a warm band of dawn and dusk runs along the terminator,
 // and the sea catches a soft glint where the sun stands overhead. Drawn as a
@@ -105,10 +106,9 @@ export class Sunlight {
  */
 export class Seas {
   private frame = 0;
-  private layer: HTMLElement;
   private still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  constructor(private map: MLMap, private pol: Political) {
+  constructor(private map: MLMap, private pol: Political, private scenes?: { play: (scene: Scene, lon: number, lat: number) => void }) {
     for (let f = 0; f < 3; f++) map.addImage(`wave-${f}`, waveIcon(f), { pixelRatio: 2 });
     map.addSource('waves', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
@@ -119,9 +119,6 @@ export class Seas {
     }, map.getLayer('lanes') ? 'lanes' : undefined);
     map.on('moveend', () => this.scatter());
     window.setInterval(() => this.tick(), 450);
-    this.layer = document.createElement('div');
-    this.layer.className = 'prov-scenes';
-    map.getContainer().appendChild(this.layer);
     window.setInterval(() => this.life(), 6000);
   }
 
@@ -151,22 +148,14 @@ export class Seas {
 
   /** Now and then, somewhere on the water in view: a whale's spout and tail, or dolphins. */
   private life() {
-    if (this.map.getZoom() < 5 || this.still || document.hidden) return;
+    if (this.map.getZoom() < 5 || this.still || document.hidden || !this.scenes) return;
     const c = this.map.getContainer();
     for (let tries = 0; tries < 12; tries++) {
       const x = 60 + Math.random() * (c.clientWidth - 120), y = 120 + Math.random() * (c.clientHeight - 240);
       const ll = this.map.unproject([x, y]);
       const p = this.pol.provinceAt(ll.lat, ll.lng);
       if (p && p.kind === 'land') continue;
-      const el = document.createElement('div');
-      const whale = Math.random() < 0.4;
-      el.className = `prov-scene ${whale ? 'whale' : 'dolphins'}`;
-      el.innerHTML = whale
-        ? '<i style="--x:0px;--y:0px;--d:0s;--s:1"><svg viewBox="0 0 40 24"><path class="body" d="M4 16c6-5 18-6 28-2l4-4v8l-4-2c-8 4-20 4-28 0z"/><path class="spout" d="M12 10c-2-4 0-7 2-8M12 10c1-4 4-6 6-6"/></svg></i>'
-        : [0, 1, 2].map((k) => `<i style="--x:${k * 12}px;--y:${(k % 2) * 6}px;--d:${k * 0.25}s;--s:1"><svg viewBox="0 0 24 12"><path class="body" d="M2 10c4-7 12-8 18-3l2-3v6z"/></svg></i>`).join('');
-      el.style.transform = `translate(${x}px, ${y}px)`;
-      this.layer.appendChild(el);
-      window.setTimeout(() => el.remove(), 5200);
+      this.scenes.play(Math.random() < 0.4 ? 'whale' : 'dolphins', ll.lng, ll.lat);
       return;
     }
   }

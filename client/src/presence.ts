@@ -58,7 +58,47 @@ export class Presence {
   }
 
   // ---- storms -------------------------------------------------------------------------
-  private storms: { lon: number; lat: number; r: number; kind?: 'storm' | 'hurricane'; cat?: number; name?: string }[] = [];
+  private storms: { lon: number; lat: number; r: number; kind?: 'storm' | 'hurricane'; cat?: number; name?: string; vlon?: number; vlat?: number }[] = [];
+  private card?: HTMLElement;
+
+  /** The hurricane at a point on the map, if any (within its winds). */
+  hurricaneAt(lon: number, lat: number) {
+    return this.storms.find((s) => s.kind === 'hurricane' && distKm(lon, lat, s.lon, s.lat) < s.r * 1.1);
+  }
+
+  /** A card about a hurricane, by the click: its strength, track, the land under it and what it does. */
+  showHurricane(s: NonNullable<ReturnType<Presence['hurricaneAt']>>, x: number, y: number) {
+    if (!this.card) {
+      this.card = document.createElement('section');
+      this.card.className = 'panel nation-card storm-card';
+      this.card.setAttribute('role', 'dialog');
+      document.body.appendChild(this.card);
+      this.card.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('[data-sc="close"]')) this.card!.hidden = true; });
+      document.addEventListener('pointerdown', (e) => { if (this.card && !this.card.hidden && !this.card.contains(e.target as Node)) this.card.hidden = true; }, true);
+    }
+    const cat = Math.max(1, Math.round(s.cat ?? 1));
+    const winds = [0, 140, 165, 195, 230, 260][Math.min(5, cat)];
+    const speed = Math.hypot((s.vlon ?? 0) * 111 * Math.cos((s.lat * Math.PI) / 180), (s.vlat ?? 0) * 111);
+    const heading = speed > 1 ? ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(((Math.atan2((s.vlon ?? 0) * Math.cos((s.lat * Math.PI) / 180), s.vlat ?? 0) * 180) / Math.PI + 360) % 360 / 45) % 8] : 'nearly still';
+    const under = [...this.pol.provinces.values()].filter((p) => p.kind === 'land' && distKm(p.label[0], p.label[1], s.lon, s.lat) < s.r);
+    const me = this.game.mine?.id;
+    const mine = under.filter((p) => p.nation === me);
+    const units = me !== undefined ? this.game.units.filter((u) => u.nation === me && under.concat([...this.pol.provinces.values()].filter((p) => p.kind === 'sea' && distKm(p.label[0], p.label[1], s.lon, s.lat) < s.r)).some((p) => p.id === u.province)).length : 0;
+    const nations = [...new Set(under.map((p) => p.nation).filter((n): n is number => n !== undefined))].map((n) => this.pol.nations.get(n)?.name ?? '').filter(Boolean);
+    const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    this.card.innerHTML = `<header class="nc-head"><i class="nc-flag storm-ico"></i><div><b>Hurricane ${esc(s.name ?? '')}</b><span class="muted">Category ${cat} of 5</span></div>
+        <button type="button" class="link nc-x" data-sc="close" aria-label="Close">×</button></header>
+      <div class="nc-sec"><span class="label">STORM</span><div class="nc-kv"><span>Winds</span><b>~${winds} km/h</b><span>Size</span><b>${Math.round(s.r * 2)} km across</b>
+        <span>Moving</span><b>${heading}${speed > 1 ? ` · ${Math.round(speed)} km a day` : ''}</b></div></div>
+      <div class="nc-sec"><span class="label">BENEATH IT</span><div class="nc-kv"><span>Land provinces</span><b>${under.length}</b>
+        <span>Nations</span><b>${nations.length ? esc(nations.slice(0, 3).join(', ')) + (nations.length > 3 ? ` +${nations.length - 3}` : '') : 'open sea'}</b>
+        ${me !== undefined ? `<span>Your provinces</span><b class="${mine.length ? 'down' : ''}">${mine.length}</b><span>Your units under it</span><b class="${units ? 'down' : ''}">${units}</b>` : ''}</div></div>
+      <p class="hint">Aircraft beneath it are grounded and ships are battered. On landfall it can damage buildings near its eye, which must then be repaired. It weakens over land and cold sea.</p>`;
+    this.card.hidden = false;
+    const w = this.card.offsetWidth, h = this.card.offsetHeight;
+    this.card.style.left = `${Math.max(10, Math.min(innerWidth - w - 10, x + 14))}px`;
+    this.card.style.top = `${Math.max(10, Math.min(innerHeight - h - 10, y - 20))}px`;
+  }
   private spin = 0;
   private frame = 0;
   private tick = 0;
@@ -82,10 +122,12 @@ export class Presence {
           const el = document.createElement('div');
           el.className = 'storm-label';
           m = new Marker({ element: el, offset: [0, -14], opacityWhenCovered: '0' }).setLngLat([s.lon, s.lat]).addTo(this.map);
+          el.addEventListener('click', (e) => { const st = this.storms.find((x) => (x.name ?? '') === (el.dataset.name ?? '')); if (st) this.showHurricane(st, e.clientX, e.clientY); });
           this.labels.set(key, m);
         }
         m.setLngLat([s.lon, s.lat]);
         m.getElement().textContent = `Hurricane ${s.name ?? ''} · category ${s.cat ?? 1}`;
+        m.getElement().dataset.name = s.name ?? '';
         m.getElement().dataset.tip = `<b>Hurricane ${s.name ?? ''}</b>\nCategory ${s.cat ?? 1} of 5\n<r>Aircraft grounded and ships battered beneath it</r>\n<r>On landfall it can damage buildings near its eye; they must be repaired</r>\nRare: born only over warm tropical sea`;
         continue;
       }
@@ -127,4 +169,9 @@ export class Presence {
     this.flashes = flashes;
     this.map.triggerRepaint();
   }
+}
+
+function distKm(lon1: number, lat1: number, lon2: number, lat2: number) {
+  const D = Math.PI / 180, a = Math.sin(((lat2 - lat1) * D) / 2) ** 2 + Math.cos(lat1 * D) * Math.cos(lat2 * D) * Math.sin(((lon2 - lon1) * D) / 2) ** 2;
+  return 12742 * Math.asin(Math.min(1, Math.sqrt(a)));
 }

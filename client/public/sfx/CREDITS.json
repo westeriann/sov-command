@@ -378,20 +378,6 @@
   "loop": false
  },
  {
-  "id": "amb_command",
-  "category": "Ambience",
-  "assigned": "Background hum of the command room (quiet loop)",
-  "source": "Kenney \u00b7 sci-fi-sounds \u00b7 computerNoise_000.ogg",
-  "licence": "CC0",
-  "by": "Kenney (kenney.nl)",
-  "page": "https://kenney.nl/assets/sci-fi-sounds",
-  "seconds": 5.0,
-  "start": 0.0,
-  "of": 5.0,
-  "kb": 42,
-  "loop": true
- },
- {
   "id": "amb_rain",
   "category": "Ambience",
   "assigned": "Rain when a storm is on screen (loop)",

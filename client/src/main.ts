@@ -532,14 +532,15 @@ let soundRef: Sound | null = null;
   new Shipping(gameMap.map, game, pol);
   // the sea up close (whitecaps, sea life); the day and night shading was removed: at game
   // speed the night side swept round the globe several times a minute and read as blinking
-  new Seas(gameMap.map, pol);
+  const scenes = new ProvinceScenes(gameMap.map);
+  new Seas(gameMap.map, pol, scenes);
   new Capitals(gameMap.map, game, pol);
   // thunder you hear: lightning over your own land, a moment after the flash
   presence.onThunder = (lon, lat) => {
     if (game.mine && pol.provinceAt(lat, lon)?.nation === game.mine.id) setTimeout(() => sound.play('thunder'), 400 + Math.random() * 1600);
   };
   game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
-  game.on((c) => { if (c.has('mine') || c.has('status')) sound.loop('amb_command', game.mine ? 0.6 : 0); });
+  // (the command-room loop of computer noise was removed: it beeped through every game)
   gameMap.setMode('political', hud.strength('political'));
   gameMap.addNationLabels();
   /** Browser notifications while the tab is in the background (opt-in). */
@@ -588,7 +589,6 @@ let soundRef: Sound | null = null;
     }
   });
   const map = gameMap.map;
-  const scenes = new ProvinceScenes(map);
   roadTool = new RoadTool(hudRoot, map, game, pol, {
     build: (path, pts) => { conn.send({ t: 'order', order: { kind: 'road', path, pts } }); sound.play('confirm'); },
     back: () => lenses.show('eco'),
@@ -711,6 +711,9 @@ let soundRef: Sound | null = null;
   map.on('movestart', () => hoverCard.hide());
   map.on('click', (e) => {
     if (roadTool?.active) return; // the road tool works on press and drag
+    // a hurricane: its card (the click goes no further)
+    const storm = presence.hurricaneAt(e.lngLat.wrap().lng, e.lngLat.lat);
+    if (storm) { const r = map.getCanvas().getBoundingClientRect(); presence.showHurricane(storm, r.left + e.point.x, r.top + e.point.y); return; }
     // build mode: the click picks a province to build in
     if (buildMode.active) {
       const r = map.getCanvas().getBoundingClientRect();

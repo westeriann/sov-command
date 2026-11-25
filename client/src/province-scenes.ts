@@ -8,7 +8,7 @@ import type { Game } from './game';
 import type { Province } from './political';
 import type { Cue } from './sound';
 
-type Scene = 'gulls' | 'birds' | 'cattle' | 'sheep' | 'goat' | 'eagle' | 'dust' | 'snow' | 'smoke' | 'crowd' | 'march' | 'fish';
+export type Scene = 'gulls' | 'birds' | 'cattle' | 'sheep' | 'goat' | 'eagle' | 'dust' | 'snow' | 'smoke' | 'crowd' | 'march' | 'fish' | 'whale' | 'dolphins';
 const MILITARY = ['fort', 'airbase', 'air_defense', 'missile_defense', 'depot'];
 const INDUSTRY = ['factory', 'mine', 'coal_plant', 'gas_plant', 'nuclear_plant'];
 
@@ -46,6 +46,8 @@ const ART: Record<Scene, { svg: string; n: number; cls: string }> = {
   crowd: { svg: '<svg viewBox="0 0 6 6"><circle cx="3" cy="3" r="1.8" class="dot"/></svg>', n: 12, cls: 'walk' },
   march: { svg: '<svg viewBox="0 0 6 6"><rect x="1.5" y="1.5" width="3" height="3" class="dot"/></svg>', n: 8, cls: 'march' },
   fish: { svg: '<svg viewBox="0 0 24 12"><path d="M2 6c4-4 10-4 14 0-4 4-10 4-14 0zM16 6l5-3v6z" class="body"/></svg>', n: 2, cls: 'leap' },
+  whale: { svg: '<svg viewBox="0 0 40 24"><path class="body" d="M4 16c6-5 18-6 28-2l4-4v8l-4-2c-8 4-20 4-28 0z"/><path class="spout" d="M12 10c-2-4 0-7 2-8M12 10c1-4 4-6 6-6"/></svg>', n: 1, cls: 'whale' },
+  dolphins: { svg: '<svg viewBox="0 0 24 12"><path class="body" d="M2 10c4-7 12-8 18-3l2-3v6z"/></svg>', n: 3, cls: 'dolphins' },
 };
 
 export class ProvinceScenes {
@@ -58,6 +60,8 @@ export class ProvinceScenes {
     this.layer.className = 'prov-scenes';
     map.getContainer().appendChild(this.layer);
     map.on('move', () => this.place());
+    // zooming far out: the moment has passed (they would otherwise hang in space)
+    map.on('zoom', () => { if (map.getZoom() < 3.4) this.clear(); });
   }
 
   /** Play a scene at a point on the map (lon, lat). */
@@ -80,9 +84,21 @@ export class ProvinceScenes {
     while (this.live.length > 3) { const old = this.live.shift()!; old.el.remove(); }
   }
 
+  private clear() {
+    for (const s of this.live) s.el.remove();
+    this.live = [];
+  }
+
   private place() {
+    const c = this.map.getCanvas();
     for (const s of this.live) {
       const p = this.map.project([s.lon, s.lat]);
+      // in sight only if the map, asked what is at that spot on screen, answers with this point
+      // (otherwise it is round the back of the globe) and the spot is on the screen
+      const back = this.map.unproject(p);
+      const seen = Math.abs(back.lat - s.lat) < 0.5 && Math.abs(((back.lng - s.lon + 540) % 360) - 180) < 0.5
+        && p.x > -40 && p.y > -40 && p.x < c.clientWidth + 40 && p.y < c.clientHeight + 40;
+      s.el.style.visibility = seen ? '' : 'hidden';
       s.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
     }
   }
