@@ -552,7 +552,7 @@ let soundRef: Sound | null = null;
   citiesRef = cities;
   const presence = new Presence(gameMap.map, game, pol);
   presence.routedLanes = true;
-  new Shipping(gameMap.map, game, pol);
+  const shipping = new Shipping(gameMap.map, game, pol);
   // the sea up close (whitecaps, sea life); the day and night shading was removed: at game
   // speed the night side swept round the globe several times a minute and read as blinking
   const scenes = new ProvinceScenes(gameMap.map);
@@ -664,7 +664,7 @@ let soundRef: Sound | null = null;
   let models3dOn = true;
   try { models3dOn = localStorage.getItem('sov.models') !== 'off'; } catch { /* storage blocked */ }
   map.addLayer(models);
-  if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { sovDebug: { map, pol, game, models } });
+  if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { sovDebug: { map, pol, game, models, shipping } });
   models.setEnabled(models3dOn);
   hud.onModels = (on) => {
     models3dOn = on;

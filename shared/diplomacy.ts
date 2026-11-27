@@ -17,7 +17,7 @@ export const PACT_INFO: Record<Pact, { name: string; text: string; max: number; 
   guarantee: { name: 'Guarantee of independence', text: 'the guarantor joins any war declared on the guaranteed nation', max: 4, opinion: 15 },
 };
 /** Fixed deliveries of a good at an agreed price, outside the market (embargoes and blockades do not stop them). */
-export interface Contract { id: number; seller: number; buyer: number; good: Commodity; amount: number; price: number; until: number }
+export interface Contract { id: number; seller: number; buyer: number; good: Commodity; amount: number; price: number; until: number; /** caravan fee on the goods' value, paid by the buyer */ fee?: number }
 export const MAX_CONTRACTS = 6;
 export const CONTRACT_YEARS = [1, 2, 5];
 /** Envoys spend a season improving relations. */

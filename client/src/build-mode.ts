@@ -4,7 +4,7 @@
 import { buildInfo, buildTipLines } from './build-info';
 import type { Game } from './game';
 import type { Political, Province } from './political';
-import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
+import { BUILDINGS, BUILDING_TYPES, type BuildingType, siteFits } from '../../shared/buildings';
 import { attr, effectLines, tip } from './tooltip';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -87,7 +87,7 @@ export class BuildMode {
     const coastal = p.adj.some((q) => this.pol.provinces.get(q)?.kind === 'sea');
     const treasury = g.mine?.econ?.treasury ?? 0;
     // producers only where there is something to produce
-    const options = BUILDING_TYPES.filter((t) => (!BUILDINGS[t].coastal || coastal) && (!BUILDINGS[t].needs || ((p.res as Record<string, number> | undefined)?.[BUILDINGS[t].needs!] ?? 0) > 0));
+    const options = BUILDING_TYPES.filter((t) => (!BUILDINGS[t].coastal || coastal) && siteFits(t, p, (q) => this.pol.provinces.get(q)));
     this.menu.innerHTML = `<header class="row-between"><span class="label">BUILD IN ${esc(p.name.toUpperCase())}</span><button type="button" class="link" data-bm-close aria-label="Close">×</button></header>
       <div class="bm-list">${options.map((t) => {
         const have = list.find((b) => b.type === t);

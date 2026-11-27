@@ -1,6 +1,8 @@
 // Right-click a good in the market: a little menu to trade it with another
 // nation, once (one shipment now, at the world price) or on a schedule (a
 // supply contract over 1, 2 or 5 years). Your trade partners are listed first.
+import { routeBetween } from './trade-fee';
+import { attr, tip } from './tooltip';
 import { COMMODITY_INFO, type Commodity } from '../../shared/economy';
 import { CONTRACT_YEARS, type Deal } from '../../shared/diplomacy';
 import type { Game } from './game';
@@ -94,7 +96,16 @@ export class TradeMenu {
     const gdp = (id: number) => this.game.economy.get(id)?.gdp ?? 0;
     const partners = live.filter((n) => partner(n.id)).sort((a, b) => gdp(b.id) - gdp(a.id));
     const others = live.filter((n) => !partner(n.id) && !atWar(n.id)).sort((a, b) => gdp(b.id) - gdp(a.id)).slice(0, 30);
-    const row = (id: number) => `<li><span>${esc(this.pol.nations.get(id)!.name)}</span>
+    // how the goods would travel, and what caravans over foreign land add to the price
+    const via = (id: number) => {
+      const r = routeBetween(this.game, this.pol, me, id);
+      if (!r) return '<span class="tm-fee muted" title="No way to get goods there now">no route</span>';
+      const sea = r.path.some((q) => this.pol.provinces.get(q)?.kind === 'sea');
+      if (!r.fee) return `<span class="tm-fee muted" data-tip="${attr(tip(sea ? 'By sea' : 'Overland', r.canals.length ? `Through ${r.canals.length} canal${r.canals.length > 1 ? 's' : ''}` : sea ? 'No caravans needed' : 'Over your own land and theirs', ['No fee', 'good']))}">${sea ? 'by sea' : 'overland'}</span>`;
+      const extra = this.amount * this.price() * r.fee;
+      return `<span class="tm-fee" data-tip="${attr(tip(`Caravan fee +${(r.fee * 100).toFixed(1)}%`, `${r.caravan.length} foreign province${r.caravan.length > 1 ? 's' : ''} crossed by caravan${sea ? ', the rest by sea' : ''}`, [`The buyer pays $${extra.toFixed(2)}bn more on this amount${this.sell ? ' (they pay it)' : ' (you pay it)'}`, this.sell ? 'good' : 'bad'], 'A canal in one of those provinces would let ships through instead'))}">caravan +${(r.fee * 100).toFixed(1)}%</span>`;
+    };
+    const row = (id: number) => `<li><span>${esc(this.pol.nations.get(id)!.name)} ${via(id)}</span>
       <button type="button" class="claim" data-tm="once" data-n="${id}" ${this.sent.has(`once:${id}`) ? 'disabled' : ''}>${this.sent.has(`once:${id}`) ? 'Offered' : 'Once'}</button>
       <button type="button" class="claim" data-tm="contract" data-n="${id}" ${this.sent.has(`contract:${id}`) ? 'disabled' : ''}>${this.sent.has(`contract:${id}`) ? 'Offered' : `${this.years}-yr contract`}</button></li>`;
     this.el.innerHTML = `<div class="row-between"><span class="label">TRADE ${esc(info.name.toUpperCase())}</span><button type="button" class="link" data-tm="close">Close</button></div>
@@ -107,7 +118,7 @@ export class TradeMenu {
         ${partners.length ? `<span class="label">TRADE PARTNERS</span><ul>${partners.map((n) => row(n.id)).join('')}</ul>` : ''}
         <span class="label">${partners.length ? 'OTHER NATIONS' : 'NATIONS'} · largest economies</span><ul>${others.map((n) => row(n.id)).join('')}</ul>
       </div>
-      <p class="hint">Once: one shipment now, at the world price. Contract: the same amount every year, delivered daily at today's price. They answer by what they need and what they think of you.</p>`;
+      <p class="hint">Once: one shipment now, at the world price. Contract: the same amount every year, delivered daily at today's price. Goods go by sea where they can; over foreign land they go by caravan, and the buyer pays a fee on top (1.5% a province) unless a canal lets ships through. They answer by what they need and what they think of you.</p>`;
     this.updateValue();
   }
 }

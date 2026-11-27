@@ -3,7 +3,7 @@
 // it is, what can still be built there, development, and what is under way.
 // Columns sort (click a heading); click a row to go there; Build opens its build list.
 // Used by the Economy window (Provinces tab, full) and the Eco lens (compact).
-import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
+import { BUILDINGS, BUILDING_TYPES, type BuildingType, siteFits } from '../../shared/buildings';
 import { devLabel } from '../../shared/development';
 import type { Game } from './game';
 import { RESOURCE_NAMES, type Political, type Province, type ResourceId } from './political';
@@ -107,9 +107,8 @@ export class ProvinceList {
 
   /** Whether a work of this type could be started here now. */
   private canBuild(p: Province, t: BuildingType, coastal: boolean) {
-    const spec = BUILDINGS[t];
-    if (spec.coastal && !coastal) return false;
-    if (spec.needs && !((p.res as Record<string, number> | undefined)?.[spec.needs] ?? 0)) return false;
+    if (BUILDINGS[t].coastal && !coastal) return false;
+    if (!siteFits(t, p, (q) => this.pol.provinces.get(q))) return false;
     return !(this.game.war.buildings[p.id] ?? []).some((b) => b.type === t && b.progress < 1);
   }
 

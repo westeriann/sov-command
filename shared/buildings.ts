@@ -3,9 +3,9 @@
 import { COMMODITY_INFO, type Commodity } from './economy';
 
 export type BuildingType = 'fort' | 'air_defense' | 'factory' | 'mine' | 'port' | 'airbase' | 'coal_plant' | 'gas_plant' | 'nuclear_plant' | 'renewables' | 'missile_defense' | 'depot'
-  | 'farm' | 'logging_camp' | 'oil_well' | 'gas_well' | 'coal_mine' | 'rare_earth_mine';
+  | 'farm' | 'logging_camp' | 'oil_well' | 'gas_well' | 'coal_mine' | 'rare_earth_mine' | 'canal';
 export const BUILDING_TYPES: BuildingType[] = ['farm', 'logging_camp', 'mine', 'coal_mine', 'oil_well', 'gas_well', 'rare_earth_mine', 'factory', 'coal_plant', 'gas_plant', 'nuclear_plant', 'renewables',
-  'port', 'depot', 'fort', 'air_defense', 'airbase', 'missile_defense'];
+  'port', 'canal', 'depot', 'fort', 'air_defense', 'airbase', 'missile_defense'];
 
 /** A province resource (its score, 0..100, in the province data). */
 export type ResourceKey = 'farmland' | 'timber' | 'oil' | 'gas' | 'coal' | 'ore' | 'rare_earths';
@@ -18,6 +18,8 @@ export interface BuildingSpec {
   coastal?: boolean;
   /** What it is built of, as shares of a tenth of its money cost in goods (see buildGoods). */
   goods: Partial<Record<Commodity, number>>;
+  /** Where it can stand: 'canal' needs two separate bodies of water to join. */
+  site?: 'canal';
   /** Produces this good: it needs the province resource of the same kind. */
   produces?: Commodity;
   needs?: ResourceKey;
@@ -34,6 +36,7 @@ export const BUILDINGS: Record<BuildingType, BuildingSpec> = {
   air_defense: { name: 'Air defense site', cost: 4, days: 35, text: 'Halves enemy air power here, wears down raiders, may intercept missiles', goods: { metals: 0.7, rare_earths: 0.3 } },
   factory: { name: 'Factory complex', cost: 8, days: 60, text: '+0.08% growth a year (up to 10), +1.5 equipment a day; needs metals and electricity', goods: { metals: 0.8, timber: 0.2 } },
   port: { name: 'Naval port', cost: 5, days: 45, text: 'A supply hub for armies; needs a coast', coastal: true, goods: { metals: 0.5, timber: 0.5 } },
+  canal: { name: 'Canal', cost: 30, days: 320, text: 'Joins the two waters on either side: ships sail through, so trade routes need no caravan here', coastal: true, site: 'canal', goods: { metals: 0.5, timber: 0.2, coal: 0.3 } },
   airbase: { name: 'Air base', cost: 4, days: 30, text: 'Wings based here fly 30% farther', goods: { metals: 0.5, oil: 0.5 } },
   depot: { name: 'Supply depot', cost: 3, days: 25, text: 'A supply hub: armies within 3 provinces beyond your own land stay supplied', goods: { metals: 0.6, timber: 0.4 } },
   coal_plant: { name: 'Coal power station', cost: 5, days: 50, text: 'Electricity for 5% of the economy; burns coal', goods: { metals: 0.7, coal: 0.3 } },
@@ -77,3 +80,22 @@ export interface BuildingState {
 /** Repairing a damaged building costs this share of building it, and this share of its build time. */
 export const REPAIR_COST_SHARE = 0.4;
 export const REPAIR_TIME_SHARE = 0.33;
+
+/** A province a canal can cross: land touching two bodies of water that do not touch each other there. */
+export function canalSite(p: { kind: string; adj: number[] }, get: (id: number) => { kind: string; adj: number[] } | undefined) {
+  if (p.kind !== 'land') return false;
+  const seas = p.adj.filter((q) => get(q)?.kind === 'sea');
+  for (let i = 0; i < seas.length; i++) for (let j = i + 1; j < seas.length; j++) {
+    if (!get(seas[i])!.adj.includes(seas[j])) return true;
+  }
+  return false;
+}
+
+/** Whether a work of this type can stand in this province at all (coast, resource, canal site). */
+export function siteFits(t: BuildingType, p: { kind: string; adj: number[]; res?: Partial<Record<string, number>> }, get: (id: number) => { kind: string; adj: number[] } | undefined) {
+  const spec = BUILDINGS[t];
+  if (spec.coastal && !p.adj.some((q) => get(q)?.kind === 'sea')) return false;
+  if (spec.needs && !((p.res as Record<string, number> | undefined)?.[spec.needs] ?? 0)) return false;
+  if (spec.site === 'canal' && !canalSite(p, get)) return false;
+  return true;
+}

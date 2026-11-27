@@ -10,7 +10,7 @@ import { HARVEST, SEASON_NAMES, coldLand, seasonAt } from '../../shared/seasons'
 import { historyHtml } from './rankings-panel';
 import { flagSvg } from '../../shared/flags';
 import { flagOf } from './customize';
-import { BUILDINGS, BUILDING_TYPES, type BuildingType, REPAIR_COST_SHARE, REPAIR_TIME_SHARE } from '../../shared/buildings';
+import { BUILDINGS, BUILDING_TYPES, type BuildingType, REPAIR_COST_SHARE, REPAIR_TIME_SHARE, siteFits } from '../../shared/buildings';
 import { MISSILE_COST } from '../../shared/military';
 import { SPY_MISSIONS, type SpyMission } from '../../shared/diplomacy';
 import { MAX_ALLIANCES, MAX_TRADE_DEALS, opinionWord, type Deal, type Pact } from '../../shared/diplomacy';
@@ -1072,7 +1072,7 @@ export class Hud {
     const coastal = p.adj.some((q) => this.pol.provinces.get(q)?.kind === 'sea');
     // producers only where there is something to produce (none of the resource: not offered at all)
     const has = (t: BuildingType) => !BUILDINGS[t].needs || ((p.res as Record<string, number> | undefined)?.[BUILDINGS[t].needs!] ?? 0) > 0;
-    const missing = BUILDING_TYPES.filter((t) => !list.some((b) => b.type === t) && (!BUILDINGS[t].coastal || coastal) && has(t));
+    const missing = BUILDING_TYPES.filter((t) => !list.some((b) => b.type === t) && (!BUILDINGS[t].coastal || coastal) && has(t) && siteFits(t, p, (q) => this.pol.provinces.get(q)));
     return `<span class="label">BUILDINGS</span>
       ${nuked ? '<p class="hint down">Struck by a nuclear weapon: a third of its people are gone.</p>' : ''}
       ${list.length ? `<div class="bars">${list.map((b) => b.damaged

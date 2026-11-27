@@ -88,3 +88,26 @@ test('producers: a farm needs farmland, takes goods from stock (buying what is s
   w.tick(Date.now() + realPerDay * 2);
   assert.ok((n.econ.built?.food ?? 0) > 0, 'the farm grows food for the nation');
 });
+
+test('trade routes: by sea where they can, by caravan over foreign land for a fee, through a canal for free', async () => {
+  const { tradeRoute, CARAVAN_FEE } = await import('../../shared/trade-route.ts');
+  // sea 10 | land 1 (nation A) - land 2 (nation C) - land 3 (nation C) - land 4 (nation B) | sea 11
+  const P = new Map<number, { id: number; kind: 'land' | 'sea'; adj: number[]; owner?: number; label: [number, number] }>([
+    [10, { id: 10, kind: 'sea', adj: [1], label: [0, 0] }],
+    [1, { id: 1, kind: 'land', adj: [10, 2], owner: 1, label: [1, 0] }],
+    [2, { id: 2, kind: 'land', adj: [1, 3], owner: 3, label: [2, 0] }],
+    [3, { id: 3, kind: 'land', adj: [2, 4], owner: 3, label: [3, 0] }],
+    [4, { id: 4, kind: 'land', adj: [3, 11], owner: 2, label: [4, 0] }],
+    [11, { id: 11, kind: 'sea', adj: [4], label: [5, 0] }],
+  ]);
+  const canals = new Set<number>();
+  const world = { get: (id: number) => P.get(id), start: (n: number) => (n === 1 ? 10 : 11), canal: (id: number) => canals.has(id), closed: () => false };
+  const r = tradeRoute(world, 1, 2)!;
+  assert.deepEqual(r.caravan, [2, 3], 'the land between goes by caravan');
+  assert.ok(Math.abs(r.fee - 2 * CARAVAN_FEE) < 1e-9);
+  canals.add(2); canals.add(3);
+  const c = tradeRoute(world, 1, 2)!;
+  assert.equal(c.fee, 0, 'canals let ships through');
+  assert.deepEqual(c.canals, [2, 3]);
+  assert.equal(tradeRoute({ ...world, canal: () => false, closed: (o: number) => o === 3 }, 1, 2), null, 'land of a nation at war is closed');
+});

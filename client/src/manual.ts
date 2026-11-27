@@ -127,6 +127,7 @@ const CHAPTERS: Chapter[] = [
         <li>${L('market:local', 'Local market')}: what your nation makes and uses of each good, its surplus or shortfall, trade, stocks and the world price. Click a row to chart it over time.</li>
         <li>${L('market:world', 'World market')}: one market for every nation. Prices rise when the world uses more than it makes; charts show prices, world supply against demand, and an index of all goods.</li>
         <li><b>Right-click a good</b> to trade it with another nation: sell or buy an amount once (one shipment now, at the world price) or on a 1, 2 or 5-year supply contract. Your trade partners are listed first; nations answer by what they need and what they think of you.</li>
+        <li><b>How goods travel</b>: by sea wherever they can. Over the two traders' own land it costs nothing more; over anyone else's land the goods go by <b>caravan</b>, and the buyer pays <r>1.5% of their value for each foreign province crossed</r> (at most 12%). Each nation in the trade menu shows how goods would reach it and the fee. A <b>canal</b> (built in a province that touches two separate bodies of water) lets ships through instead: no fee there. Land of a nation at war with either side is closed to caravans. On the map, sea routes are faint blue lines with merchant ships; caravan stretches are dashed sand-coloured trails with trucks.</li>
       </ul>
       <h3>The goods</h3>
       <ul>
@@ -245,7 +246,8 @@ const CHAPTERS: Chapter[] = [
       <table class="man-table"><tbody>${TECHS.filter((t) => t.unlock).map((t) => `<tr><td>${esc(t.name)}</td><td>${esc(t.unlock!)}</td></tr>`).join('')}</tbody></table>
       <h3>Government</h3>
       <table class="man-table"><tbody>${GOVERNMENTS.map((g) => `<tr><td>${esc(GOVERNMENT_INFO[g].name)}</td><td>${esc(GOVERNMENT_INFO[g].text)}</td></tr>`).join('')}</tbody></table>
-      <p>A reform takes ${REFORM_DAYS} game days of turmoil (<r>−10 stability</r>) and is possible once a game year. Democracies hold elections; losing one blocks new wars for six months. Government reform, the people's beliefs, factions and propaganda are in ${L('module:politics', 'Politics')}.</p>`,
+      <p>A reform takes ${REFORM_DAYS} game days of turmoil (<r>−10 stability</r>) and is possible once a game year. Democracies hold elections; losing one blocks new wars for six months. Government reform, the people's beliefs, factions and propaganda are in ${L('module:politics', 'Politics')}.</p>
+      <p><b>The three pillars</b> (top of ${L('politics:pillars', 'Politics')}): <b>Business</b>, <b>People</b> and the <b>Military</b>, each 0 to 100. Keep each <g>above 50</g> to avoid stability losses; <g>at 75 or more</g> each adds +3 stability and its own bonus (business: growth; people: more stability; military: faster recruiting). <r>Below 50</r> stability falls the lower it goes (to −6); <r>below 25</r> −8 and the group's own penalty, and it may rise against you: business with capital flight and a putsch in parliament, the people with an uprising or civil war, the military with a coup. <r>With all three below 25 the government can fall without a fight</r>, and every law is struck down. Events and how you answer them move the pillars most (each answer lists its shifts); policies pull on them only slowly.</p>`,
   },
   {
     id: 'world', title: 'The living world', html: () => `
@@ -260,7 +262,7 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'alerts', title: 'Notifications and alerts', html: () => `
-      <p>The ${L('do:notices', 'notifications list')} under the date gathers news about your nation. <r>Urgent items</r> (war declared on you, provinces lost, divisions destroyed, strikes, revolts, coups) are red and sound an alarm. Click any notification to open the window it is about and look at the place it names.</p>
+      <p>The ${L('do:notices', 'notifications bell')} in the bottom left, beside "Back to my nation", gathers news about your nation: its badge counts what is new, and a click opens the full list. <r>Urgent items</r> (war declared on you, provinces lost, divisions destroyed, strikes, revolts, coups) are red and sound an alarm. Click any notification to open the window it is about and look at the place it names.</p>
       <p>Alert icons in the top bar mark standing problems: at war, nothing being researched or an empty queue, blackouts, debt, low stability, shortages, units out of supply, proposals awaiting an answer. Hover one for details; click it to open the window that fixes it.</p>
       <p>Hover almost anything for a tooltip: <g>benefits in green</g>, <r>costs in red</r>.</p>`,
   },

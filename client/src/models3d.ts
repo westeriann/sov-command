@@ -167,6 +167,17 @@ const GEOMETRY = {
     part(box(0.6, 0.04, 0.05), '#d4aa3c', [0.18, 0, 0]),
     part(box(0.12, 0.08, 0.1), '#a9852e', [-0.14, 0, 0]),
   ]),
+  // a cut through the land: concrete banks, the water between, a pair of lock gates and a ship in the lock
+  canal: () => build([
+    part(box(1.3, 0.05, 0.12), CONCRETE, [0, 0.025, 0.2]),
+    part(box(1.3, 0.05, 0.12), CONCRETE, [0, 0.025, -0.2]),
+    part(box(1.3, 0.02, 0.28), '#3f7fa3', [0, 0.012, 0]),
+    part(box(0.03, 0.08, 0.3), DARK, [-0.2, 0.04, 0]),
+    part(box(0.03, 0.08, 0.3), DARK, [0.2, 0.04, 0]),
+    part(box(0.3, 0.06, 0.1), '#c9ccd0', [0, 0.05, 0]),
+    part(box(0.08, 0.08, 0.08), '#9a4b3a', [-0.06, 0.1, 0]),
+    part(box(0.1, 0.16, 0.08), CONCRETE, [-0.35, 0.08, 0.3]),
+  ]),
   airbase: () => build([
     part(box(1.4, 0.015, 0.18), '#4a4d50', [0, 0.008, 0]),
     part(box(1.3, 0.002, 0.012), '#e8e2d0', [0, 0.017, 0]),
@@ -864,6 +875,9 @@ export class Models3D implements CustomLayerInterface {
       }
       case 'fort':
         this.put('fort', 0, 0, 0);
+        break;
+      case 'canal':
+        this.put('canal', 0, 0, 0, 0.3);
         break;
       case 'depot':
         this.put('depot', 0, 0, 0);

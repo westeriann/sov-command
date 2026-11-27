@@ -3,7 +3,9 @@
 // the way a ship would sail it: through the water, round headlands and through
 // straits (a path found on a coarse sea grid, then smoothed), faint so it sits
 // in the ocean rather than on top of it. Merchant ships sail each open lane;
-// on a cut lane they are gone and the lane shows red.
+// on a cut lane they are gone and the lane shows red. Where a route crosses
+// land it goes by caravan (a dashed, sandy trail with trucks on it; over foreign
+// land that costs a fee), or by canal where one has been dug.
 import type { GeoJSONSource, Map as MLMap } from 'maplibre-gl';
 import type { Game } from './game';
 import type { Political } from './political';
@@ -14,12 +16,13 @@ const GW = 1024, GH = 512; // the sea grid: about 40 km a cell
 export class Shipping {
   private sea: Uint8Array; // 1 = open water, 2 = water next to land
   private paths = new Map<string, Pt[]>();
-  private lanes: { key: string; pts: Pt[]; len: number[]; raided: boolean; mine: boolean }[] = [];
+  private lanes: { key: string; pts: Pt[]; len: number[]; raided: boolean; mine: boolean; land?: boolean }[] = [];
   private start = performance.now();
 
   constructor(private map: MLMap, private game: Game, private pol: Political) {
     this.sea = this.seaGrid();
     map.addImage('merchant', shipIcon(), { pixelRatio: 2 });
+    map.addImage('caravan', caravanIcon(), { pixelRatio: 2 });
     map.addSource('ships', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     if (map.getLayer('lanes')) {
       // the lanes drawn by Presence follow the routed paths now: thin and faint, solid, coloured like water
@@ -28,11 +31,23 @@ export class Shipping {
       map.setPaintProperty('lanes', 'line-opacity', ['case', ['get', 'raided'], 0.75, ['case', ['get', 'mine'], 0.32, 0.14]] as never);
       map.setPaintProperty('lanes', 'line-dasharray', [1, 0] as never);
       map.setPaintProperty('lanes', 'line-blur', 0.6);
+      map.setFilter('lanes', ['!=', ['get', 'mode'], 'land']);
+      // the stretches over land: a caravan trail
+      map.addLayer({
+        id: 'caravans', type: 'line', source: 'lanes', minzoom: 1.2, filter: ['==', ['get', 'mode'], 'land'],
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': ['case', ['get', 'raided'], '#ff6b5a', '#e0bf7a'] as never,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 1.2, 0.8, 5, 1.6, 7, 2.2] as never,
+          'line-opacity': ['case', ['get', 'mine'], 0.75, 0.35] as never,
+          'line-dasharray': [1.5, 2],
+        },
+      }, 'lanes');
     }
     map.addLayer({
       id: 'ships', type: 'symbol', source: 'ships', minzoom: 2.6,
       layout: {
-        'icon-image': 'merchant', 'icon-rotate': ['get', 'b'] as never, 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map',
+        'icon-image': ['get', 'icon'] as never, 'icon-rotate': ['get', 'b'] as never, 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map',
         'icon-size': ['interpolate', ['linear'], ['zoom'], 2.6, 0.35, 5, 0.6, 7.5, 0.9] as never,
         'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
@@ -43,6 +58,38 @@ export class Shipping {
     window.setInterval(() => this.sail(), 200);
   }
 
+  /** A route in stretches: sea zone to sea zone (and through canals) by water, the rest overland. */
+  private stretches(path: number[], canals: Set<number>): { pts: Pt[]; land: boolean }[] {
+    const water = (id: number) => this.pol.provinces.get(id)?.kind === 'sea' || canals.has(id);
+    const out: { pts: Pt[]; land: boolean }[] = [];
+    let run: number[] = [path[0]], runLand: boolean | null = null;
+    const flush = () => {
+      if (run.length < 2 || runLand === null) return;
+      if (runLand) {
+        const pts = run.map((id) => this.pol.provinces.get(id)?.label).filter((p): p is Pt => !!p);
+        out.push({ pts: smooth(continuous(pts)), land: true });
+      } else {
+        // between two sea zones the ships find their way on the sea grid; into and out of a canal, straight
+        const pts: Pt[] = [];
+        for (let i = 1; i < run.length; i++) {
+          const a = this.pol.provinces.get(run[i - 1])?.label, b = this.pol.provinces.get(run[i])?.label;
+          if (!a || !b) continue;
+          const seg = this.pol.provinces.get(run[i - 1])?.kind === 'sea' && this.pol.provinces.get(run[i])?.kind === 'sea' ? this.hop(run[i - 1], run[i], a, b) : [a, b];
+          pts.push(...(pts.length ? seg.slice(1) : seg));
+        }
+        out.push({ pts: smooth(simplify(continuous(pts))), land: false });
+      }
+    };
+    for (let i = 1; i < path.length; i++) {
+      const land = !(water(path[i - 1]) && water(path[i]));
+      if (runLand !== null && land !== runLand) { flush(); run = [path[i - 1]]; }
+      runLand = land;
+      run.push(path[i]);
+    }
+    flush();
+    return out;
+  }
+
   /** The routed line for each of the game's lanes (worked out once per lane, then kept). */
   lineFor(path: number[]): Pt[] {
     const key = path.join(',');
@@ -51,7 +98,7 @@ export class Shipping {
       const stops = path.map((id) => this.pol.provinces.get(id)?.label).filter((p): p is Pt => !!p);
       line = [stops[0]];
       for (let i = 1; i < stops.length; i++) line.push(...this.hop(path[i - 1], path[i], stops[i - 1], stops[i]).slice(1));
-      line = smooth(simplify(line));
+      line = smooth(simplify(continuous(line)));
       this.paths.set(key, line);
     }
     return line;
@@ -64,16 +111,16 @@ export class Shipping {
     const key = `${me}|${(this.game.war.lanes ?? []).map((l) => `${l.a}-${l.b}-${l.raided ? 1 : 0}-${l.path.length}`).join(',')}`;
     if (key === this.lanesKey) return;
     this.lanesKey = key;
-    this.lanes = (this.game.war.lanes ?? []).map((l) => {
-      const pts = this.lineFor(l.path);
+    // each lane in stretches: by sea (and canal) or over land (by caravan)
+    this.lanes = (this.game.war.lanes ?? []).flatMap((l) => this.stretches(l.path, new Set(l.canals ?? [])).map((st, i) => {
       const len = [0];
-      for (let i = 1; i < pts.length; i++) len.push(len[i - 1] + dist(pts[i - 1], pts[i]));
-      return { key: `${l.a}-${l.b}`, pts, len, raided: l.raided, mine: l.a === me || l.b === me };
-    }).filter((l) => l.pts.length > 1);
-    // the lanes layer (Presence) draws the routed paths
+      for (let k = 1; k < st.pts.length; k++) len.push(len[k - 1] + dist(st.pts[k - 1], st.pts[k]));
+      return { key: `${l.a}-${l.b}-${i}`, pts: st.pts, len, raided: l.raided, mine: l.a === me || l.b === me, land: st.land };
+    })).filter((l) => l.pts.length > 1);
+    // the lanes layer (Presence) draws the routed paths; the caravans layer the land stretches
     const src = this.map.getSource('lanes') as GeoJSONSource | undefined;
     src?.setData({ type: 'FeatureCollection', features: this.lanes.map((l) => ({
-      type: 'Feature', properties: { raided: l.raided, mine: l.mine }, geometry: { type: 'LineString', coordinates: l.pts },
+      type: 'Feature', properties: { raided: l.raided, mine: l.mine, mode: l.land ? 'land' : 'sea' }, geometry: { type: 'LineString', coordinates: l.pts },
     })) });
   }
 
@@ -85,6 +132,7 @@ export class Shipping {
     for (const [k, l] of this.lanes.entries()) {
       if (l.raided) continue; // a cut lane: no merchant dares it
       const total = l.len[l.len.length - 1];
+      if (total <= 0) continue;
       const n = total > 40 ? 2 : 1;
       for (let s = 0; s < n * 2; s++) {
         const back = s % 2 === 1;
@@ -98,7 +146,7 @@ export class Shipping {
         const p: Pt = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
         let bearing = (Math.atan2((b[0] - a[0]) * Math.cos((p[1] * Math.PI) / 180), b[1] - a[1]) * 180) / Math.PI;
         if (back) bearing += 180;
-        features.push({ type: 'Feature', properties: { b: bearing }, geometry: { type: 'Point', coordinates: p } });
+        features.push({ type: 'Feature', properties: { b: bearing, icon: l.land ? 'caravan' : 'merchant' }, geometry: { type: 'Point', coordinates: p } });
       }
     }
     (this.map.getSource('ships') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features });
@@ -168,11 +216,14 @@ export class Shipping {
         if (ny < 0 || ny >= GH) continue;
         const j = ny * GW + ((x + dx + GW) % GW);
         if (!this.sea[j]) continue;
+        // never slip diagonally between two land cells (that is how lanes cut across isthmuses)
+        if (dx && dy && !(this.sea[y * GW + ((x + dx + GW) % GW)] && this.sea[ny * GW + x])) continue;
         const c = cost[i] + (dx && dy ? 1.414 : 1) * (this.sea[j] === 2 ? 2.2 : 1);
         if (c < costOf(j)) { cost[j] = c; prev[j] = i; seen[j] = stamp; heap.push(j, c + h(j)); }
       }
     }
-    if (seen[goal] !== stamp || (prev[goal] < 0 && goal !== start)) return [a, b]; // no way by water found: keep the straight hop
+    // no way found on the coarse grid: a strait too narrow for it. Look again on the full province map.
+    if (seen[goal] !== stamp || (prev[goal] < 0 && goal !== start)) return this.fineRoute(a, b, 80) ?? this.fineRoute(a, b, 260) ?? [a, b];
     const cells: number[] = [];
     for (let i = goal; i >= 0; i = prev[i]) { cells.push(i); if (i === start) break; }
     cells.reverse();
@@ -180,6 +231,61 @@ export class Shipping {
     // keep longitudes continuous across the date line
     for (let k = 1; k < pts.length; k++) { while (pts[k][0] - pts[k - 1][0] > 180) pts[k][0] -= 360; while (pts[k][0] - pts[k - 1][0] < -180) pts[k][0] += 360; }
     return pts;
+  }
+
+  /**
+   * The way by water on the full-resolution province map (about 10 km a pixel), searched only in a box
+   * round the two ends (margin in pixels): finds the narrow straits the coarse grid cannot see.
+   */
+  private fineRoute(a: Pt, b: Pt, margin: number): Pt[] | null {
+    const pol = this.pol, W = pol.width, H = pol.height;
+    if (!W || !H) return null;
+    const px = (p: Pt): [number, number] => [Math.floor(((p[0] + 180) / 360) * W) % W, Math.min(H - 1, Math.max(0, Math.floor(((90 - p[1]) / 180) * H)))];
+    let [ax, ay] = px(a), [bx, by] = px(b);
+    if (Math.abs(ax - bx) > W / 2) { if (ax < bx) ax += W; else bx += W; } // the short way round the date line
+    const x0 = Math.min(ax, bx) - margin, y0 = Math.max(0, Math.min(ay, by) - margin);
+    const bw = Math.min(W, Math.abs(ax - bx) + 2 * margin + 1), bh = Math.min(H - y0, Math.abs(ay - by) + 2 * margin + 1);
+    if (bw * bh > 1_600_000) return null;
+    const water = (x: number, y: number) => pol.provinces.get(pol.grid[(y + y0) * W + (((x + x0) % W) + W) % W])?.kind === 'sea';
+    const n = bw * bh, cost = new Float32Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1);
+    // start and goal: the nearest water to each end, inside the box
+    const near = (cx: number, cy: number) => {
+      for (let r = 0; r < 40; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        const x = cx - x0 + dx, y = cy - y0 + dy;
+        if (x >= 0 && y >= 0 && x < bw && y < bh && water(x, y)) return y * bw + x;
+      }
+      return -1;
+    };
+    const start = near(ax, ay), goal = near(bx, by);
+    if (start < 0 || goal < 0) return null;
+    const gx = goal % bw, gy = (goal / bw) | 0;
+    const heap = new Heap();
+    cost[start] = 0; heap.push(start, 0);
+    let steps = 0;
+    while (heap.size && steps++ < 2_000_000) {
+      const i = heap.pop();
+      if (i === goal) break;
+      const x = i % bw, y = (i / bw) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= bw || ny >= bh || !water(nx, ny)) continue;
+        if (dx && dy && !(water(x + dx, y) && water(x, y + dy))) continue; // never slip diagonally between two pieces of land
+        const j = ny * bw + nx, c = cost[i] + (dx && dy ? 1.414 : 1);
+        if (c < cost[j]) { cost[j] = c; prev[j] = i; heap.push(j, c + Math.hypot(nx - gx, ny - gy)); }
+      }
+    }
+    if (prev[goal] < 0 && goal !== start) return null;
+    const cells: number[] = [];
+    for (let i = goal; i >= 0; i = prev[i]) { cells.push(i); if (i === start) break; }
+    cells.reverse();
+    // every few pixels is plenty once smoothed
+    const pts: Pt[] = cells.filter((_, k) => k % 4 === 0 || k === cells.length - 1).map((i) => {
+      const x = (i % bw) + x0, y = ((i / bw) | 0) + y0;
+      return [((x + 0.5) / W) * 360 - 180, 90 - ((y + 0.5) / H) * 180] as Pt;
+    });
+    for (let k = 1; k < pts.length; k++) { while (pts[k][0] - pts[k - 1][0] > 180) pts[k][0] -= 360; while (pts[k][0] - pts[k - 1][0] < -180) pts[k][0] += 360; }
+    return [a, ...pts, b];
   }
 
   private nearestSea([x, y]: [number, number]): [number, number] {
@@ -270,4 +376,27 @@ function shipIcon(): ImageData {
   g.beginPath(); g.moveTo(10, 2); g.quadraticCurveTo(17, 10, 16, 18); g.lineTo(16, 32); g.lineTo(4, 32); g.lineTo(4, 18); g.quadraticCurveTo(3, 10, 10, 2); g.closePath(); g.fill(); g.stroke();
   g.fillStyle = '#9a4b3a'; g.fillRect(6, 14, 8, 4); g.fillStyle = '#4a6b8a'; g.fillRect(6, 20, 8, 4); g.fillStyle = '#7d8a55'; g.fillRect(6, 26, 8, 3); // containers
   return g.getImageData(0, 0, W, H);
+}
+
+/** A caravan seen from above: a sand-coloured truck with a dark cab. */
+function caravanIcon(): ImageData {
+  const W = 16, H = 30, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(224,191,122,0.35)'; g.fillRect(5, 24, 6, 6); // dust
+  g.strokeStyle = 'rgba(0,0,0,0.6)'; g.lineWidth = 1;
+  g.fillStyle = '#d8b56c'; g.fillRect(3, 9, 10, 15); g.strokeRect(3, 9, 10, 15); // the load
+  g.fillStyle = '#5a4a36'; g.fillRect(4, 2, 8, 6); g.strokeRect(4, 2, 8, 6); // the cab
+  g.fillStyle = '#9fd6e0'; g.fillRect(5, 3, 6, 2); // windscreen
+  return g.getImageData(0, 0, W, H);
+}
+
+/** Keep longitudes continuous along a whole line (each leg is, but where two legs meet one may be a full turn of the globe off). */
+function continuous(pts: Pt[]) {
+  const out = pts.map((p) => [p[0], p[1]] as Pt);
+  for (let k = 1; k < out.length; k++) {
+    while (out[k][0] - out[k - 1][0] > 180) out[k][0] -= 360;
+    while (out[k][0] - out[k - 1][0] < -180) out[k][0] += 360;
+  }
+  return out;
 }

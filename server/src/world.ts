@@ -32,9 +32,9 @@ import { HARVEST, WINTER_POWER, seasonAt } from '../../shared/seasons.ts';
 import { GOV_LIBERTY, PROPAGANDA_COST, type Faction, type Ideology, type PropagandaMode } from '../../shared/society.ts';
 import { specialtyBonus, specialtyOf, SPECIALTIES, type Specialty, type SpecialtyBonus } from '../../shared/specialties.ts';
 import { BUILDINGS, BUILDING_TYPES, MIN_RESOURCE, buildGoods, buildingOutput, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, REPAIR_COST_SHARE, REPAIR_TIME_SHARE, type BuildingType } from '../../shared/buildings.ts';
-import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
-import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
+import { tradeRoute, type TradeRoute } from '../../shared/trade-route.ts';
+import { MISSILE_SHIELD_KM, canalSite } from '../../shared/buildings.ts';
 import { ROAD, roadCost, roadDays } from '../../shared/roads.ts';
 import { buildSpeed, devLean, development, cityHubs, MILITARY_WORKS, nationDevelopment, popGrowthSpeed, recruitSpeed } from '../../shared/development.ts';
 import {
@@ -266,8 +266,7 @@ export class World {
     return this.diplomacy.partners('trade', nation).some((x) => this.specialties(x).own[sp]);
   }
   private stormy = new Set<number>();
-  lanes: { a: number; b: number; path: number[]; raided: boolean }[] = [];
-  private laneCache = new Map<string, number[] | null>();
+  lanes: { a: number; b: number; path: number[]; raided: boolean; caravan?: number[]; canals?: number[]; fee?: number }[] = [];
   private plants = new Map<number, { share: number; thermal: number; coal: number; gas: number }>();
   nuked: number[] = [];
   private warDirty = false;
@@ -1194,6 +1193,7 @@ export class World {
         const here = this.military.buildings.get(p.id) ?? [];
         if (here.some((b) => b.type === order.building)) return fail('not_allowed', `There is already a ${spec.name.toLowerCase()} here.`);
         if (spec.coastal && !p.adj.some((q) => this.military.provinces.get(q)?.kind === 'sea')) return fail('not_allowed', 'A port needs a coast.');
+        if (spec.site === 'canal' && !canalSite(p, (q) => this.military.provinces.get(q))) return fail('not_allowed', 'A canal needs two separate bodies of water on either side of the province.');
         if (spec.needs && (p.res?.[spec.needs] ?? 0) < MIN_RESOURCE) return fail('not_allowed', `${spec.name} need ${RESOURCE_WORD[spec.needs]} here (a score of ${MIN_RESOURCE} or more).`);
         const busy = [...this.military.buildings].filter(([q, list]) => this.military.provinces.get(q)?.owner === n.id && list.some((b) => b.progress < 1)).length;
         if (busy >= MAX_CONSTRUCTION) return fail('not_allowed', `At most ${MAX_CONSTRUCTION} projects at a time.`);
@@ -2084,21 +2084,42 @@ export class World {
   }
 
   /** Trade agreements between coastal nations sail a sea route; an enemy warship on it cuts the deal's value. */
+  /** The way goods travel between two nations (sea, canals, caravans over foreign land), cached for a month. */
+  routeBetween(a: number, b: number): TradeRoute | null {
+    const key = `${Math.min(a, b)}-${Math.max(a, b)}`;
+    if (this.routeCache.has(key)) return this.routeCache.get(key)!;
+    const m = this.military;
+    const r = tradeRoute({
+      get: (id) => { const p = m.provinces.get(id); return p ? { id: p.id, kind: p.kind, adj: p.adj, owner: p.kind === 'land' ? m.controller(p.id) : undefined, label: p.label } : undefined; },
+      start: (n) => this.portZone(n) ?? this.defs.get(n)?.capital,
+      canal: (id) => m.built(id, 'canal'),
+      closed: (o) => m.atWar(o, a) || m.atWar(o, b),
+    }, Math.min(a, b), Math.max(a, b));
+    this.routeCache.set(key, r);
+    return r;
+  }
+  private routeCache = new Map<string, TradeRoute | null>();
+
+  /** What a caravan journey adds to the price of goods between two nations (0 by sea or over their own land). */
+  routeFee(a: number, b: number) { return this.routeBetween(a, b)?.fee ?? 0; }
+
+  /** The sea zone off a nation's main port (nearest its capital), if it has a coast. */
+  private portZone(id: number) {
+    const m = this.military;
+    const cap = m.provinces.get(this.defs.get(id)?.capital ?? -1)?.label;
+    let best: number | undefined, bestD = Infinity;
+    for (const p of m.provinces.values()) {
+      if (p.kind !== 'land' || p.owner !== id || m.controller(p.id) !== id) continue;
+      const zone = p.adj.find((q) => m.provinces.get(q)?.kind === 'sea');
+      if (zone === undefined) continue;
+      const d = (m.built(p.id, 'port') ? 0 : 1) * 1e6 + (cap ? distanceKm(cap, p.label) : 0);
+      if (d < bestD) { bestD = d; best = zone; }
+    }
+    return best;
+  }
+
   private lanesDay() {
     const m = this.military, lanes: typeof this.lanes = [];
-    const sea = m.provinces as unknown as Map<number, RouteNode>;
-    const portOf = (id: number) => {
-      const cap = m.provinces.get(this.defs.get(id)?.capital ?? -1)?.label;
-      let best: number | undefined, bestD = Infinity;
-      for (const p of m.provinces.values()) {
-        if (p.kind !== 'land' || p.owner !== id || m.controller(p.id) !== id) continue;
-        const zone = p.adj.find((q) => m.provinces.get(q)?.kind === 'sea');
-        if (zone === undefined) continue;
-        const d = (m.built(p.id, 'port') ? 0 : 1) * 1e6 + (cap ? distanceKm(cap, p.label) : 0);
-        if (d < bestD) { bestD = d; best = zone; }
-      }
-      return best;
-    };
     const fleets = new Map<number, Set<number>>(); // sea zone -> nations with warships there
     for (const u of m.units.values()) {
       if (UNIT_SPECS[u.type].domain !== 'sea') continue;
@@ -2107,19 +2128,15 @@ export class World {
     }
     for (const t of this.diplomacy.treaties) {
       if (t.kind !== 'trade') continue;
-      const key = `${Math.min(t.a, t.b)}-${Math.max(t.a, t.b)}`;
-      let path = this.laneCache.get(key);
-      if (path === undefined) {
-        const za = portOf(t.a), zb = portOf(t.b);
-        const r = za !== undefined && zb !== undefined ? findRoute(sea, za, zb, 'destroyers', (q) => m.provinces.get(q)?.kind === 'sea') : null;
-        path = r ? [za!, ...r.path] : null;
-        this.laneCache.set(key, path);
-      }
-      if (!path || path.length < 2) continue; // neighbours trading overland
-      const raided = path.some((z) => [...(fleets.get(z) ?? [])].some((x) => m.atWar(x, t.a) || m.atWar(x, t.b)));
-      lanes.push({ a: t.a, b: t.b, path, raided });
+      // by sea where it can; over foreign land by caravan (a fee) or through a canal
+      const r = this.routeBetween(t.a, t.b);
+      if (!r || r.path.length < 2) continue;
+      const seaZones = r.path.filter((z) => m.provinces.get(z)?.kind === 'sea');
+      if (!seaZones.length && !r.caravan.length) continue; // neighbours trading over their own land
+      const raided = seaZones.some((z) => [...(fleets.get(z) ?? [])].some((x) => m.atWar(x, t.a) || m.atWar(x, t.b)));
+      lanes.push({ a: t.a, b: t.b, path: r.path, raided, caravan: r.caravan, canals: r.canals, fee: r.fee });
     }
-    if (this.market.day % 30 === 0) this.laneCache.clear(); // ports and coasts change hands
+    if (this.market.day % 30 === 0) this.routeCache.clear(); // ports, coasts and canals change hands
     this.lanes = lanes;
   }
 
@@ -2755,6 +2772,7 @@ export class World {
   }
 
   private finished(owner: number | undefined, p: number, type: BuildingType) {
+    if (type === 'canal') { this.routeCache.clear(); if (owner) this.event('diplomacy', owner, `A canal opens in ${this.military.provinces.get(p)?.name ?? 'a province'}: ships now sail through, and trade routes there need no caravans.`); }
     const n = owner ? this.nations.get(owner) : undefined;
     if (!n) return;
     if (n.controller === 'human') this.event('politics', n.id, `${this.defs.get(n.id)!.short}: ${BUILDINGS[type].name} completed in ${this.military.provinces.get(p)?.name ?? 'a province'}.`);
@@ -3385,11 +3403,12 @@ export class World {
     for (const c of d.contracts) {
       const s = this.nations.get(c.seller)!, b = this.nations.get(c.buyer)!;
       const q = Math.min(c.amount / 365, s.econ.stock[c.good]);
-      const pay = Math.min(q * c.price, Math.max(0, b.econ.treasury + b.econ.gdp * 0.6));
+      const fee = c.fee ?? 0; // the buyer also pays the caravans, where the goods go overland
+      const pay = Math.min(q * c.price, Math.max(0, b.econ.treasury + b.econ.gdp * 0.6) / (1 + fee));
       const got = c.price > 0 ? pay / c.price : q;
       s.econ.stock[c.good] -= got;
       b.econ.stock[c.good] += got;
-      b.econ.treasury -= pay;
+      b.econ.treasury -= pay * (1 + fee);
       s.econ.treasury += pay;
     }
   }
@@ -3448,7 +3467,7 @@ export class World {
       if (!COMMODITIES.includes(deal.good) || !(deal.amount > 0)) return 'Choose a good and an amount.';
       const seller = deal.sell ? na : nb, buyer = deal.sell ? nb : na;
       if (seller.econ.stock[deal.good] < deal.amount) return `${deal.sell ? 'You hold' : `The ${name} holds`} only ${Math.floor(seller.econ.stock[deal.good]).toLocaleString('en-US')} ${COMMODITY_INFO[deal.good].unit} in store.`;
-      if (buyer.econ.treasury - deal.amount * this.market.prices[deal.good] < -buyer.econ.gdp * 0.3) return deal.sell ? `The ${name} cannot pay for that much.` : 'Your treasury cannot pay for that much.';
+      if (buyer.econ.treasury - deal.amount * this.market.prices[deal.good] * (1 + this.routeFee(a, b)) < -buyer.econ.gdp * 0.3) return deal.sell ? `The ${name} cannot pay for that much.` : 'Your treasury cannot pay for that much.';
       return null;
     }
     if (deal.kind === 'contract') {
@@ -3521,14 +3540,15 @@ export class World {
       // one shipment, at today's world price
       const seller = deal.sell ? from : to, buyer = deal.sell ? to : from;
       const q = Math.min(deal.amount, seller.econ.stock[deal.good]), pay = q * this.market.prices[deal.good];
+      const fee = this.routeFee(seller.id, buyer.id); // caravans over foreign land: the buyer pays the carriers
       seller.econ.stock[deal.good] -= q; buyer.econ.stock[deal.good] += q;
-      buyer.econ.treasury -= pay; seller.econ.treasury += pay;
-      this.event('diplomacy', from.id, `The ${this.defs.get(seller.id)!.name} sells the ${this.defs.get(buyer.id)!.name} ${Math.round(q).toLocaleString('en-US')} ${COMMODITY_INFO[deal.good].unit} of ${COMMODITY_INFO[deal.good].name.toLowerCase()} for $${pay.toFixed(1)}bn.`);
+      buyer.econ.treasury -= pay * (1 + fee); seller.econ.treasury += pay;
+      this.event('diplomacy', from.id, `The ${this.defs.get(seller.id)!.name} sells the ${this.defs.get(buyer.id)!.name} ${Math.round(q).toLocaleString('en-US')} ${COMMODITY_INFO[deal.good].unit} of ${COMMODITY_INFO[deal.good].name.toLowerCase()} for $${pay.toFixed(1)}bn${fee ? `, plus $${(pay * fee).toFixed(2)}bn for the caravans` : ''}.`);
       this.touch(seller, false); this.touch(buyer, false);
     } else if (deal.kind === 'contract') {
       const seller = deal.sell ? from.id : to.id, buyer = deal.sell ? to.id : from.id;
       const d = this.diplomacy;
-      d.contracts.push({ id: d.nextId++, seller, buyer, good: deal.good, amount: deal.amount, price: this.market.prices[deal.good], until: this.market.day + deal.years * 365 });
+      d.contracts.push({ id: d.nextId++, seller, buyer, good: deal.good, amount: deal.amount, price: this.market.prices[deal.good], until: this.market.day + deal.years * 365, fee: this.routeFee(seller, buyer) || undefined });
       this.event('diplomacy', from.id, `The ${A} and the ${B} sign a ${deal.years}-year contract for ${COMMODITY_INFO[deal.good].name.toLowerCase()}.`);
     } else {
       this.diplomacy.sign(deal.kind, from.id, to.id, this.market.day);

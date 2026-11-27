@@ -138,7 +138,8 @@ export interface WarState {
   // r in km: aircraft grounded, ships battered. Hurricanes (rare, warm seas only) have a category 1-5,
   // a name, and a heading (degrees/day) the map uses to turn and draw them
   storms: { lon: number; lat: number; r: number; kind?: 'storm' | 'hurricane'; cat?: number; name?: string; vlon?: number; vlat?: number }[];
-  lanes: { a: number; b: number; path: number[]; raided: boolean }[]; // sea routes of trade agreements
+  /** trade agreements' routes: by sea, through canals, and by caravan over foreign land (for a fee on the goods' value) */
+  lanes: { a: number; b: number; path: number[]; raided: boolean; caravan?: number[]; canals?: number[]; fee?: number }[];
 }
 
 /** Daily economy broadcast: world market plus every nation's public figures. */

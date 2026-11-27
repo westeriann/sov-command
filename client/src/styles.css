@@ -589,3 +589,7 @@ body.moving-window, body.moving-window * { cursor: grabbing !important; user-sel
 .plist-table td:nth-last-child(2) { white-space: normal; }
 .plist-count { margin: 4px 0; }
 .plist.compact .table-wrap { max-height: 46vh; overflow-y: auto; }
+
+/* trade menu: how goods travel to each nation */
+.tm-fee { font-size: 10px; color: #e0bf7a; margin-left: 4px; white-space: nowrap; }
+.tm-fee.muted { color: var(--muted); }
