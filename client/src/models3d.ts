@@ -12,6 +12,7 @@
 import { MercatorCoordinate, type CustomLayerInterface, type CustomRenderMethodInput, type Map as MLMap } from 'maplibre-gl';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { TOON, inkMaterial, toonColour, toonMaterial, type ToonKind } from './toon-units';
 import type { BuildingType } from '../../shared/buildings';
 import { domainOf, UNIT_SPECS, UNIT_TYPES, type UnitType, type UnitView } from '../../shared/military';
 import type { CityShape } from './cities';
@@ -73,76 +74,17 @@ const GLASS = '#5d7d93';
 
 // Model space: +X forward, +Y up, about one unit long for a vehicle.
 const GEOMETRY = {
-  // --- land
-  soldier: () => build([
-    part(box(0.07, 0.16, 0.08), PAINT, [0, 0.2, 0]),
-    part(ball(0.045), '#d9b48f', [0, 0.32, 0]),
-    part(cyl(0.05, 0.05, 0.03, 8), PAINT, [0, 0.365, 0]),
-    part(box(0.05, 0.13, 0.03), DARK, [0, 0.065, 0.025]),
-    part(box(0.05, 0.13, 0.03), DARK, [0, 0.065, -0.025]),
-    part(box(0.16, 0.02, 0.02), DARK, [0.07, 0.24, 0.05], [0, 0, 0.5]),
-  ]),
-  apcHull: () => build([
-    part(box(0.78, 0.2, 0.4), PAINT, [0, 0.2, 0]),
-    part(box(0.25, 0.12, 0.38), PAINT, [0.3, 0.17, 0], [0, 0, -0.5]),
-    part(cyl(0.05, 0.05, 0.12, 8), DARK, [0.05, 0.35, 0]),
-    part(box(0.26, 0.025, 0.025), DARK, [0.2, 0.38, 0]),
-    ...[-0.25, 0, 0.25].flatMap((x) => [-1, 1].map((s) => part(cyl(0.08, 0.08, 0.06, 10), DARK, [x, 0.09, s * 0.21], [Math.PI / 2, 0, 0]))),
-  ]),
-  tankHull: () => build([
-    part(box(0.9, 0.16, 0.46), PAINT, [0, 0.18, 0]),
-    part(box(0.22, 0.1, 0.44), PAINT, [0.48, 0.16, 0], [0, 0, -0.6]),
-    part(box(0.96, 0.14, 0.12), DARK, [0, 0.08, 0.2]),
-    part(box(0.96, 0.14, 0.12), DARK, [0, 0.08, -0.2]),
-  ]),
-  tankTurret: () => build([
-    part(cyl(0.17, 0.2, 0.13, 8), PAINT, [0, 0, 0]),
-    part(box(0.2, 0.1, 0.26), PAINT, [-0.12, 0, 0]),
-    part(cyl(0.025, 0.03, 0.62, 8), DARK, [0.4, 0.02, 0], [0, 0, Math.PI / 2]),
-  ]),
-  // --- sea
-  destroyer: () => build([
-    part(box(1.2, 0.16, 0.24), PAINT, [0, 0.08, 0]),
-    part(cone(0.12, 0.3, 4), PAINT, [0.74, 0.08, 0], [Math.PI / 4, 0, -Math.PI / 2]),
-    part(box(0.3, 0.18, 0.16), '#c9ccd0', [0.1, 0.25, 0]),
-    part(box(0.12, 0.1, 0.12), '#c9ccd0', [-0.25, 0.21, 0]),
-    part(cyl(0.012, 0.012, 0.3, 4), DARK, [0.12, 0.45, 0]),
-    part(cyl(0.035, 0.035, 0.2, 8), DARK, [0.45, 0.2, 0], [0, 0, Math.PI / 2]),
-  ]),
-  submarine: () => build([
-    part(cyl(0.09, 0.09, 1.0, 10), '#3a4046', [0, 0.04, 0], [0, 0, Math.PI / 2]),
-    part(ball(0.09), '#3a4046', [0.5, 0.04, 0]),
-    part(cone(0.09, 0.2, 10), '#3a4046', [-0.6, 0.04, 0], [0, 0, Math.PI / 2]),
-    part(box(0.18, 0.16, 0.06), PAINT, [0.15, 0.17, 0]),
-  ]),
-  carrier: () => build([
-    part(box(1.5, 0.16, 0.36), PAINT, [0, 0.08, 0]),
-    part(box(1.6, 0.03, 0.46), '#5c6166', [0, 0.18, 0.02]),
-    part(box(0.22, 0.24, 0.08), '#c9ccd0', [-0.1, 0.32, -0.19]),
-    part(box(1.2, 0.005, 0.02), '#e6e0cf', [0, 0.196, 0.02]),
-  ]),
-  // --- air
-  jet: () => build([
-    part(cyl(0.04, 0.05, 0.7, 8), PAINT, [0, 0, 0], [0, 0, Math.PI / 2]),
-    part(cone(0.04, 0.16, 8), PAINT, [0.43, 0, 0], [0, 0, -Math.PI / 2]),
-    part(box(0.26, 0.015, 0.8), PAINT, [-0.02, 0, 0]),
-    part(box(0.12, 0.012, 0.3), PAINT, [-0.3, 0, 0]),
-    part(box(0.12, 0.16, 0.012), PAINT, [-0.3, 0.07, 0]),
-    part(ball(0.035), GLASS, [0.2, 0.04, 0]),
-  ]),
-  bomber: () => build([
-    part(cyl(0.06, 0.07, 1.0, 8), PAINT, [0, 0, 0], [0, 0, Math.PI / 2]),
-    part(cone(0.06, 0.18, 8), PAINT, [0.59, 0, 0], [0, 0, -Math.PI / 2]),
-    part(box(0.3, 0.02, 1.4), PAINT, [0.05, 0, 0]),
-    part(box(0.14, 0.015, 0.45), PAINT, [-0.45, 0, 0]),
-    part(box(0.16, 0.2, 0.015), PAINT, [-0.45, 0.1, 0]),
-    ...[-0.4, -0.22, 0.22, 0.4].map((z) => part(cyl(0.03, 0.03, 0.14, 6), DARK, [0.08, -0.04, z], [0, 0, Math.PI / 2])),
-  ]),
-  drone: () => build([
-    part(box(0.14, 0.05, 0.14), PAINT, [0, 0, 0]),
-    ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([x, z]) => part(box(0.24, 0.02, 0.02), DARK, [x * 0.08, 0, z * 0.08], [0, Math.atan2(z, x) * -1, 0])),
-    ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([x, z]) => part(cyl(0.07, 0.07, 0.01, 12), '#8c9196', [x * 0.15, 0.03, z * 0.15])),
-  ]),
+  // --- troops, ships and aircraft: the bold toon models (toon-units.ts), built there with their ink
+  soldier: () => TOON.soldier().geo,
+  apcHull: () => TOON.apcHull().geo,
+  tankHull: () => TOON.tankHull().geo,
+  tankTurret: () => TOON.tankTurret().geo,
+  destroyer: () => TOON.destroyer().geo,
+  submarine: () => TOON.submarine().geo,
+  carrier: () => TOON.carrier().geo,
+  jet: () => TOON.jet().geo,
+  bomber: () => TOON.bomber().geo,
+  drone: () => TOON.drone().geo,
   // --- cities
   tower: () => build([part(box(1, 1, 1), PAINT, [0, 0.5, 0])]),
   roofCap: () => build([part(box(1.04, 0.04, 1.04), '#6b6f73', [0, 1.0, 0])]),
@@ -423,7 +365,6 @@ const MAX_INSTANCES = 4096;
  * cap, the tallest towers lost their bodies and kept only their roofs). */
 const CAP: Partial<Record<string, number>> = { tower: 24576, towerLit: 24576, roofCap: 8192 };
 const capOf = (kind: string) => CAP[kind] ?? MAX_INSTANCES;
-const OLIVE = new THREE.Color('#5d6b45');
 const WHITE = new THREE.Color('#ffffff');
 const _m = new THREE.Matrix4(), _l = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
 
@@ -576,8 +517,19 @@ export class Models3D implements CustomLayerInterface {
     this.scene.add(this.sun.target);
     // both faces: seen from low down, tall towers' sides were dropped and only their roofs were left
     const lit = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    const toonMat = toonMaterial(), ink = inkMaterial();
     for (const kind of Object.keys(GEOMETRY) as Kind[]) {
-      const mesh = new THREE.InstancedMesh(GEOMETRY[kind](), EFFECTS[kind] ?? lit, capOf(kind));
+      // troops: the toon model, and its ink shell drawn as a second mesh that follows it instance for instance
+      const toon = kind in TOON ? TOON[kind as ToonKind]() : null;
+      const mesh = new THREE.InstancedMesh(toon?.geo ?? GEOMETRY[kind](), toon ? toonMat : EFFECTS[kind] ?? lit, capOf(kind));
+      if (toon) {
+        const shell = new THREE.InstancedMesh(toon.ink, ink, capOf(kind));
+        shell.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        shell.frustumCulled = false;
+        shell.count = 0;
+        this.inks.set(kind, shell);
+        this.scene.add(shell);
+      }
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.setColorAt(0, WHITE);
       mesh.instanceColor!.setUsage(THREE.DynamicDrawUsage);
@@ -637,6 +589,9 @@ export class Models3D implements CustomLayerInterface {
     this.base.multiplyMatrices(this.originInv, _m);
   }
 
+  /** The ink shells of the toon models, by kind. */
+  private inks = new Map<Kind, THREE.InstancedMesh>();
+
   private put(kind: Kind, x: number, y: number, z: number, ry = 0, sx = 1, sy = sx, sz = sx, color: THREE.Color = WHITE, rx = 0, rz = 0) {
     const mesh = this.meshes.get(kind)!;
     const i = this.counts.get(kind) ?? 0;
@@ -645,6 +600,7 @@ export class Models3D implements CustomLayerInterface {
     _l.compose(_v.set(x, y, z), _q, _s.set(sx, sy, sz));
     mesh.setMatrixAt(i, _m.multiplyMatrices(this.base, _l));
     mesh.setColorAt(i, color);
+    this.inks.get(kind)?.setMatrixAt(i, _m);
     this.counts.set(kind, i + 1);
   }
 
@@ -708,6 +664,8 @@ export class Models3D implements CustomLayerInterface {
       mesh.count = this.counts.get(k) ?? 0;
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      const shell = this.inks.get(k);
+      if (shell) { shell.count = mesh.count; shell.instanceMatrix.needsUpdate = true; }
     }
     this.renderer.resetState();
     this.renderer.clearDepth();
@@ -961,7 +919,7 @@ export class Models3D implements CustomLayerInterface {
     const colourOf = (nation: number) => {
       let c = tint.get(nation);
       if (!c) {
-        c = new THREE.Color(this.pol.nations.get(nation)?.color ?? '#888888').lerp(OLIVE, 0.35);
+        c = toonColour(this.pol.nations.get(nation)?.color ?? '#888888'); // bright nation colour, as the toon style wears it
         tint.set(nation, c);
       }
       return c;
