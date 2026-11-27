@@ -1,6 +1,7 @@
 import { art } from './art-icons';
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO, TECHS, techCost } from '../../shared/research';
+import { maxSpeed } from '../../shared/settings';
 import { HARVEST, SEASON_NAMES, coldLand, seasonAt } from '../../shared/seasons';
 import { historyHtml } from './rankings-panel';
 import { flagSvg } from '../../shared/flags';
@@ -28,6 +29,7 @@ const RES_GOOD: Record<ResourceId, string> = { farmland: 'food', timber: 'timber
 export interface HudEvents {
   onMode(mode: MapMode, opacity: number): void;
   onOpacity(v: number): void;
+  onBorderStrength(v: number): void;
   onGrid(on: boolean): void;
   onBorders(on: boolean): void;
   onLabels(on: boolean): void;
@@ -212,6 +214,8 @@ export class Hud {
   private legend!: HTMLElement;
   private comms!: HTMLElement;
   private toastEl!: HTMLElement;
+  /** Border strength, percent (100: as designed). */
+  borderStrength = (() => { try { const v = Number(localStorage.getItem('sov.map.borders')); return v >= 0 && v <= 200 && localStorage.getItem('sov.map.borders') !== null ? v : 100; } catch { return 100; } })();
   private opacityByMode: Record<MapMode, number> = { ...DEFAULT_OPACITY, ...(() => { try { return JSON.parse(localStorage.getItem('sov.map.strength') ?? '{}') as Partial<Record<MapMode, number>>; } catch { return {}; } })() };
   private selected: { p: Province; s: Sample } | null = null;
   private commsTab: 'dispatches' | 'chat' = 'dispatches';
@@ -321,6 +325,10 @@ export class Hud {
         <div class="legend" id="legend" hidden></div>
         <details class="drawer-sec sep" data-sec="view" open><summary class="label">VIEW</summary>
         <label class="check"><input type="checkbox" id="borders" checked>Borders</label>
+        <div class="slider">
+          <label for="borderStrength" data-tip="${attr(tip('Border strength', 'How boldly national and province borders are drawn over the map'))}"><span>BORDER STRENGTH</span><output id="borderOut">${this.borderStrength}%</output></label>
+          <input id="borderStrength" type="range" min="0" max="200" step="10" value="${this.borderStrength}">
+        </div>
         <label class="check"><input type="checkbox" id="rivers" checked>Rivers</label>
         <label class="check"><input type="checkbox" id="labels" checked>Names</label>
         <label class="check"><input type="checkbox" id="grid">Grid lines</label>
@@ -338,11 +346,10 @@ export class Hud {
       </section>
 
       <aside class="panel right" aria-live="polite">
-        <section id="myNation" hidden></section>
-        <div id="inspector">
-          <span class="label">SELECTION</span>
+        <details class="rp-sec" id="secNation" hidden><summary class="label">YOUR NATION</summary><section id="myNation" hidden></section></details>
+        <details class="rp-sec" id="secSelection" open><summary class="label">SELECTION</summary><div id="inspector">
           <p class="hint">Click a province or sea zone to inspect it.</p>
-        </div>
+        </div></details>
         <div class="world">
           <span class="label">WORLD · SEED ${meta.seed}</span>
           <div class="kv mono">
@@ -394,6 +401,10 @@ export class Hud {
     `;
 
     this.inspector = this.root.querySelector('#inspector')!;
+    // the two right-hand sections fold: opening one closes the other
+    for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec')) {
+      d.addEventListener('toggle', () => { if (d.open) for (const o of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec')) if (o !== d) o.open = false; });
+    }
     this.readout = this.root.querySelector('#readout')!;
     this.clock = this.root.querySelector('#clock')!;
     this.legend = this.root.querySelector('#legend')!;
@@ -425,6 +436,13 @@ export class Hud {
         if ((t as HTMLInputElement).checked) this.diploShown.add(c); else this.diploShown.delete(c);
         this.events.onDiploFilter(this.diploShown);
       }
+    });
+    const bs = this.root.querySelector<HTMLInputElement>('#borderStrength')!, bsOut = this.root.querySelector<HTMLOutputElement>('#borderOut')!;
+    bs.addEventListener('input', () => {
+      this.borderStrength = Number(bs.value);
+      bsOut.value = `${bs.value}%`;
+      try { localStorage.setItem('sov.map.borders', bs.value); } catch { /* storage blocked */ }
+      this.events.onBorderStrength(this.borderStrength / 100);
     });
     opacity.addEventListener('input', () => {
       this.opacityByMode[mode] = Number(opacity.value);
@@ -645,6 +663,20 @@ export class Hud {
     this.renderResources();
   }
 
+  private lastTreasury: number | undefined;
+  /** A little "-$8bn" rising from the treasury figure. */
+  private spent(amount: number) {
+    const at = this.root.querySelector<HTMLElement>('#res-treasury');
+    if (!at) return;
+    const tag = document.createElement('span');
+    tag.className = 'spent-tag mono';
+    tag.textContent = `−${money(amount)}`;
+    const r = at.getBoundingClientRect();
+    tag.style.left = `${r.left + r.width / 2}px`; tag.style.top = `${r.bottom + 2}px`;
+    document.body.appendChild(tag);
+    window.setTimeout(() => tag.parentNode?.removeChild(tag), 2600);
+  }
+
   private renderResources() {
     const e = this.game.mine?.econ, mine = this.game.mine;
     const set = (id: string, v: string, cls = '') => {
@@ -658,6 +690,9 @@ export class Hud {
       return;
     }
     const bal = e.revenue - e.spending;
+    // money spent at once (a building, a division, a purchase): show it leaving the treasury
+    if (this.lastTreasury !== undefined && this.lastTreasury - e.treasury > Math.max(0.3, Math.abs(bal) / 365 * 4)) this.spent(this.lastTreasury - e.treasury);
+    this.lastTreasury = e.treasury;
     set('treasury', `${e.treasury < 0 ? '−' : ''}${money(Math.abs(e.treasury))} <i class="${bal >= 0 ? 'up' : 'down'}">${bal >= 0 ? '+' : '−'}${money(Math.abs(bal))}</i>`, e.treasury < 0 ? 'live warn' : 'live');
     set('stability', `${e.stability.toFixed(0)}%`, e.stability < 40 ? 'live bad' : e.stability < 55 ? 'live warn' : 'live good');
     set('capital', `${Math.floor(mine.politics?.capital ?? 0)}`, 'live');
@@ -744,6 +779,7 @@ export class Hud {
     const mine = this.game.mine;
     const def = mine ? this.pol.nations.get(mine.id) : undefined;
     el.hidden = !mine || !def;
+    this.root.querySelector<HTMLElement>('#secNation')!.hidden = el.hidden;
     if (!mine || !def) {
       el.innerHTML = '';
       return;
@@ -856,7 +892,8 @@ export class Hud {
     const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
     const n = seasonAt(d.getTime(), 45), s = seasonAt(d.getTime(), -45);
     const x = String(Math.round(this.game.speed / 8640));
-    this.root.querySelectorAll<HTMLElement>('[data-act="speed"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.x === x)));
+    const top = maxSpeed(this.game.settings);
+    this.root.querySelectorAll<HTMLElement>('[data-act="speed"]').forEach((b) => { b.setAttribute('aria-pressed', String(b.dataset.x === x)); b.hidden = Number(b.dataset.x) > top; });
     this.clock.textContent = `${date} · ${d.toISOString().slice(11, 16)}Z · ${SEASON_NAMES[n!].toUpperCase()} N / ${SEASON_NAMES[s!].toUpperCase()} S`;
     this.clock.title = 'Winter in cold lands: armies move 50% slower and troops on foreign soil lose strength; more electricity is needed. Harvests peak in autumn and fall in winter.';
   }
@@ -870,6 +907,11 @@ export class Hud {
     this.readout.textContent = `${formatLatLon(s.lat, s.lon)} · ${where}`;
   }
 
+  /** Open one of the right-hand sections (your nation, or the selected province) and fold the other. */
+  showSection(id: 'secNation' | 'secSelection') {
+    for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec')) d.open = d.id === id;
+  }
+
   /** Redraw the province panel (e.g. after the unit selection changed). */
   refreshSelection() {
     if (this.selected) this.inspect(this.selected.p, this.selected.s);
@@ -877,6 +919,8 @@ export class Hud {
 
   inspect(p: Province | undefined, s: Sample) {
     if (!p) return;
+    // a new place picked: its panel opens, and your nation's folds away (one at a time, so neither is cramped)
+    if (this.selected?.p.id !== p.id) this.showSection('secSelection');
     this.selected = { p, s };
     const n = this.pol.nationOf(p);
     this.inspector.innerHTML = p.kind === 'land' ? this.landHtml(p, n, s) : this.seaHtml(p, s);

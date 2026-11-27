@@ -158,7 +158,8 @@ export class AiBrain {
     const desired = Math.max(2, Math.min(60, Math.round(w.defenceIncome(n) / 3.5)));
     if (all.length + n.mil.queue.length < desired && n.mil.funds > 1 && n.mil.queue.length < 3 && w.manpower(n) > 20_000) {
       const r = this.random();
-      orders.push({ kind: 'recruit', unit: this.pickRecruit(n, all, r) });
+      const unit = this.pickRecruit(n, all, r);
+      if (UNIT_SPECS[unit].cost <= n.mil.funds) orders.push({ kind: 'recruit', unit }); // paid from the defence funds, not the treasury
     }
 
     const enemies = m.enemiesOf(me);

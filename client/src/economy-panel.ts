@@ -1,4 +1,5 @@
 import { BUILDINGS } from '../../shared/buildings';
+import { UNIT_SPECS } from '../../shared/military';
 // The Economy window: your national accounts, budget, goods and the world market.
 import {
   BUDGET_KEYS, money, normalizeBudget,
@@ -58,6 +59,7 @@ export class EconomyPanel {
   private taxTimer = 0;
   private editing = false;
   private draft: Budget | null = null;
+  private tab: 'overview' | 'projects' = 'overview';
 
   constructor(root: HTMLElement, private game: Game, private pol: Political, private actions: EconomyActions) {
     this.el = document.createElement('section');
@@ -75,6 +77,8 @@ export class EconomyPanel {
     this.el.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-econ="close"]')) this.close();
+      const tabBtn = t.closest<HTMLElement>('[data-econ-tab]');
+      if (tabBtn) { this.tab = tabBtn.dataset.econTab as 'overview' | 'projects'; this.render(); return; }
       if (t.closest('[data-econ="market"]')) document.dispatchEvent(new CustomEvent('open-market'));
       const bf = t.closest<HTMLElement>('[data-bf]')?.dataset.bf;
       if (bf && this.game.mine?.econ) {
@@ -167,10 +171,11 @@ export class EconomyPanel {
     this.el.innerHTML = `
       <div class="econ-head">
         <div><span class="label">ECONOMY</span><h2>${mine ? esc(this.pol.nations.get(mine.id)?.name ?? '') : 'World economy'}</h2></div>
+        ${mine ? `<div class="mk-tabs" role="tablist"><button type="button" role="tab" data-econ-tab="overview" aria-selected="${this.tab === 'overview'}">Overview</button><button type="button" role="tab" data-econ-tab="projects" aria-selected="${this.tab === 'projects'}">Projects${this.projectCount() ? ` · ${this.projectCount()}` : ''}</button></div>` : ''}
         <button type="button" class="link" data-econ="close">Close</button>
       </div>
       <div class="econ-body">
-        ${e && mine ? this.nationHtml(e, mine.tax) : `<p class="hint">${this.game.status === 'online' ? 'Take command of a nation to manage its budget, taxes and trade. The world market and the largest economies are below.' : 'Sign in to see live economic data.'}</p>`}
+        ${mine && this.tab === 'projects' ? this.projectsHtml() : e && mine ? this.nationHtml(e, mine.tax) : `<p class="hint">${this.game.status === 'online' ? 'Take command of a nation to manage its budget, taxes and trade. The world market and the largest economies are below.' : 'Sign in to see live economic data.'}</p>`}
         ${this.worldHtml()}
         ${this.leagueHtml()}
       </div>`;
@@ -198,6 +203,42 @@ export class EconomyPanel {
     </section>
     ${this.migrationHtml(e)}
     ${this.constructionHtml()}`;
+  }
+
+  /** How many things are under way: buildings, roads and units in training. */
+  private projectCount() {
+    const me = this.game.mine?.id;
+    if (me === undefined) return 0;
+    let n = 0;
+    for (const [id, list] of Object.entries(this.game.war.buildings)) if (this.pol.provinces.get(Number(id))?.nation === me) n += list.filter((b) => b.progress < 1).length;
+    n += (this.game.war.roads ?? []).filter((r) => r.owner === me && r.progress < 1).length;
+    return n + (this.game.mine?.mil?.queue.length ?? 0);
+  }
+
+  /** The Projects tab: everything under way, with how far along it is and about how long is left. */
+  private projectsHtml() {
+    const me = this.game.mine!.id;
+    const bar = (f: number) => `<span class="dev-bar"><i style="width:${Math.round(f * 100)}%"></i></span>`;
+    const left = (days: number) => (days < 1 ? 'finishing' : `about ${Math.ceil(days)} day${Math.ceil(days) > 1 ? 's' : ''} left`);
+    const builds = Object.entries(this.game.war.buildings).flatMap(([id, list]) => {
+      const p = this.pol.provinces.get(Number(id));
+      return p && p.nation === me ? list.filter((b) => b.progress < 1).map((b) => ({ p, b })) : [];
+    }).sort((a, b) => b.b.progress - a.b.progress);
+    const roads = (this.game.war.roads ?? []).filter((r) => r.owner === me && r.progress < 1);
+    const queue = this.game.mine!.mil?.queue ?? [];
+    const row = (what: string, where: string, f: number, rest: string, attrs = '') =>
+      `<tr><th scope="row">${what}</th><td>${where}</td><td>${bar(f)} ${Math.round(f * 100)}%</td><td class="muted">${rest}</td>${attrs}</tr>`;
+    return `<section class="energy">
+      <span class="label">CONSTRUCTION · ${builds.length}</span>
+      ${builds.length ? `<div class="table-wrap"><table class="league projects"><tbody>${builds.map(({ p, b }) => row(esc(BUILDINGS[b.type].name), `<button type="button" class="link" data-build-at="${p.id}">${esc(p.name)}</button>`, b.progress, left(BUILDINGS[b.type].days * (1 - b.progress)))).join('')}</tbody></table></div>`
+        : '<p class="hint">Nothing under construction. Right-click one of your provinces and choose "Build here…".</p>'}
+      <span class="label">ROADS · ${roads.length}</span>
+      ${roads.length ? `<div class="table-wrap"><table class="league projects"><tbody>${roads.map((r) => row('Road', `${esc(this.pol.provinces.get(r.path[0])?.name ?? '?')} → ${esc(this.pol.provinces.get(r.path[r.path.length - 1])?.name ?? '?')} (${r.path.length - 1} stretch${r.path.length > 2 ? 'es' : ''})`, r.progress, '')).join('')}</tbody></table></div>`
+        : '<p class="hint">No roads under way. Lay one out with the roads tool in the Eco lens.</p>'}
+      <span class="label">FORCES IN TRAINING · ${queue.length}</span>
+      ${queue.length ? `<div class="table-wrap"><table class="league projects"><tbody>${queue.map((q, i) => row(esc(UNIT_SPECS[q.type].name), i === 0 ? 'in training' : `waiting (#${i + 1})`, q.progress, i === 0 ? left(UNIT_SPECS[q.type].days * (1 - q.progress)) : '')).join('')}</tbody></table></div>`
+        : '<p class="hint">No forces in training. Recruit in Ground forces, Naval operations or Air command.</p>'}
+    </section>`;
   }
 
   /** Every building you own, and what is under construction. */

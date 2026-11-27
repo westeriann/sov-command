@@ -101,6 +101,7 @@ export class MainMenu {
 
   private static loadDraft(): NewGame {
     const d: NewGame = { ...DEFAULT_SETTINGS, ironman: false, speed: 5, autopilotMin: 60, releaseDays: 7 };
+    d.fast = false;
     try { Object.assign(d, JSON.parse(localStorage.getItem('sov.newgame') ?? '{}')); } catch { /* storage blocked */ }
     delete d.nation; // the nation is chosen afresh each time
     return d;
@@ -206,7 +207,8 @@ export class MainMenu {
     else if (m === 'ng') {
       // a choice on the create-game screen
       const k = t.dataset.k as keyof NewGame, v = t.dataset.v!;
-      (this.draft as unknown as Record<string, unknown>)[k] = k === 'map' || k === 'mode' ? v : k === 'ironman' ? !this.draft.ironman : Number(v);
+      (this.draft as unknown as Record<string, unknown>)[k] = k === 'map' || k === 'mode' ? v : k === 'ironman' || k === 'fast' ? !this.draft[k] : Number(v);
+      if (k === 'fast' && !this.draft.fast && (this.draft.speed ?? 0) > 5) this.draft.speed = 5;
       this.confirmNew = false;
       this.saveDraft();
       this.render();
@@ -216,7 +218,7 @@ export class MainMenu {
       this.saveDraft();
       this.a.newGame({ ...this.draft });
     }
-    else if (m === 'host-new') { this.startHosting({ map: this.draft.map, mode: this.draft.mode, speed: this.draft.speed && HOST_SPEEDS.includes(this.draft.speed) ? this.draft.speed : 1, autopilotMin: this.draft.autopilotMin, releaseDays: this.draft.releaseDays }); }
+    else if (m === 'host-new') { this.startHosting({ map: this.draft.map, mode: this.draft.mode, fast: false, speed: this.draft.speed && HOST_SPEEDS.includes(this.draft.speed) ? this.draft.speed : 1, autopilotMin: this.draft.autopilotMin, releaseDays: this.draft.releaseDays }); }
     else if (m === 'save' || m === 'load' || m === 'delete') {
       const name = m === 'save' ? (this.el.querySelector<HTMLInputElement>('#saveName')?.value ?? '') : t.dataset.name ?? '';
       if (m === 'delete' && t.dataset.confirm !== '1') { t.dataset.confirm = '1'; t.textContent = 'Confirm delete'; return; }
@@ -338,7 +340,7 @@ export class MainMenu {
     const seg = (k: keyof NewGame, list: number[], label: (v: number) => string, cur: number | undefined) =>
       `<div class="ng-seg">${list.map((v) => pick(k, v, cur === v, label(v), 'chip')).join('')}</div>`;
     const nations = single ? (this.a.lobby?.() ?? []).sort((a, b) => a.name.localeCompare(b.name)) : [];
-    const speeds = single ? START_SPEEDS : HOST_SPEEDS;
+    const speeds = single ? START_SPEEDS.filter((x) => d.fast || x <= 5) : HOST_SPEEDS;
     const speed = speeds.includes(d.speed ?? 0) ? d.speed : speeds[single ? 1 : 0];
     const mode = MODE_INFO[d.mode];
     return `<h2>${single ? 'New campaign' : 'Host a new world'}</h2>
@@ -359,12 +361,13 @@ export class MainMenu {
         <section><span class="label">RULES</span>
           <div class="ng-rule"><span>${single ? 'Starting speed' : 'World speed'}</span>${seg('speed', speeds, (v) => `${v}×`, speed)}</div>
           <p class="hint">1× is a game day every 10 real seconds, a game year an hour.${single ? ' You can change it while playing.' : ' Every player shares it.'}</p>
+          ${single ? `<div class="ng-rule"><span>10× and 20× speeds</span>${pick('fast', 1, !!d.fast, d.fast ? 'Allowed: the world can run very fast' : 'Off: 5× at most, for a steadier game', 'chip')}</div>` : ''}
           ${single ? `<div class="ng-rule"><span>Ironman</span>${pick('ironman', 1, !!d.ironman, d.ironman ? 'On: a single autosave, every decision stands' : 'Off: save and load freely', 'chip')}</div>` : `
           <div class="ng-rule"><span>Advisers take over an absent leader after</span>${seg('autopilotMin', AUTOPILOT_CHOICES, (v) => (v === 0 ? 'never' : v < 60 ? `${v} min` : `${v / 60} h`), d.autopilotMin ?? 60)}</div>
           <div class="ng-rule"><span>A nation goes back to the AI when its leader is away</span>${seg('releaseDays', RELEASE_CHOICES, (v) => (v === 0 ? 'never' : `${v} day${v > 1 ? 's' : ''}`), d.releaseDays ?? 7)}</div>`}
         </section>
       </div>
-      <p class="ng-summary mono">${esc(MAPS.find((m) => m.id === d.map)?.name ?? '')} · ${esc(mode.name)}${mode.research !== 1 ? ' (research at half cost)' : ''} · ${speed}×${single ? `${d.ironman ? ' · Ironman' : ''} · ${d.nation !== undefined ? esc(nations.find((n) => n.id === d.nation)?.name ?? '') : 'nation chosen on the map'}` : ''} · from 1 January 2026</p>
+      <p class="ng-summary mono">${esc(MAPS.find((m) => m.id === d.map)?.name ?? '')} · ${esc(mode.name)}${mode.research !== 1 ? ' (research at half cost)' : ''} · ${speed}×${single ? `${d.fast ? ' · up to 20×' : ' · up to 5×'}${d.ironman ? ' · Ironman' : ''} · ${d.nation !== undefined ? esc(nations.find((n) => n.id === d.nation)?.name ?? '') : 'nation chosen on the map'}` : ''} · from 1 January 2026</p>
       <div class="menu-row">${single
         ? `<button type="button" class="claim ${this.confirmNew ? 'danger' : 'primary'}" data-m="newgame-yes">${this.confirmNew ? 'Confirm: delete my current world and start' : 'Start the campaign'}</button>`
         : '<button type="button" class="claim primary" data-m="host-new">Start hosting this world</button>'}
@@ -423,7 +426,7 @@ export class MainMenu {
     const sound = this.control<HTMLElement>('soundBtn')?.getAttribute('aria-pressed') !== 'false';
     const alerts = this.control<HTMLElement>('alertsBtn')?.getAttribute('aria-pressed') === 'true';
     const vol = Math.round(this.a.music.level * 100);
-    const speeds = [...this.hud.querySelectorAll<HTMLElement>('[data-act="speed"]')];
+    const speeds = [...this.hud.querySelectorAll<HTMLElement>('[data-act="speed"]')].filter((b) => !b.hidden);
     return `<h2>Options</h2>
       <div class="opt-grid">
         <section><span class="label">GRAPHICS</span>

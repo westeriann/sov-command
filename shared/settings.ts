@@ -24,8 +24,12 @@ export const MAPS: MapInfo[] = [
 export interface GameSettings {
   map: string;
   mode: GameMode;
+  /** Single player: whether 10× and 20× are offered (they run the world very fast). */
+  fast: boolean;
 }
-export const DEFAULT_SETTINGS: GameSettings = { map: 'earth', mode: 'marathon' };
+export const DEFAULT_SETTINGS: GameSettings = { map: 'earth', mode: 'marathon', fast: false };
+/** The fastest a world may run (multiples of 1x) under its settings. */
+export const maxSpeed = (s: Pick<GameSettings, 'fast'>) => (s.fast ? 20 : 5);
 
 /** Settings from anywhere (a save, the network, the environment), with anything unknown put back to the default. */
 export function normalizeSettings(x: unknown): GameSettings {
@@ -33,6 +37,8 @@ export function normalizeSettings(x: unknown): GameSettings {
   return {
     map: MAPS.some((m) => m.id === o.map) ? o.map! : DEFAULT_SETTINGS.map,
     mode: GAME_MODES.includes(o.mode as GameMode) ? (o.mode as GameMode) : DEFAULT_SETTINGS.mode,
+    // worlds made before the switch existed keep every speed they had
+    fast: typeof o.fast === 'boolean' ? o.fast : !('mode' in o),
   };
 }
 

@@ -132,7 +132,11 @@ export class HoloGlobe {
       this.lon0 += dl * k; this.lat0 += db * k; dl *= 1 - k;
       if (Math.abs(dl) < 0.2 && Math.abs(db * (1 - k)) < 0.2) { this.target = undefined; this.idleSince = t + 6000; }
       this.dirty = true;
-    } else if (!this.drag && !this.over && !this.still && t - this.idleSince > 4000) { this.lon0 += 4 * dt / this.zoom; this.dirty = true; }
+    } else if (!this.drag && !this.over && t - this.idleSince > 6000) {
+      // left alone for a few seconds: ease back out to the whole globe, then keep turning
+      if (this.zoom > 1) { this.zoom = this.still ? 1 : Math.max(1, 1 + (this.zoom - 1) * (1 - Math.min(1, dt * 1.5))); if (this.zoom < 1.01) this.zoom = 1; this.dirty = true; }
+      if (!this.still) { this.lon0 += 4 * dt / this.zoom; this.dirty = true; }
+    }
     // the sun moves with the game clock every frame, so day and night sweep smoothly instead of jumping
     if (this.sunAt(t)) this.dirty = true;
     if (this.zoomFor !== this.zoom) this.directions();

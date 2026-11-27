@@ -970,7 +970,12 @@ export class World {
         if (this.homeFor(n.id, order.unit) === undefined) return fail('not_allowed', 'Ships need a coast: your nation holds no coastal province.');
         const needs = UNIT_TECH[order.unit];
         if (needs && !n.tech.done.includes(needs as TechId)) return fail('not_allowed', `Research ${TECH_BY_ID.get(needs as TechId)?.name ?? needs} first.`);
-        n.mil.queue.push({ type: order.unit, progress: 0 });
+        // the whole price on ordering: from the defence funds first, the rest from the treasury
+        const fromFunds = Math.min(Math.max(0, n.mil.funds), spec.cost), rest = spec.cost - fromFunds;
+        if (rest > 0 && n.econ.treasury - rest < -n.econ.gdp * 0.3) return fail('no_funds', `A ${spec.name.toLowerCase()} costs $${spec.cost}bn: the defence funds and the treasury cannot cover it.`);
+        n.mil.funds -= fromFunds;
+        n.econ.treasury -= rest;
+        n.mil.queue.push({ type: order.unit, progress: 0, paid: true });
         this.touch(n, false);
         return ok;
       }

@@ -183,7 +183,7 @@ test('a technology with several prerequisites waits for all of them, and the who
 
 test('a Dash world researches at half the cost; a world keeps the mode it was made with', () => {
   const db = openDb(':memory:');
-  const w = new World(db, 1, defs, { ...opts, settings: { map: 'earth', mode: 'dash' } }, provinces);
+  const w = new World(db, 1, defs, { ...opts, settings: { map: 'earth', mode: 'dash', fast: false } }, provinces);
   assert.equal(w.settings.mode, 'dash');
   assert.equal(w.techCost(1), TIER_COST[1] / 2, 'half the points');
   w.claim({ id: 1, name: 'alice', guest: false }, 1);
@@ -194,7 +194,7 @@ test('a Dash world researches at half the cost; a world keeps the mode it was ma
   assert.ok(n.tech.done.includes('drones'), `done in about half the Marathon time (${days} days)`);
   w.persistAll();
   // reopened with different settings, it stays a Dash world
-  const again = new World(db, 1, defs, { ...opts, settings: { map: 'earth', mode: 'marathon' } }, provinces);
+  const again = new World(db, 1, defs, { ...opts, settings: { map: 'earth', mode: 'marathon', fast: false } }, provinces);
   assert.equal(again.settings.mode, 'dash');
   // a world made before there were settings plays at the full pace
   assert.equal(setup().settings.mode, 'marathon');

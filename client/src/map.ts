@@ -1,4 +1,5 @@
 import { addProtocol, setWorkerUrl, type GeoJSONSource, Map as MLMap, Marker, type ExpressionSpecification, type StyleSpecification } from 'maplibre-gl';
+import { paintNight, sunDir } from './sun';
 import type { Feature, FeatureCollection } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ASSET_BASE, OFFLINE, bin } from './config';
@@ -506,6 +507,18 @@ export class GameMap {
     }
   }
 
+  /** How strongly borders are drawn: 1 as designed, 0 hidden, up to 2 twice as bold. */
+  setBorderStrength(k: number) {
+    const fade = (from: number, to: number, a: number, b: number): ExpressionSpecification => ['interpolate', ['linear'], ['zoom'], from, a, to, b];
+    const c = (x: number) => Math.min(1, Math.max(0, x));
+    const set = (id: string, prop: string, v: unknown) => { if (this.map.getLayer(id)) this.map.setPaintProperty(id, prop as never, v as never); };
+    set('province-borders', 'line-opacity', fade(2, 3.5, 0, c(0.7 * k)));
+    set('province-borders', 'line-width', fade(2, 6, 0.6 * Math.max(1, k * 0.8), 1.7 * Math.max(1, k * 0.8)));
+    set('nation-casing', 'line-opacity', c(0.35 * k));
+    set('nation-borders', 'line-opacity', c(0.9 * k));
+    set('nation-borders', 'line-width', fade(1, 6, 1.2 * Math.max(1, k * 0.8), 2.8 * Math.max(1, k * 0.8)));
+  }
+
   setOverlayOpacity(v: number) {
     this.opacity = v;
     if (this.map.getLayer('overlay')) this.map.setPaintProperty('overlay', 'raster-opacity', v);
@@ -594,6 +607,17 @@ export class GameMap {
       { id: 'overlay', type: 'raster', source: 'overlay', paint: { 'raster-opacity': opacity, 'raster-fade-duration': 0 } },
       this.map.getLayer('hillshade') ? 'hillshade' : 'graticule',
     );
+  }
+
+  /** The game's clock (ms), for where it is night. */
+  clock: () => number = () => Date.now();
+  private nightCanvas = document.createElement('canvas');
+  /** The night lights map follows the sun: repaint the night side. */
+  refreshNight() {
+    if (this.mode !== 'lights' || !this.map.getSource('overlay')) return;
+    paintNight(this.nightCanvas, sunDir(this.clock()));
+    const src = this.map.getSource('overlay') as unknown as { play?: () => void; pause?: () => void };
+    if (src.play && src.pause) { src.play(); src.pause(); this.map.triggerRepaint(); }
   }
 
   private wealth = new Map<number, number>();
@@ -706,12 +730,9 @@ export class GameMap {
       for (const n of this.pol.nations.values()) colours.set(n.id, hex(n.color));
       canvas = this.nationCanvas((id) => colours.get(id), SEA_RGB);
     } else if (mode === 'lights') {
-      // the world from orbit at night: dark land, lit cities
-      canvas = document.createElement('canvas');
-      canvas.width = 4; canvas.height = 2;
-      const g = canvas.getContext('2d')!;
-      g.fillStyle = 'rgb(3, 7, 16)';
-      g.fillRect(0, 0, 4, 2);
+      // the world from orbit at night: dark land and lit cities where it is night, plain day elsewhere
+      canvas = this.nightCanvas;
+      paintNight(canvas, sunDir(this.clock()));
     } else if (mode === 'diplomatic') {
       canvas = this.nationCanvas((id) => this.diplo.get(id));
     } else if (mode === 'resource') {

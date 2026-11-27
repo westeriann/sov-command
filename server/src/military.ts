@@ -715,8 +715,9 @@ export class Military {
       const spec = UNIT_SPECS[item.type];
       const daily = spec.cost / spec.days;
       const kit = (spec.cost * EQUIP_PER_BN) / spec.days;
-      if (mil.funds >= daily && mil.equipment >= kit) {
-        mil.funds -= daily;
+      // paid on ordering (older queues pay day by day)
+      if ((item.paid || mil.funds >= daily) && mil.equipment >= kit) {
+        if (!item.paid) mil.funds -= daily;
         mil.equipment -= kit;
         item.progress = Math.min(1, item.progress + ((1 + this.bonus(nation, 'build')) * this.recruitPace(nation)) / spec.days);
         if (item.progress >= 1) {

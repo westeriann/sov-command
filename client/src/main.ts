@@ -1,4 +1,6 @@
 import { Capitals } from './capitals';
+import { installTableSort } from './sort-tables';
+import { nightness, sunDir, sunHeight } from './sun';
 import { Seas } from './sunlight';
 import { Shipping } from './shipping';
 import { ProvinceScenes, provinceMood } from './province-scenes';
@@ -132,6 +134,9 @@ let soundRef: Sound | null = null;
   connRef = conn; gameRef = game; polRef = pol;
   mainMenu.setProgress('Drawing the map', 0.7);
   const gameMap = new GameMap(document.getElementById('map')!, world, pol);
+  let lightsMode = false;
+  installTableSort(hudRoot); // click a column heading to sort by it
+  let followNight = () => {};
 
   const select = (lat: number, lon: number, fly = false) => {
     const p = pol.provinceAt(lat, lon);
@@ -155,8 +160,9 @@ let soundRef: Sound | null = null;
   let citiesRef: Cities | null = null;
   let modelsRef: Models3D | null = null;
   const hud = new Hud(hudRoot, world, pol, game, {
-    onMode: (m, opacity) => { if (m === 'diplomatic') gameMap.setDiplomatic(diploColours(game, pol, hud.diploShown)); gameMap.setMode(m, opacity); citiesRef?.setLights(m === 'lights'); modelsRef?.setNight(m === 'lights'); },
+    onMode: (m, opacity) => { if (m === 'diplomatic') gameMap.setDiplomatic(diploColours(game, pol, hud.diploShown)); gameMap.setMode(m, opacity); lightsMode = m === 'lights'; citiesRef?.setSun(sunDir(game.gameNow().getTime())); citiesRef?.setLights(lightsMode); followNight(); },
     onOpacity: (v) => gameMap.setOverlayOpacity(v),
+    onBorderStrength: (v) => gameMap.setBorderStrength(v),
     onResource: (key) => gameMap.setResource(key),
     onDiploFilter: (shown) => gameMap.setDiplomatic(diploColours(game, pol, shown)),
     onGrid: (on) => gameMap.setGrid(on),
@@ -543,6 +549,7 @@ let soundRef: Sound | null = null;
   game.on((c) => { if (c.has('economy') && gameMap.mode === 'lights') cities.setLights(true); });
   // (the command-room loop of computer noise was removed: it beeped through every game)
   gameMap.setMode('political', hud.strength('political'));
+  if (hud.borderStrength !== 100) gameMap.setBorderStrength(hud.borderStrength / 100);
   gameMap.addNationLabels();
   /** Browser notifications while the tab is in the background (opt-in). */
   const notify = (title: string, body: string) => {
@@ -622,6 +629,18 @@ let soundRef: Sound | null = null;
   // 3D troops, cities and buildings once zoomed in; counters float above their models
   const models = new Models3D(map, game, pol, forces, cities.shapes);
   modelsRef = models;
+  gameMap.clock = () => game.gameNow().getTime();
+  // the night lights map keeps to the night side, and follows the sun round
+  followNight = () => {
+    const sun = sunDir(gameRef ? gameRef.gameNow().getTime() : Date.now());
+    const c = gameMap.map.getCenter();
+    modelsRef?.setNight(lightsMode && nightness(sunHeight(sun, c.lat, c.lng)) > 0.5); // 3D lighting: night where you are looking
+    if (!lightsMode) return;
+    gameMap.refreshNight();
+    citiesRef?.setSun(sun);
+  };
+  window.setInterval(followNight, 3000);
+  gameMap.map.on('moveend', () => { if (lightsMode) followNight(); });
   models.weather = () => ({ clouds: presence.clouds, flashes: presence.flashes, rainFrame: presence.rainFrame });
   models.brightness = (nation) => cities.brightness(nation);
   models.onSize = (px) => { forces?.setLift(px ? px * 0.8 + 12 : 0); map.setLayoutProperty('buildings', 'visibility', px && models3dOn ? 'none' : 'visible'); };

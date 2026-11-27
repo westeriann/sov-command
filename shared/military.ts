@@ -285,6 +285,7 @@ export const SUPPLY_HOPS = 3;
 export interface QueueItem {
   type: UnitType;
   progress: number; // 0..1
+  paid?: boolean; // its price was paid when ordered (from defence funds, then the treasury)
 }
 
 /** Your nation's military books (private). */

@@ -176,8 +176,8 @@ export class MarketPanel {
         `Stock lasts ${days} days · world price ${priceLabel(c, price)}`, 'Click to chart it');
       return `<tr class="${g.short > 0.01 ? 'short' : ''}${this.pick === c ? ' picked' : ''}" data-mk="pick" data-good="${c}" data-tip="${attr(tipText)}">
         <th scope="row">${info.name}${g.short > 0.01 ? ` <span class="pill">short ${Math.round(g.short * 100)}%</span>` : ''}</th>
-        <td>${qty(g.prod, info.unit)}</td><td>${qty(g.use, info.unit)}</td><td class="${bal >= 0 ? 'up' : 'down'}">${bal >= 0 ? '+' : ''}${qty(bal, info.unit)}</td>
-        <td>${trade}</td><td>${days} d</td><td class="mono">${priceLabel(c, price)}</td></tr>`;
+        <td data-sort="${g.prod * price}">${qty(g.prod, info.unit)}</td><td data-sort="${g.use * price}">${qty(g.use, info.unit)}</td><td class="${bal >= 0 ? 'up' : 'down'}" data-sort="${bal * price}">${bal >= 0 ? '+' : ''}${qty(bal, info.unit)}</td>
+        <td data-sort="${g.trade * price}">${trade}</td><td data-sort="${days}">${days} d</td><td class="mono" data-sort="${price / info.basePrice}">${priceLabel(c, price)}</td></tr>`;
     }).join('');
     const powerRow = `<tr class="${en.blackout > 0.005 ? 'short' : ''}${this.pick === 'power' ? ' picked' : ''}" data-mk="pick" data-good="power"
       data-tip="${attr(tip('Electricity', `Demand ${Math.round(en.demand)} units (1 per $bn of GDP)`, `Grid ${Math.round(en.grid)} + power stations ${Math.round(en.plants)}`, en.blackout > 0.005 ? [`Blackouts: ${Math.round(en.blackout * 100)}% unmet`, 'bad'] : ['Supply covers demand', 'good'], 'Power stations are built from a province panel', 'Click to chart it'))}">

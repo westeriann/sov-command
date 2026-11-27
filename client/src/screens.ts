@@ -35,6 +35,15 @@ export function reveal(win: HTMLElement, selector: string) {
   window.setTimeout(() => el.classList.remove('glow'), 2600);
 }
 
+/** Column widths the player dragged to, per window. */
+const sizeKey = (win: HTMLElement) => `sov.screen.${win.getAttribute('aria-label') ?? win.className}`;
+function loadSizes(win: HTMLElement): { left?: number; right?: number } {
+  try { return JSON.parse(localStorage.getItem(sizeKey(win)) ?? '{}'); } catch { return {}; }
+}
+function saveSizes(win: HTMLElement, s: { left?: number; right?: number }) {
+  try { localStorage.setItem(sizeKey(win), JSON.stringify(s)); } catch { /* storage blocked */ }
+}
+
 export function installScreens(root: HTMLElement, defs: { sel: string; make: () => Piece }[], onOpen?: (open: boolean) => void) {
   const wired = new WeakSet<HTMLElement>();
   const stages = new WeakMap<HTMLElement, { stage: HTMLElement; piece: Piece }>();
@@ -65,6 +74,32 @@ export function installScreens(root: HTMLElement, defs: { sel: string; make: () 
     if (kpis) left.append(kpis); else grid.classList.add('no-left');
     for (const k of kids) if (k !== head) right.append(k);
     grid.append(left, st.stage, right);
+    // drag a column's inner edge to resize it: the centrepiece takes up the difference
+    const sizes = loadSizes(win);
+    if (sizes.left) grid.style.setProperty('--wl', `${sizes.left}px`);
+    if (sizes.right) grid.style.setProperty('--wr', `${sizes.right}px`);
+    for (const side of ['left', 'right'] as const) {
+      const h = document.createElement('i');
+      h.className = `scr-split ${side}`;
+      h.title = 'Drag to resize; double-click to reset';
+      (side === 'left' ? left : right).append(h);
+      h.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        h.setPointerCapture(e.pointerId);
+        const wing = side === 'left' ? left : right;
+        const x0 = e.clientX, w0 = wing.getBoundingClientRect().width;
+        const max = grid.getBoundingClientRect().width * 0.62;
+        const move = (ev: PointerEvent) => {
+          const w = Math.round(Math.min(max, Math.max(side === 'left' ? 150 : 280, w0 + (side === 'left' ? ev.clientX - x0 : x0 - ev.clientX))));
+          grid.style.setProperty(side === 'left' ? '--wl' : '--wr', `${w}px`);
+          const s = loadSizes(win); s[side] = w; saveSizes(win, s);
+        };
+        const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); };
+        h.addEventListener('pointermove', move);
+        h.addEventListener('pointerup', up);
+      });
+      h.addEventListener('dblclick', () => { grid.style.removeProperty(side === 'left' ? '--wl' : '--wr'); const s = loadSizes(win); delete s[side]; saveSizes(win, s); });
+    }
     win.append(grid);
     const at = scrolled.get(win);
     if (at) { right.scrollTop = at.wing; body.scrollTop = at.body; }

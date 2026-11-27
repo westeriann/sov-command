@@ -5,7 +5,7 @@ import type { ChatChannel, ClientMsg, ServerMsg } from '../../../shared/protocol
 import { getMeta, setMeta } from '../../../server/src/schema';
 import { World, nationDefsFrom } from '../../../server/src/world';
 import { MemoryDB } from './memdb';
-import { normalizeSettings, type NewGame } from '../../../shared/settings';
+import { maxSpeed, normalizeSettings, type NewGame } from '../../../shared/settings';
 import { migrate } from '../../../server/src/schema';
 
 const ME = { id: 1, name: 'Commander', guest: false };
@@ -110,7 +110,9 @@ async function start(base: string) {
     setMeta(db, 'clock', JSON.stringify({ openedReal: Date.now(), openedGame: Number(last), speed: JSON.parse(clock).speed }));
   }
   const startX = Math.max(1, Math.min(20, Math.round(Number(next?.speed) || DEFAULT_X)));
-  const speed = clock ? JSON.parse(clock).speed : BASE_SPEED * startX;
+  // a world that does not allow 10× and 20× never runs faster than 5×
+  const cap = maxSpeed(normalizeSettings(next ?? JSON.parse(getMeta(db, 'settings') ?? '{}')));
+  const speed = Math.min(BASE_SPEED * cap, clock ? JSON.parse(clock).speed : BASE_SPEED * Math.min(cap, startX));
   world = new World(db, seed, nations, {
     speed, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 150,
     autopilotAfterMs: 1e15, releaseAfterMs: 1e15, seasonMs: 28 * 86_400_000, singlePlayer: true,
@@ -192,7 +194,7 @@ onmessage = (e: MessageEvent) => {
   else if (d.t === 'api') postMessage({ t: 'api', id: d.id, ...(world ? api(d.path) : { status: 503, body: { error: 'Starting up.' } }) });
   else if (d.t === 'save') void save();
   else if (d.t === 'speed' && world) {
-    const x = Math.max(1, Math.min(20, Number(d.x) || 1));
+    const x = Math.max(1, Math.min(maxSpeed(world.settings), Number(d.x) || 1));
     if (paused !== null) { (world as unknown as { clock: object }).clock = { openedReal: Date.now(), openedGame: paused, speed: BASE_SPEED * x }; return; }
     world.setSpeed(BASE_SPEED * x);
     post({ t: 'clock', clock: { ...world.clock, serverNow: Date.now() } });

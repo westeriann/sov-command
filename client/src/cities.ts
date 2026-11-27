@@ -1,6 +1,9 @@
 // Cities and buildings drawn into the map so they read as part of the
 // satellite picture: irregular urban sprawl with a street texture, a faint warm
 // core seen from afar, and small muted icons for the buildings in each province.
+import { unit } from './sun';
+/** A place's unit vector as feature properties, so a filter can tell night from day. */
+const uv = (lat: number, lon: number) => { const [ux, uy, uz] = unit(lat, lon); return { ux, uy, uz }; };
 import type { GeoJSONSource, Map as MLMap } from 'maplibre-gl';
 import type { BuildingType } from '../../shared/buildings';
 import type { Game } from './game';
@@ -224,14 +227,21 @@ export class Cities {
     // per-feature circle opacity renders as nothing on the globe in this MapLibre, so the dots use a
     // fixed brightness and nations in heavy blackout are filtered out (their cities go dark)
     const dark = [...this.game.economy.values()].filter((e) => this.brightness(e.id) < 0.3).map((e) => e.id);
-    const lit: unknown = dark.length ? ['!', ['in', ['get', 'nation'], ['literal', dark]]] : ['literal', true];
+    // only where it is night: the sun below the horizon (a little twilight glow allowed)
+    const [sx, sy, sz] = this.sun;
+    const height = ['+', ['*', ['get', 'ux'], sx], ['*', ['get', 'uy'], sy], ['*', ['get', 'uz'], sz]];
+    const atNight = ['<', height, 0.02];
+    const lit: unknown = dark.length ? ['all', ['!', ['in', ['get', 'nation'], ['literal', dark]]], atNight] : atNight;
     this.map.setFilter('city-lights', lit as never);
     this.map.setFilter('city-lights-core', lit as never);
     this.map.setFilter('rural-lights', lit as never);
-    this.map.setPaintProperty('city-night', 'fill-opacity', ['min', 1, ['*', 1.25, ['get', 'w'], match]] as never);
+    this.map.setPaintProperty('city-night', 'fill-opacity', ['case', atNight, ['min', 1, ['*', 1.25, ['get', 'w'], match]], 0] as never);
   }
 
   night = false;
+  private sun: [number, number, number] = [0, 0, 1];
+  /** The sun moved: the lights follow the night side. */
+  setSun(sun: [number, number, number]) { this.sun = sun; if (this.night) this.setLights(true); }
   /** How brightly a nation's cities shine at night, 0..1. */
   brightness(nation: number) {
     const e = this.game.economy.get(nation);
@@ -279,9 +289,9 @@ export class Cities {
       const sprawl = `u-sprawl-${climateOf(p.terrain)}-${(p.id + 1) % VARIANTS}`;
       // a dense core, then thinner rings, so the city fades into the countryside
       // every shape is cut back to the shore, so cities follow the coast instead of spilling into the sea
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35, nation: p.nation ?? 0, li: `u-lights-${p.id % VARIANTS}` }, geometry: { type: 'Polygon', coordinates: [this.onLand(lon, lat, blob(lon, lat, km * 1.9, rand))] } });
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.35, nation: p.nation ?? 0, li: `u-lights-${p.id % VARIANTS}`, ...uv(lat, lon) }, geometry: { type: 'Polygon', coordinates: [this.onLand(lon, lat, blob(lon, lat, km * 1.9, rand))] } });
       const suburbs = this.onLand(lon, lat, blob(lon, lat, km * 1.35, rand));
-      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45, nation: p.nation ?? 0, li: `u-lights-${p.id % VARIANTS}` }, geometry: { type: 'Polygon', coordinates: [suburbs] } });
+      areas.push({ type: 'Feature', properties: { pat: sprawl, w: 0.45, nation: p.nation ?? 0, li: `u-lights-${p.id % VARIANTS}`, ...uv(lat, lon) }, geometry: { type: 'Polygon', coordinates: [suburbs] } });
       const rings = [this.onLand(lon, lat, blob(lon, lat, km * 0.8, rand))];
       // suburbs and satellite towns around bigger cities
       const extra = Math.min(4, Math.floor(pop / 3e6) + (capital ? 1 : 0));
@@ -293,8 +303,8 @@ export class Cities {
         rings.push(this.onLand(sx, sy, blob(sx, sy, km * (0.25 + rand() * 0.3), rand)));
       }
       this.shapes.set(p.id, { at: [lon, lat], km, core: rings, suburbs, capital, pop, terrain: p.terrain });
-      rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8, nation: p.nation ?? 0, li: `u-lights-${(p.id + i) % VARIANTS}` }, geometry: { type: 'Polygon', coordinates: [r] } }));
-      cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1), nation: p.nation ?? 0 }, geometry: { type: 'Point', coordinates: [lon, lat] } });
+      rings.forEach((r, i) => areas.push({ type: 'Feature', properties: { pat: i ? sprawl : pat, w: i ? 0.5 : 0.8, nation: p.nation ?? 0, li: `u-lights-${(p.id + i) % VARIANTS}`, ...uv(lat, lon) }, geometry: { type: 'Polygon', coordinates: [r] } }));
+      cores.push({ type: 'Feature', properties: { size: Math.sqrt(pop / 1e7) * (capital ? 1.4 : 1), nation: p.nation ?? 0, ...uv(lat, lon) }, geometry: { type: 'Point', coordinates: [lon, lat] } });
     }
     const rural: GeoJSON.Feature[] = [];
     for (const p of pol.provinces.values()) {
@@ -305,7 +315,7 @@ export class Cities {
       for (let i = 0, tries = 0; i < n && tries < n * 6; tries++) {
         const lon = p.label[0] + ((rand() - 0.5) * 2 * spread) / cos, lat = p.label[1] + (rand() - 0.5) * 2 * spread;
         if (pol.provinceAt(lat, lon)?.id !== p.id) continue;
-        rural.push({ type: 'Feature', properties: { nation: p.nation ?? 0, r: 0.6 + rand() * 0.8 }, geometry: { type: 'Point', coordinates: [lon, lat] } });
+        rural.push({ type: 'Feature', properties: { nation: p.nation ?? 0, r: 0.6 + rand() * 0.8, ...uv(lat, lon) }, geometry: { type: 'Point', coordinates: [lon, lat] } });
         i++;
       }
     }
