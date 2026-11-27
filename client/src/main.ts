@@ -1,4 +1,5 @@
 import { Capitals } from './capitals';
+import { BranchWindow } from './research-tree';
 import { installTableSort } from './sort-tables';
 import { nightness, sunDir, sunHeight } from './sun';
 import { Seas } from './sunlight';
@@ -342,6 +343,12 @@ let soundRef: Sound | null = null;
   installConfirmKeeper(document.body);
   queueMicrotask(() => installResizable(hudRoot)); // after the windows exist
   // the left-hand tabs open as full Orbital screens, each with a working centrepiece
+  // a research branch in a window of its own, opened from the pie
+  const branchWindow = new BranchWindow(hudRoot, game, {
+    research: (tech) => conn.send({ t: 'order', order: { kind: 'research', tech } }),
+    queue: (tech) => conn.send({ t: 'order', order: { kind: 'research_queue', tech } }),
+    unqueue: (tech) => conn.send({ t: 'order', order: { kind: 'research_queue', tech, remove: true } }),
+  });
   queueMicrotask(() => installScreens(hudRoot, [
     { sel: '.econ-window:not(.market-window):not(.diplo-window):not(.spy-window):not(.forces-window):not(.politics-window):not(.research-window):not(.rankings-window):not(.records-window):not(.admin-window)', make: () => economyPiece(game) },
     { sel: '.market-window', make: () => marketPiece(game) },
@@ -349,7 +356,7 @@ let soundRef: Sound | null = null;
     { sel: '.diplo-window', make: () => diplomacyPiece(diplomacy!.globe, () => diplomacy?.focused ?? null) },
     { sel: '.politics-window', make: () => politicsPiece(game, pol) },
     { sel: '.spy-window', make: () => espionagePiece(game, pol) },
-    { sel: '.research-window', make: () => researchPiece(game) },
+    { sel: '.research-window', make: () => researchPiece(game, (b) => branchWindow.open(b)) },
     { sel: '.rankings-window', make: () => rankingsPiece(game, pol) },
     { sel: '.records-window', make: () => recordsPiece(game, pol) },
   ], (open) => sound.play(open ? 'open' : 'close')));

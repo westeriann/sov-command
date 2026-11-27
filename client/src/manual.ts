@@ -227,6 +227,7 @@ const CHAPTERS: Chapter[] = [
     id: 'research', title: 'Research and government', html: () => `
       <p>Open ${L('module:research', 'R&amp;D')} (<kbd>R</kbd>). Points come from the research budget. The tree holds ${TECHS.length} technologies in ${BRANCHES.length} branches over ${MAX_TIER} eras, from today's drones to a spacefaring civilisation: no nation learns it all quickly, and the far end is the long game. In the <b>Dash</b> game mode every technology costs half as much.</p>
       <ul>
+        <li>The <b>research pie</b> in the middle has a slice per branch, filled as far as you have researched it. Click a slice to open that branch in its own window: its eras run left to right, each technology linked to the ones it needs, with what it needs from other branches named on the card (click one to jump there).</li>
         <li><b>Available</b> lists everything you can start now. Each branch's tab shows its whole line, era by era.</li>
         <li>A technology needs every one it names, often from another branch. Press <b>Research now</b> to start one, <b>Queue</b> to line it up (up to ${MAX_RESEARCH_QUEUE}), or <b>Queue with … before it</b> to line up the whole path to a far technology at once. The next in the queue starts by itself.</li>
         <li>Bonuses are permanent and grow each era. Each branch ends in a <b>capstone</b> with a great deal more.</li>

@@ -5,7 +5,7 @@ import type { Political } from './political';
 import { proxy, reveal, type Piece } from './screens';
 import { BUDGET_KEYS, COMMODITIES, COMMODITY_INFO, money, type Budget } from '../../shared/economy';
 import { UNIT_SPECS, UNIT_TYPES, type Domain } from '../../shared/military';
-import { BRANCHES, BRANCH_SHORT, TECHS, TECH_BY_ID, prerequisites, ready, techCost } from '../../shared/research';
+import { BRANCHES, BRANCH_NAMES, BRANCH_SHORT, TECHS, TECH_BY_ID, techCost, type Branch } from '../../shared/research';
 import { CHAMBER, blocsFor, chamberLegend, chamberSvg, memberName, memberPick, type Bloc } from './chamber';
 import { threatStackHtml } from './threat-stack';
 import { MAX_SPY_OPS } from '../../shared/diplomacy';
@@ -296,69 +296,49 @@ export function politicsPiece(game: Game, pol: Political): Piece {
 }
 
 // ---------------- R&D: the research orbit ----------------
-export function researchPiece(game: Game): Piece {
+export function researchPiece(game: Game, openBranch: (b: Branch) => void): Piece {
   const el = base('research-piece');
-  let win: HTMLElement | undefined;
-  let pick: string | undefined;
   el.addEventListener('click', (e) => {
-    const t = (e.target as Element).closest<HTMLElement>('[data-rt], [data-ra]');
-    if (!t || !win) return;
-    if (t.dataset.rt) { pick = t.dataset.rt; this_update(); return; }
-    if (t.dataset.ra === 'now') proxy(win, `[data-r="tech"][data-tech="${pick}"]`);
-    if (t.dataset.ra === 'queue') proxy(win, `[data-r="queue"][data-tech="${pick}"]`);
-    if (t.dataset.ra === 'show') {
-      const tech = pick ? TECH_BY_ID.get(pick) : undefined;
-      if (tech && !win.querySelector(`.tech[data-tech="${pick}"]`)) proxy(win, `[data-r="tab"][data-tab="${tech.branch}"]`);
-      reveal(win, `.tech[data-tech="${pick}"]`);
-    }
+    const t = (e.target as Element).closest<SVGElement | HTMLElement>('[data-rb]');
+    if (t) openBranch(t.dataset.rb as Branch);
   });
-  let this_update = () => {};
+  el.addEventListener('keydown', (e) => {
+    const t = (e.target as Element).closest<HTMLElement>('[data-rb]');
+    if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openBranch(t.dataset.rb as Branch); }
+  });
   return {
-    el, caption: 'Rings are eras, slices are branches; the outer ring is the far future. Pick a technology to research it now or queue it.',
-    update(w) {
-      win = w;
-      this_update = () => this.update(w);
+    el, caption: 'Each slice is a branch, filled as far as you have researched it. Click a slice to open its tree.',
+    update() {
       const r = game.mine?.research;
       if (!r) { el.innerHTML = '<p class="hint">Take command of a nation to direct its research.</p>'; return; }
-      const done = new Set<string>(r.done), queue: string[] = r.queue ?? [];
-      const tiers = Math.max(...TECHS.map((t) => t.tier));
-      const radius = (tier: number) => 62 + (tier - 1) * (124 / Math.max(1, tiers - 1));
-      const slice = 360 / BRANCHES.length, mid = (bi: number) => -90 + (bi + 0.5) * slice;
-      const pos = new Map<string, readonly [number, number]>();
-      BRANCHES.forEach((b, bi) => {
-        for (let tier = 1; tier <= tiers; tier++) {
-          const ts = TECHS.filter((t) => t.branch === b && t.tier === tier);
-          ts.forEach((t, i) => { pos.set(t.id, pt(200, 200, radius(tier), mid(bi) + ((i + 1) / (ts.length + 1) - 0.5) * slice * 0.8)); });
-        }
-      });
-      const state = (id: string) => {
-        if (done.has(id)) return 'done';
-        if ((r.current as string | undefined) === id) return 'current';
-        if (queue.includes(id)) return 'queued';
-        return ready(TECH_BY_ID.get(id)!, done) ? 'open' : 'locked';
+      const done = new Set<string>(r.done);
+      const cur = r.current ? TECH_BY_ID.get(r.current) : undefined;
+      const slice = 360 / BRANCHES.length, R0 = 58, R1 = 176;
+      const wedge = (a0: number, a1: number, r0: number, r1: number) => {
+        const [x0, y0] = pt(200, 200, r1, a0), [x1, y1] = pt(200, 200, r1, a1), [x2, y2] = pt(200, 200, r0, a1), [x3, y3] = pt(200, 200, r0, a0);
+        return `M${x0.toFixed(1)} ${y0.toFixed(1)} A${r1} ${r1} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)} A${r0} ${r0} 0 0 0 ${x3.toFixed(1)} ${y3.toFixed(1)}Z`;
       };
-      const links = TECHS.flatMap((t) => prerequisites(t).map((p) => { const [a, b] = [pos.get(p.id)!, pos.get(t.id)!]; return `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" class="lk ${done.has(p.id) ? 'lit' : ''}${p.branch !== t.branch ? ' cross' : ''}"></line>`; })).join('');
-      const nodes = TECHS.map((t) => {
-        const [x, y] = pos.get(t.id)!, s = state(t.id);
-        const q = queue.indexOf(t.id);
-        return `<g class="tn ${s}${pick === t.id ? ' on' : ''}" data-rt="${t.id}" role="button" tabindex="0" aria-label="${esc(t.name)}: ${s}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${pick === t.id ? 7 : t.capstone ? 5.5 : 3.6}"></circle>${q >= 0 ? `<text x="${x.toFixed(1)}" y="${(y - 6).toFixed(1)}" class="qn">${q + 1}</text>` : ''}<title>${esc(t.name)}</title></g>`;
+      const slices = BRANCHES.map((b, i) => {
+        const a0 = -90 + i * slice + 1.2, a1 = -90 + (i + 1) * slice - 1.2, mid = (a0 + a1) / 2;
+        const all = TECHS.filter((t) => t.branch === b), have = all.filter((t) => done.has(t.id)).length;
+        const f = have / all.length;
+        const live = cur?.branch === b;
+        const [lx, ly] = pt(200, 200, (R0 + R1) / 2 + 6, mid);
+        return `<g class="rb${live ? ' live' : ''}" data-rb="${b}" role="button" tabindex="0" aria-label="${esc(BRANCH_NAMES[b])}: ${have} of ${all.length} researched">
+          <path class="rb-back" d="${wedge(a0, a1, R0, R1)}"></path>
+          ${f > 0 ? `<path class="rb-fill" d="${wedge(a0, a1, R0, R0 + (R1 - R0) * f)}"></path>` : ''}
+          <text x="${lx.toFixed(1)}" y="${(ly - 5).toFixed(1)}" class="rb-name">${esc(BRANCH_SHORT[b].toUpperCase())}</text>
+          <text x="${lx.toFixed(1)}" y="${(ly + 9).toFixed(1)}" class="rb-count">${have}/${all.length}</text>
+          <title>${esc(BRANCH_NAMES[b])}: ${have} of ${all.length}. Click to open its tree.</title></g>`;
       }).join('');
-      const sectors = BRANCHES.map((b, bi) => { const [x, y] = pt(200, 200, 204, mid(bi)); return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="br">${esc(BRANCH_SHORT[b].toUpperCase())}</text>`; }).join('');
-      const cur = r.current ? TECHS.find((t) => t.id === r.current) : undefined;
       const prog = cur ? Math.min(1, r.progress / techCost(cur.tier, game.settings)) : 0;
-      const sel = pick ? TECHS.find((t) => t.id === pick) : undefined;
-      const ss = sel ? state(sel.id) : '';
-      el.innerHTML = `<svg viewBox="-10 -10 420 420" class="orbit" role="img" aria-label="Research orbit">
-          ${Array.from({ length: tiers }, (_, i) => `<circle cx="200" cy="200" r="${radius(i + 1)}" class="track thin"></circle>`).join('')}
-          ${BRANCHES.map((_, bi) => { const [x0, y0] = pt(200, 200, 56, -90 + bi * slice), [x1, y1] = pt(200, 200, 192, -90 + bi * slice); return `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" class="axis"></line>`; }).join('')}
-          ${links}${nodes}${sectors}
-          <circle cx="200" cy="200" r="46" class="core"></circle>
-          ${cur ? `<path d="${arc(200, 200, 46, -90, -90 + Math.max(1, prog * 359.9))}" class="prog"></path>` : ''}
-          <text x="200" y="196" class="k tiny">${cur ? 'RESEARCHING' : 'IDLE'}</text><text x="200" y="216" class="v small">${cur ? `${Math.round(prog * 100)}%` : '—'}</text>
+      el.innerHTML = `<svg viewBox="10 10 380 380" class="orbit research-pie" role="img" aria-label="Research branches">
+          ${slices}
+          <circle cx="200" cy="200" r="50" class="core"></circle>
+          ${cur ? `<path d="${arc(200, 200, 50, -90, -90 + Math.max(1, prog * 359.9))}" class="prog"></path>` : ''}
+          <text x="200" y="194" class="k tiny">${cur ? 'RESEARCHING' : 'IDLE'}</text><text x="200" y="214" class="v small">${cur ? `${Math.round(prog * 100)}%` : '—'}</text>
         </svg>
-        <div class="piece-bar">${sel ? `<b>${esc(sel.name)}</b><span class="mono">${esc(sel.text)}</span>
-          ${ss === 'done' ? '<span class="pill ok">researched</span>' : ss === 'current' ? '<span class="pill ok">researching</span>' : `<button type="button" class="claim primary" data-ra="now">Research now</button><button type="button" class="claim" data-ra="queue">Queue</button>`}
-          <button type="button" class="link" data-ra="show">Details</button>` : `<span class="mono">${cur ? esc(cur.name) : 'Nothing under research'} · ${done.size} of ${TECHS.length} done · ${queue.length} queued</span>`}</div>`;
+        <div class="piece-bar"><span class="mono">${cur ? esc(cur.name) : 'Nothing under research'} · ${done.size} of ${TECHS.length} done · ${(r.queue ?? []).length} queued</span></div>`;
     },
   };
 }

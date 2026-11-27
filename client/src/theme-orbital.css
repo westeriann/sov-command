@@ -799,3 +799,44 @@ body.build-mode .maplibregl-marker, body.road-mode .maplibregl-marker { pointer-
 /* money leaving the treasury */
 .spent-tag { position: fixed; z-index: 60; transform: translateX(-50%); color: var(--red); font-size: 12px; font-weight: 700; pointer-events: none; text-shadow: 0 1px 3px #000; animation: spent-rise 2.6s ease-out forwards; }
 @keyframes spent-rise { 0% { opacity: 0; transform: translate(-50%, -4px); } 12% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, 16px); } }
+
+/* ---- Research pie: a slice per branch, filled as far as it is researched ---- */
+.research-pie .rb { cursor: pointer; outline: none; }
+.research-pie .rb-back { fill: rgba(124, 196, 255, 0.06); stroke: rgba(124, 196, 255, 0.35); stroke-width: 1; transition: fill 0.15s; }
+.research-pie .rb-fill { fill: rgba(124, 196, 255, 0.34); pointer-events: none; }
+.research-pie .rb:hover .rb-back, .research-pie .rb:focus-visible .rb-back { fill: rgba(124, 196, 255, 0.18); stroke: #fff; }
+.research-pie .rb.live .rb-back { stroke: var(--amber); stroke-width: 1.6; filter: drop-shadow(0 0 6px rgba(255, 191, 71, 0.5)); }
+.research-pie .rb-name { fill: #e6f2ff; font: 700 10px var(--f-display); letter-spacing: 0.1em; text-anchor: middle; pointer-events: none; }
+.research-pie .rb-count { fill: #8fb2d6; font: 500 9.5px var(--f-mono); text-anchor: middle; pointer-events: none; }
+
+/* ---- A research branch in its own window ---- */
+.branch-window { position: fixed; z-index: 45; inset: calc(var(--bar-h, 56px) + 24px) 36px 36px 36px; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--glass-strong); border: 1px solid var(--edge); border-radius: 18px; box-shadow: 0 0 40px rgba(124, 196, 255, 0.14), 0 14px 40px rgba(0, 0, 0, 0.6); backdrop-filter: blur(10px); }
+.branch-window[hidden] { display: none; }
+.bw-scroll { flex: 1; min-height: 0; overflow: auto; }
+.bw-canvas { position: relative; }
+.bw-links { position: absolute; inset: 0; pointer-events: none; }
+.bw-link { fill: none; stroke: rgba(124, 196, 255, 0.22); stroke-width: 1.6; }
+.bw-link.lit { stroke: rgba(124, 196, 255, 0.75); }
+.bw-era { position: absolute; top: 6px; font: 500 11px var(--f-mono); color: #8fb2d6; letter-spacing: 0.06em; }
+.bw-era b { color: #fff; margin-right: 4px; }
+.bw-card { position: absolute; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; box-sizing: border-box; overflow: hidden;
+  border: 1px solid var(--edge-soft); border-radius: 12px; background: rgba(6, 16, 32, 0.85); font-size: 11.5px; }
+.bw-card b { font: 600 13px var(--f-display); color: #fff; letter-spacing: 0.02em; }
+.bw-card .bw-fx { color: var(--muted); line-height: 1.3; }
+.bw-card .bw-out { font-size: 10.5px; color: #8fb2d6; }
+.bw-card .bw-out .ok { color: var(--cyan); }
+.bw-card .bw-out .no { color: #ff9a8a; }
+.bw-card .bw-act { margin-top: auto; display: flex; gap: 6px; align-items: center; }
+.bw-card .bw-act .claim { width: auto; padding: 4px 10px; font-size: 11px; }
+.bw-card .bw-act em { font-style: normal; color: var(--cyan); }
+.bw-card.done { border-color: rgba(124, 196, 255, 0.55); background: rgba(124, 196, 255, 0.1); }
+.bw-card.current { border-color: var(--amber); box-shadow: 0 0 16px rgba(255, 191, 71, 0.3); }
+.bw-card.queued { border-color: rgba(185, 164, 255, 0.7); }
+.bw-card.open { border-color: rgba(124, 196, 255, 0.45); }
+.bw-card.locked { opacity: 0.6; }
+.bw-card.capstone { border-color: rgba(255, 191, 71, 0.7); }
+.bw-card.capstone b { color: var(--amber); }
+.bw-bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(124, 196, 255, 0.15); overflow: hidden; }
+.bw-bar i { display: block; height: 100%; background: var(--amber); }
+.bw-foot { margin: 0; padding: 8px 18px 12px; }
