@@ -5,6 +5,12 @@ name: Desktop app
 
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: Which installers to build
+        type: choice
+        options: [all, windows, macos, linux]
+        default: all
   push:
     tags: ['v*']
     branches: ['**']
@@ -55,7 +61,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # a manual run can build just one platform's installer
+        os: ${{ fromJSON(github.event.inputs.platforms == 'windows' && '["windows-latest"]' || github.event.inputs.platforms == 'macos' && '["macos-latest"]' || github.event.inputs.platforms == 'linux' && '["ubuntu-latest"]' || '["windows-latest", "macos-latest", "ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
