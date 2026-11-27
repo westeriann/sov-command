@@ -184,6 +184,9 @@ export interface SeasonInfo {
   leaders: { nation: number; score: number; power: number; badges?: number }[]; // top 20; power = share of world strength now; badges: the leader's achievements
   history: { d: number; s: Record<number, number>; p?: Record<number, number> }[]; // the leaders' scores (s) and share of world power in % (p), every other day
   hallOfFame: { season: number; endedAt: number; nation: number; name: string; player?: string; score: number }[];
+  winner?: number; // the nation that won the match by domination
+  dominance?: number; // game days the leader has held 40% of world power
+  day?: number; // the match's game day
 }
 
 export interface Me {

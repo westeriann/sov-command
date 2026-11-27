@@ -37,7 +37,7 @@ export class Lobby {
     this.el.hidden = false;
     this.el.innerHTML = `<div class="econ-head"><div><span class="label">WORLDS</span><h2>Choose a world</h2></div><button type="button" class="link" data-w="close">Close</button></div>
       <div class="world-list">${list.map((w, i) => `<div class="world-row" id="w${i}"><b>${esc(w.name)}</b><span class="mono">checking…</span></div>`).join('')}</div>
-      <p class="hint">Each world is its own planet with its own nations, seasons and players. Your account belongs to the world you registered in.</p>`;
+      <p class="hint">Each world is its own planet with its own nations and players: one long match. Your account belongs to the world you registered in.</p>`;
     await Promise.all(list.map(async (w, i) => {
       const row = this.el.querySelector(`#w${i}`)!;
       try {
@@ -45,7 +45,7 @@ export class Lobby {
         const s = (await r.json()) as WorldStatus;
         const here = w.url.replace(/\/$/, '') === location.origin;
         row.innerHTML = `<b>${esc(s.name ?? w.name)}</b>
-          <span class="mono">${s.online ?? 0} online · ${s.players ?? 0} players · ${s.nations ?? '?'} nations · season ${s.season?.number ?? 1}</span>
+          <span class="mono">${s.online ?? 0} online · ${s.players ?? 0} players · ${s.nations ?? '?'} nations</span>
           ${here ? '<em>You are here</em>' : `<button type="button" class="claim primary" data-w="go" data-url="${esc(w.url)}">Play here</button>`}`;
       } catch {
         row.innerHTML = `<b>${esc(w.name)}</b><span class="mono down">offline</span>`;

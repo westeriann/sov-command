@@ -1,5 +1,5 @@
 import { art } from './art-icons';
-// Rankings: the season leaderboard, a chart of the leaders' scores, the hall of
+// Rankings: the match leaderboard, a chart of the leaders' scores, the hall of
 // fame, a replay of how the map changed, and a nation's history.
 import type { Game } from './game';
 import { flagSvg } from '../../shared/flags';
@@ -61,19 +61,17 @@ export class RankingsPanel {
 
   render() {
     const s = this.game.season;
-    const head = `<div class="econ-head"><div><span class="label">RANKINGS</span><h2>${s ? `Season ${s.number}` : 'Season'}</h2></div><button type="button" class="link" data-k="close">Close</button></div>`;
+    const head = `<div class="econ-head"><div><span class="label">RANKINGS</span><h2>The match</h2></div><button type="button" class="link" data-k="close">Close</button></div>`;
     if (!s) { this.panel.innerHTML = `${head}<div class="econ-body"><p class="hint">Connect to a world to see its rankings.</p></div>`; return; }
-    const left = Math.max(0, s.endsAt - Date.now());
-    const days = Math.floor(left / 86_400_000), hours = Math.floor((left % 86_400_000) / 3_600_000);
     const name = (id: number) => esc(this.pol.nations.get(id)?.name ?? `Nation ${id}`);
     const player = (id: number) => this.game.nations.get(id)?.player;
     this.panel.innerHTML = `${head}
       <div class="econ-body">
         <div class="econ-kpis">
-          <div><span>Season ends in</span><b>${days} d ${hours} h</b><em>real time · ${new Date(s.endsAt).toUTCString().slice(5, 22)} UTC</em></div>
+          <div><span>Match day</span><b>${(s.day ?? 0).toLocaleString('en-US')}</b><em>${s.winner !== undefined ? `won by the ${name(s.winner)}` : 'no winner yet: the match goes on'}</em></div>
           <div><span>Leader</span><b>${s.leaders[0] ? name(s.leaders[0].nation) : '—'}</b><em>${s.leaders[0] ? `${s.leaders[0].score.toLocaleString('en-US')} points` : ''}</em></div>
           <div><span>How to win</span><b>Power</b><em>40% wealth, 30% people, 20% forces, 10% science, scored every game day</em></div>
-          <div><span>Early victory</span><b>40% for 60 days</b><em>hold 40% of world power for 60 game days</em></div>
+          <div><span>Domination victory</span><b>40% for 60 days</b><em>${s.winner !== undefined ? 'claimed' : s.dominance ? `the leader has held it ${s.dominance} days` : 'hold 40% of world power for 60 game days'}</em></div>
         </div>
         ${this.goalsHtml()}
         <div class="econ-cols">
@@ -86,11 +84,9 @@ export class RankingsPanel {
             </tbody></table></div>
           </section>
           <section>
-            <div class="row-between"><span class="label">${this.metric === 'p' ? 'SHARE OF WORLD POWER' : 'SEASON SCORES'}</span>
+            <div class="row-between"><span class="label">${this.metric === 'p' ? 'SHARE OF WORLD POWER' : 'MATCH SCORES'}</span>
               <span class="mk-tabs"><button type="button" data-k="metric" data-m="p" aria-selected="${this.metric === 'p'}">Power</button><button type="button" data-k="metric" data-m="s" aria-selected="${this.metric === 's'}">Score</button></span></div>
             <div class="chart-grid"><div class="chart-cell${this.bigChart ? ' big' : ''}" data-k="chart" title="${this.bigChart ? 'Click to shrink' : 'Click to enlarge'}">${this.chart()}</div></div>
-            <span class="label">HALL OF FAME</span>
-            ${s.hallOfFame.length ? `<ol class="fame">${s.hallOfFame.map((h) => `<li><b>Season ${h.season}</b> · ${esc(h.name)}${h.player ? ` (${esc(h.player)})` : ''} · ${h.score.toLocaleString('en-US')} pts</li>`).join('')}</ol>` : '<p class="hint">No season has ended yet.</p>'}
             <span class="label">COMPARE NATIONS</span>
             <div class="council-form"><select id="cmpA" aria-label="First nation">${this.nationOptions(this.game.mine?.id ?? s.leaders[0]?.nation)}</select>
             <select id="cmpB" aria-label="Second nation">${this.nationOptions(s.leaders.find((l) => l.nation !== this.game.mine?.id)?.nation)}</select>
@@ -98,7 +94,7 @@ export class RankingsPanel {
             <div id="compare"></div>
             <span class="label">HISTORY</span>
             <button type="button" class="claim" data-k="replay">Replay the map</button>
-            <p class="hint">Watch borders and fronts change week by week this season.</p>
+            <p class="hint">Watch borders and fronts change week by week over the match.</p>
           </section>
         </div>
       </div>`;
@@ -129,16 +125,16 @@ export class RankingsPanel {
       <div class="mini-charts">${chart('g', 'GDP')}${chart('a', 'Forces')}${chart('p', 'Provinces held')}</div>`;
   }
 
-  /** This season's missions and the player's achievements. */
+  /** The player's missions and achievements. */
   private goalsHtml() {
     const mine = this.game.mine, me = this.game.me;
     if (!mine?.missions) return '';
     const got = (me?.achievements ?? []) as AchievementKey[];
     return `<div class="econ-cols">
       <section>
-        <span class="label">YOUR SEASON MISSIONS</span>
+        <span class="label">YOUR MISSIONS</span>
         ${mine.missions.map((m) => `<div class="war-row"><div><b class="${m.done ? 'up' : ''}">${m.done ? `${art('check')} ` : ''}${esc(m.text)}</b></div></div>`).join('')}
-        <p class="hint">Each mission completed is worth ${MISSION_REWARD_DAYS} game days of your normal scoring, plus 2% of GDP in cash. New missions come with each season.</p>
+        <p class="hint">Each mission completed is worth ${MISSION_REWARD_DAYS} game days of your normal scoring, plus 2% of GDP in cash. New missions come once all three are done.</p>
       </section>
       <section>
         <span class="label">ACHIEVEMENTS · ${got.length} OF ${Object.keys(ACHIEVEMENTS).length}</span>
@@ -153,7 +149,7 @@ export class RankingsPanel {
 
   /**
    * The leading nations over time: their share of world power (which rises and
-   * falls with economies, armies and wars) or their running season score.
+   * falls with economies, armies and wars) or their running match score.
    * Points are placed by game day, on a scaled axis with gridlines.
    */
   private chart() {
@@ -180,7 +176,7 @@ export class RankingsPanel {
       return `<polyline points="${pts}" fill="none" stroke="${LINE_COLORS[k % LINE_COLORS.length]}" stroke-width="2"><title>${esc(this.pol.nations.get(id)?.name ?? '')}</title></polyline>`;
     }).join('');
     const legend = ids.map((id, k) => `<span><i style="background:${LINE_COLORS[k % LINE_COLORS.length]}"></i>${esc(this.pol.nations.get(id)?.short ?? '')}</span>`).join('');
-    return `<svg class="score-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="The leading nations over this season">${grid}${lines}</svg><div class="chart-legend">${legend}</div>`;
+    return `<svg class="score-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="The leading nations over the match">${grid}${lines}</svg><div class="chart-legend">${legend}</div>`;
   }
 
   private async startReplay() {

@@ -1,4 +1,5 @@
 import { Capitals } from './capitals';
+import { allDev } from './dev';
 import { BranchWindow } from './research-tree';
 import { installTableSort } from './sort-tables';
 import { nightness, sunDir, sunHeight } from './sun';
@@ -136,6 +137,7 @@ let soundRef: Sound | null = null;
   mainMenu.setProgress('Drawing the map', 0.7);
   const gameMap = new GameMap(document.getElementById('map')!, world, pol);
   let lightsMode = false;
+  let devMode = false;
   installTableSort(hudRoot); // click a column heading to sort by it
   let followNight = () => {};
 
@@ -161,7 +163,7 @@ let soundRef: Sound | null = null;
   let citiesRef: Cities | null = null;
   let modelsRef: Models3D | null = null;
   const hud = new Hud(hudRoot, world, pol, game, {
-    onMode: (m, opacity) => { if (m === 'diplomatic') gameMap.setDiplomatic(diploColours(game, pol, hud.diploShown)); gameMap.setMode(m, opacity); lightsMode = m === 'lights'; citiesRef?.setSun(sunDir(game.gameNow().getTime())); citiesRef?.setLights(lightsMode); followNight(); },
+    onMode: (m, opacity) => { if (m === 'diplomatic') gameMap.setDiplomatic(diploColours(game, pol, hud.diploShown)); gameMap.setMode(m, opacity); lightsMode = m === 'lights'; devMode = m === 'development'; if (devMode) gameMap.setDevelopment(allDev(pol, game)); citiesRef?.setSun(sunDir(game.gameNow().getTime())); citiesRef?.setLights(lightsMode); followNight(); },
     onOpacity: (v) => gameMap.setOverlayOpacity(v),
     onBorderStrength: (v) => gameMap.setBorderStrength(v),
     onResource: (key) => gameMap.setResource(key),
@@ -579,6 +581,7 @@ let soundRef: Sound | null = null;
     }
     if (c.has('economy')) {
       gameMap.setWealth(new Map([...game.economy.values()].map((e) => [e.id, e.gdppc])));
+      if (devMode) gameMap.setDevelopment(allDev(pol, game));
     }
     // news about our own nation: the Notices list plays its sounds and raises alerts
     if (c.has('war') && game.mine) {

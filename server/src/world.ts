@@ -268,7 +268,8 @@ export class World {
   private plants = new Map<number, { share: number; thermal: number; coal: number; gas: number }>();
   nuked: number[] = [];
   private warDirty = false;
-  season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number>; p?: Record<number, number> }[]; dominance: number };
+  /** The match's running scores (kept under its old name, 'season', in saves). */
+  season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number>; p?: Record<number, number> }[]; dominance: number; winner?: number };
   private power = new Map<number, number>();
   listener: WorldListener | null = null;
   /** The map and mode this world was made with. */
@@ -805,7 +806,7 @@ export class World {
       .sort((a, b) => b.score - a.score).slice(0, 20);
     const hallOfFame = (this.db.prepare('select number, ended_at, standings from seasons order by number desc limit 10').all() as { number: number; ended_at: number; standings: string }[])
       .map((r) => ({ season: r.number, endedAt: r.ended_at, ...(JSON.parse(r.standings)[0] ?? {}) }));
-    return { number: s.number, startedAt: s.startedAt, endsAt: s.endsAt, leaders, history: s.history, hallOfFame };
+    return { number: s.number, startedAt: s.startedAt, endsAt: s.endsAt, leaders, history: s.history, hallOfFame, winner: s.winner, dominance: s.dominance, day: this.market.day };
   }
 
   /** Daily scores: a weighted share of the world's wealth, people, armed strength and science. */
@@ -848,7 +849,20 @@ export class World {
     }
   }
 
-  /** Close the season: record the standings in the hall of fame and start a new one. Nations keep going. */
+  /** One nation dominates the world: the match is won. Recorded, rewarded and announced once; the world keeps going. */
+  declareVictory() {
+    const s = this.season;
+    const top = [...this.power.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (!top) return;
+    s.winner = top[0];
+    const n = this.nations.get(top[0])!;
+    this.db.prepare('insert or replace into seasons (number, ended_at, standings) values (?, ?, ?)').run(1, Date.now(), JSON.stringify([{ nation: n.id, name: this.defs.get(n.id)!.name, player: n.player, score: Math.round(s.scores[n.id] ?? 0) }]));
+    if (n.controller === 'human' && n.userId) { this.achievements.award(n.userId, 'champion'); this.achievements.award(n.userId, 'top10'); }
+    this.event('world', n.id, `Domination victory: the ${this.defs.get(n.id)!.name}${n.player ? ` led by ${n.player}` : ''} has held 40% of the world's power for 60 days and wins the match. The world goes on.`);
+    this.saveState();
+  }
+
+  /** Old worlds: seasons no longer end; kept so saved code paths still read. */
   endSeason(reason: string) {
     const s = this.season;
     const standings = Object.entries(s.scores).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([id, score]) => {
@@ -1685,8 +1699,8 @@ export class World {
     this.military.advance(now, events);
     this.handleMilEvents(events);
     this.runEconomy(realNow);
-    if (realNow >= this.season.endsAt) this.endSeason('time is up');
-    else if (this.season.dominance >= 60) this.endSeason('one nation dominates the world');
+    // a match, not seasons: holding 40% of world power for 60 game days wins it (announced once; play goes on)
+    if (this.season.dominance >= 60 && !this.season.winner) this.declareVictory();
     this.persist();
   }
 
@@ -2271,7 +2285,7 @@ export class World {
     }
   }
 
-  /** Three goals for the season, sized to what this nation has now. */
+  /** Three goals, sized to what this nation has now; new ones once all three are done. */
   private assignMissions(n: NationState) {
     const pool = [...MISSION_KINDS].sort(() => this.rand() - 0.5);
     const out: SeasonMission[] = [];
@@ -2301,7 +2315,7 @@ export class World {
   private goalsDay() {
     for (const n of this.nations.values()) {
       if (n.controller !== 'human' || n.annexedBy || !n.userId) continue;
-      if (n.missionSeason !== this.season.number || !n.missions) this.assignMissions(n);
+      if (!n.missions || n.missions.every((m) => m.done)) this.assignMissions(n);
       for (const ms of n.missions!) {
         if (ms.done || this.measure(n, ms.kind) < ms.target) continue;
         ms.done = true;
@@ -2309,7 +2323,7 @@ export class World {
         this.season.scores[n.id] = (this.season.scores[n.id] ?? 0) + reward;
         n.econ.treasury += n.econ.gdp * MISSION_CASH;
         n.missionsDone = (n.missionsDone ?? 0) + 1;
-        this.event('politics', n.id, `${this.defs.get(n.id)!.short} completes a season mission: ${ms.text} (+${Math.round(reward).toLocaleString('en-US')} points).`);
+        this.event('politics', n.id, `${this.defs.get(n.id)!.short} completes a mission: ${ms.text} (+${Math.round(reward).toLocaleString('en-US')} points).`);
         this.touch(n, false);
       }
       // achievements, kept by the player's account

@@ -1,4 +1,4 @@
-// Season missions (three per player, sized to their nation) and achievements
+// Missions (three per player at a time, sized to their nation) and achievements
 // (kept by the account for good, each unlocking flag emblems).
 
 export type GoalKind = 'grow' | 'industry' | 'power' | 'bloc' | 'trade' | 'tech' | 'territory' | 'stability' | 'navy' | 'allies';
@@ -19,9 +19,9 @@ export const ACHIEVEMENTS: Record<AchievementKey, { name: string; text: string; 
   first_victory: { name: 'Victor', text: 'Won territory in a peace treaty', emblem: 'laurel' },
   bloc_founder: { name: 'Founder', text: 'Led a bloc of five or more nations', emblem: 'shield' },
   nuclear_power: { name: 'Deterrent', text: 'Built a nuclear arsenal', emblem: 'atom' },
-  top10: { name: 'Contender', text: 'Finished a season in the top ten' },
+  top10: { name: 'Contender', text: 'Led the world when a match was won' },
   full_tree: { name: 'Polymath', text: 'Researched every technology' },
   empire: { name: 'Imperial', text: 'Held 60 provinces at once', emblem: 'crown' },
-  missions: { name: 'Dutiful', text: 'Completed nine season missions' },
-  champion: { name: 'Champion', text: 'Won a season', emblem: 'eagle' },
+  missions: { name: 'Dutiful', text: 'Completed nine missions' },
+  champion: { name: 'Champion', text: 'Won a match by domination', emblem: 'eagle' },
 };

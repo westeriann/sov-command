@@ -60,18 +60,22 @@ test('AI nations pick research on their own', () => {
   assert.equal(w.nations.get(1)!.tech.current, undefined, 'players choose for themselves');
 });
 
-test('seasons: scores build up daily; the season ends into the hall of fame', () => {
+test('a match: scores build up daily and never reset; holding 40% of world power for 60 days wins it once', () => {
   const w = setup();
   w.tick(Date.now() + realPerDay * 10);
   const info = w.seasonInfo();
-  assert.equal(info.number, 1);
   assert.equal(info.leaders.length, 2);
   assert.ok(info.leaders[0].score > 0 && info.leaders[0].power > 0);
-  w.endSeason('test');
-  const next = w.seasonInfo();
-  assert.equal(next.number, 2, 'a new season starts');
-  assert.equal(next.leaders.length, 0, 'scores reset');
-  assert.equal(next.hallOfFame[0].season, 1, 'the winner is remembered');
+  const before = info.leaders[0].score;
+  w.season.endsAt = 0; // an old world's season clock running out does nothing now
+  w.tick(Date.now() + realPerDay * 12);
+  assert.ok(w.seasonInfo().leaders[0].score >= before, 'scores carry on');
+  assert.equal(w.seasonInfo().winner, undefined);
+  w.season.dominance = 60;
+  w.tick(Date.now() + realPerDay * 13);
+  const won = w.seasonInfo();
+  assert.ok(won.winner !== undefined, 'a domination victory is declared');
+  assert.ok(won.leaders.length === 2 && won.leaders[0].score >= before, 'and the match goes on');
 });
 
 test('private chat: direct lines reach only the two nations; allied lines only allies', () => {

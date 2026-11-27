@@ -263,7 +263,7 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'scoring', title: 'Scoring and rankings', html: () => `
-      <p>${L('module:rankings', 'Rankings')} (<kbd>K</kbd>) shows season scores, the leaderboard, nation comparisons, your missions and achievements, and replays of how the map changed.</p>`,
+      <p>${L('module:rankings', 'Rankings')} (<kbd>K</kbd>) shows match scores, the leaderboard, nation comparisons, your missions and achievements, and replays of how the map changed.</p>`,
   },
   {
     id: 'keys', title: 'Keyboard', html: () => `

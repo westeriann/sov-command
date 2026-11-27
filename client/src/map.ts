@@ -1,4 +1,5 @@
 import { addProtocol, setWorkerUrl, type GeoJSONSource, Map as MLMap, Marker, type ExpressionSpecification, type StyleSpecification } from 'maplibre-gl';
+import { DEV_STOPS } from './dev';
 import { paintNight, sunDir } from './sun';
 import type { Feature, FeatureCollection } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -54,7 +55,7 @@ import { SPECIALTIES, SPECIALTY_LIST, specialtyOf } from '../../shared/specialti
 export const SPECIALTY_COLOURS = Object.fromEntries(SPECIALTY_LIST.map((s, i) => [s, `hsl(${Math.round((i * 360) / SPECIALTY_LIST.length)}, 62%, 52%)`])) as Record<string, string>;
 export const RESOURCE_STOPS: [number, string][] = [[1, '#2a2416'], [25, '#7a5a1e'], [50, '#c98a1e'], [75, '#f0c030'], [100, '#fff2a0']];
 
-export type MapMode = 'political' | 'wealth' | 'resource' | 'diplomatic' | 'satellite' | 'terrain' | 'elevation' | 'climate' | 'lights';
+export type MapMode = 'political' | 'wealth' | 'development' | 'resource' | 'diplomatic' | 'satellite' | 'terrain' | 'elevation' | 'climate' | 'lights';
 
 /** Income per person ($/yr) colour scale, read on a log scale. */
 export const WEALTH_STOPS: [number, string][] = [
@@ -558,6 +559,7 @@ export class GameMap {
       return (p) => { const o = owner(p); return o !== undefined ? colours.get(o) : undefined; };
     }
     if (mode === 'diplomatic') return (p) => { const o = owner(p); return o !== undefined ? this.diplo.get(o) : undefined; };
+    if (mode === 'development') return (p) => { const v = this.devValues.get(p.id); return v !== undefined ? ramp(DEV_STOPS, v) : undefined; };
     if (mode === 'wealth') {
       const logStops = WEALTH_STOPS.map(([v, c]) => [Math.log10(v), c] as [number, string]);
       return (p) => { const o = owner(p); const v = o !== undefined ? this.wealth.get(o) : undefined; return v ? ramp(logStops, Math.log10(v)) : undefined; };
@@ -690,6 +692,13 @@ export class GameMap {
       if (k !== pr.k) { pr.k = k; changed = true; }
     }
     if (changed) (this.map.getSource('borders') as GeoJSONSource | undefined)?.setData(this.borderData as unknown as GeoJSON.FeatureCollection);
+  }
+
+  private devValues = new Map<number, number>();
+  /** Each province's development (0..100), for the development map. */
+  setDevelopment(values: Map<number, number>) {
+    this.devValues = values;
+    this.refreshMode('development');
   }
 
   setWealth(values: Map<number, number>) {

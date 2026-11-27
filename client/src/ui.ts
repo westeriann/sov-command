@@ -1,4 +1,5 @@
 import { art } from './art-icons';
+import { DEV_STOPS, nationDev } from './dev';
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO, TECHS, techCost } from '../../shared/research';
 import { maxSpeed } from '../../shared/settings';
@@ -125,6 +126,7 @@ const RESOURCE_TIPS: Record<string, string> = {
   forces: tip('Manpower and equipment', 'Reservists free to recruit, and equipment in store', 'Units need both to be built and reinforced', 'Click: Ground forces'),
   war: tip('War', 'Your wars and the war score of each (−100..100)', 'Click: Diplomacy'),
   research: tip('Research', 'The technology under way and how far along it is', 'Click: R&D'),
+  development: tip('Development', 'Your provinces\' average development, weighted by people (0..100)', 'Grows with cities and crowding together with wealth per person, and with works built', 'Click: the development map'),
   power: tip('Electricity', 'Share of demand met', ['Blackouts stop industry and anger the public', 'bad'], 'Click: Market'),
   support: tip('Parliament support', 'Laws pass at 50% of votes; wars of choice need 40%', 'Click: Politics'),
   gdp: tip('Gross domestic product', 'The size of your economy each year, and its growth', 'Taxes on it pay for everything else'),
@@ -145,10 +147,10 @@ const FOCUS_TIPS: Record<string, string> = {
 export const TOPBAR_ITEMS: [string, string][] = [
   ['treasury', 'Treasury'], ['gdp', 'GDP'], ['stability', 'Stability'], ['capital', 'Pol. capital'], ['forces', 'Manpower · kit'],
   ['war', 'War'], ['research', 'Research'], ['defence', 'Defence budget'], ['fuel', 'Fuel reserve'], ['munitions', 'Munitions'],
-  ['power', 'Electricity'], ['support', 'Parliament'], ['reservists', 'Reservists'],
+  ['power', 'Electricity'], ['support', 'Parliament'], ['reservists', 'Reservists'], ['development', 'Development'],
 ];
 /** What the top bar shows unless the player picks otherwise (Options, Interface). */
-export const TOPBAR_DEFAULT = ['treasury', 'gdp', 'stability', 'capital', 'forces', 'war', 'research'];
+export const TOPBAR_DEFAULT = ['treasury', 'gdp', 'stability', 'development', 'capital', 'forces', 'war', 'research'];
 const TOPBAR_KEY = 'sov.topbar';
 export function topbarChoice(): string[] {
   try { const v = JSON.parse(localStorage.getItem(TOPBAR_KEY) ?? 'null'); if (Array.isArray(v)) return v.filter((x) => TOPBAR_ITEMS.some(([k]) => k === x)); } catch { /* storage blocked */ }
@@ -160,6 +162,7 @@ export function saveTopbarChoice(ids: string[]) { try { localStorage.setItem(TOP
 const MODES: [MapMode, string][] = [
   ['political', 'Political'],
   ['wealth', 'Wealth per person'],
+  ['development', 'Development'],
   ['resource', 'Resources'],
   ['diplomatic', 'Diplomatic'],
   ['satellite', 'Satellite only'],
@@ -168,7 +171,7 @@ const MODES: [MapMode, string][] = [
   ['climate', 'Temperature'],
   ['lights', 'Night lights (power)'],
 ];
-const DEFAULT_OPACITY: Record<MapMode, number> = { political: 72, wealth: 60, resource: 75, diplomatic: 72, satellite: 0, terrain: 70, elevation: 70, climate: 70, lights: 85 };
+const DEFAULT_OPACITY: Record<MapMode, number> = { political: 72, wealth: 60, development: 65, resource: 75, diplomatic: 72, satellite: 0, terrain: 70, elevation: 70, climate: 70, lights: 85 };
 const FOCUS_NAMES: Record<Focus, string> = { economy: 'Economy', military: 'Military', research: 'Research', diplomacy: 'Diplomacy' };
 const PERSONALITY_NAMES: Record<string, string> = {
   expansionist: 'Expansionist', trader: 'Trader', turtle: 'Defensive', opportunist: 'Opportunist', idealist: 'Idealist',
@@ -645,7 +648,7 @@ export class Hud {
 
   /** Where each top-bar figure leads when clicked. */
   private static TOPBAR_GO: Record<string, string> = {
-    treasury: 'module:economy', gdp: 'module:economy', stability: 'module:politics', capital: 'module:politics', forces: 'module:army', war: 'module:diplomacy',
+    development: 'mode:development', treasury: 'module:economy', gdp: 'module:economy', stability: 'module:politics', capital: 'module:politics', forces: 'module:army', war: 'module:diplomacy',
     research: 'module:research', defence: 'econ:b-military', fuel: 'market:local:oil', munitions: 'module:army', power: 'market:local:power', support: 'module:politics', reservists: 'module:army',
   };
   private topbarHtml() {
@@ -706,6 +709,7 @@ export class Hud {
       set('war', `${wars.length} · ${worst > 0 ? '+' : ''}${worst}`, worst < -20 ? 'live bad' : 'live warn');
     }
     const r = mine.research, cur = r?.current ? TECHS.find((t) => t.id === r.current) : undefined;
+    set('development', `${nationDev(mine.id, this.pol, this.game)}`, 'live');
     set('research', cur ? `${Math.round(((r!.progress ?? 0) / techCost(cur.tier, this.game.settings)) * 100)}% ${esc(cur.name.split(' ')[0].toUpperCase())}` : 'IDLE', cur ? 'live' : 'live warn');
     const cover = e.energy.demand > 0 ? e.energy.supply / e.energy.demand : 1;
     set('power', `${Math.round(Math.min(1, cover) * 100)}%`, cover < 0.99 ? 'live bad' : 'live');
@@ -878,6 +882,8 @@ export class Hud {
             ? [['#3b4cc0', 'Below −10 °C'], ['#c0d4f5', '5 °C'], ['#f2cbb7', '15 °C'], ['#ee8468', '24 °C'], ['#b40426', 'Above 30 °C']]
             : mode === 'wealth'
               ? WEALTH_STOPS.map(([v, c]) => [c, `$${v.toLocaleString('en-US')} per person`] as [string, string])
+              : mode === 'development'
+                ? DEV_STOPS.map(([v, c]) => [c, `${v} · ${devLabel(v)}`] as [string, string])
               : mode === 'resource'
                 ? (this.resourceKey === 'specialty'
                   ? SPECIALTY_LIST.map((s) => [SPECIALTY_COLOURS[s], SPECIALTIES[s].name] as [string, string])
@@ -959,7 +965,8 @@ export class Hud {
     const growth = `${e.growth >= 0 ? '+' : '−'}${Math.abs(e.growth * 100).toFixed(1)}% a year`;
     return `<span>GDP</span><span>${mine ? go('module:economy', money(e.gdp), 'Open Economy: budget, taxes and growth') : money(e.gdp)} · ${go('module:rankings', `#${rank}`, 'Open the rankings')}</span>
       <span>Growth</span><span class="${e.growth >= 0 ? 'up' : 'down'}">${mine ? go('side:focusSeg', growth, 'An Economy focus, trade deals, infrastructure and research raise growth') : growth}</span>
-      <span>Per person</span><span>${go('module:rankings', `$${e.gdppc.toLocaleString('en-US')}`, 'Compare nations in the rankings')}</span>`;
+      <span>Per person</span><span>${go('module:rankings', `$${e.gdppc.toLocaleString('en-US')}`, 'Compare nations in the rankings')}</span>
+      ${(() => { const dv = nationDev(id, this.pol, this.game); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), 'People-weighted average of its provinces: crowding and cities together with wealth per person, and works built', 'Developed nations build faster, recruit a little faster and lean liberal'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}`;
   }
 
   private controllerHtml(n: Nation) {
