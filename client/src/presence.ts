@@ -53,8 +53,11 @@ export class Presence {
       properties: { raided: l.raided, mine: l.a === me || l.b === me },
       geometry: { type: 'LineString' as const, coordinates: l.path.map(at).filter((p): p is [number, number] => !!p) },
     })).filter((f) => f.geometry.coordinates.length > 1);
-    this.storms = w.storms ?? [];
-    this.drawStorms();
+    // the server moves storms a step a game day; between steps they glide on along their heading (see glide)
+    this.raw = w.storms ?? [];
+    this.rawAt = this.game.gameNow().getTime();
+    if (!this.storms.length || this.storms.length !== this.raw.length) this.storms = this.raw.map((x) => ({ ...x }));
+    this.glide(true);
     if (!this.routedLanes) (this.map.getSource('lanes') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: lanes });
   }
 
@@ -102,6 +105,33 @@ export class Presence {
   }
   private spin = 0;
   private frame = 0;
+  private raw: Presence['storms'] = [];
+  private rawAt = 0;
+  private glideAt = 0;
+  private gliding = 0;
+
+  /** Where each storm is now: its last reported place carried on along its heading by the game time since,
+   * eased towards so that a fresh report never makes it jump. Runs every animation frame while storms exist. */
+  private glide(force = false) {
+    const t = performance.now();
+    const dt = Math.min(0.1, (t - (this.glideAt || t)) / 1000);
+    this.glideAt = t;
+    const days = Math.min(1.5, Math.max(0, (this.game.gameNow().getTime() - this.rawAt) / 864e5));
+    this.storms = this.raw.map((r, i) => {
+      const target = { lon: r.lon + (r.vlon ?? 0) * days, lat: Math.max(-70, Math.min(70, r.lat + (r.vlat ?? 0) * days)) };
+      const cur = this.storms[i];
+      if (!cur || force && !this.storms.length) return { ...r, ...target };
+      let dl = target.lon - cur.lon;
+      if (Math.abs(dl) > 30 || Math.abs(target.lat - cur.lat) > 15) return { ...r, ...target }; // a new storm in this slot
+      dl = ((dl + 540) % 360) - 180;
+      const k = Math.min(1, dt * 4);
+      return { ...r, lon: cur.lon + dl * k, lat: cur.lat + (target.lat - cur.lat) * k };
+    });
+    // hurricanes turn steadily
+    this.spin = (this.spin + dt * 14) % 360;
+    this.drawStorms();
+    if (this.raw.length && !this.gliding) this.gliding = requestAnimationFrame(() => { this.gliding = 0; this.glide(); }); // the 3D layer redraws while clouds are up
+  }
   private tick = 0;
   private labels = new Map<string, Marker>();
   /** Set by the game: thunder over your own land (a sound cue). */
@@ -154,8 +184,6 @@ export class Presence {
   private animate() {
     if (!this.storms.length) return;
     this.tick = (this.tick + 1) % 1000;
-    // hurricanes turn slowly: a new angle every second is enough, and keeps the map light
-    if (this.tick % 3 === 0 && this.storms.some((s) => s.kind === 'hurricane')) { this.spin = (this.spin + 4) % 360; this.drawStorms(); }
     this.frame = (this.frame + 1) % 3;
     // lightning: now and then, somewhere inside a storm
     const flashes: { lon: number; lat: number; km: number }[] = [];

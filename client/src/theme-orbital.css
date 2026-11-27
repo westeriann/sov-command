@@ -434,7 +434,7 @@ body.screen-open .right { visibility: hidden; }
 .col.mine .col-top { background: var(--amber); color: #2a1600; box-shadow: 0 0 22px rgba(255, 196, 107, 0.8); }
 
 /* diplomacy: the globe, larger on its stage */
-.globe-piece .orb-stage { max-width: min(500px, 100%); }
+.globe-piece .orb-stage { max-width: min(600px, 100%); }
 .globe-piece .orb-readout { margin-top: 16px; }
 
 /* espionage: the stack, larger */
@@ -652,7 +652,7 @@ svg.art { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
   }
   .scr-stage svg.ring, .scr-stage .chamber-big svg { max-height: calc(100cqh - 190px); width: auto; max-width: min(100%, 460px); }
   .mk-ring { width: min(100%, 660px, calc(100cqh - 70px)); }
-  .globe-piece .orb-stage { max-width: min(500px, 100%, calc(100cqh - 120px)); }
+  .globe-piece .orb-stage { max-width: min(600px, 100%, calc(100cqh - 110px)); } /* the canvas holds a margin of halo round the globe */
 }
 /* the globe stands on its own projector, with its readout and key below it rather than on top of the ring */
 .diplo-window.screen .scr-base { display: none; }
@@ -855,3 +855,18 @@ body.build-mode .maplibregl-marker, body.road-mode .maplibregl-marker { pointer-
 .tm-list li { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid rgba(124, 196, 255, 0.08); font-size: 12px; }
 .tm-list li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-list .claim { width: auto; padding: 3px 9px; font-size: 11px; }
+
+/* ---- Notifications: a bell beside "Back to my nation", opening upward into the full list ---- */
+.notices { top: auto !important; right: auto !important; left: calc(var(--gap) + 140px); bottom: max(var(--gap), env(safe-area-inset-bottom, 0px));
+  width: auto; z-index: 12; flex-direction: column-reverse; border-radius: 18px; }
+.notices:not(.open) { width: 36px; height: 36px; border-radius: 50%; padding: 0; }
+.notices:not(.open) .notices-head { width: 36px; height: 36px; padding: 0; justify-content: center; position: relative; border: 0; background: none; }
+.notices:not(.open) .notices-head svg { width: 18px; height: 18px; }
+.notices:not(.open) .notices-head .badge { position: absolute; top: -6px; right: -8px; min-width: 16px; padding: 0 4px; font-size: 10px; line-height: 16px; }
+.notices:not(.open) .notices-head.urgent { animation: bell-ring 1.2s ease-in-out 2; }
+.notices:not(.open):hover { border-color: var(--cyan); box-shadow: var(--glow); }
+.notices.open { width: min(360px, calc(100vw - 2 * var(--gap) - 140px)); border-radius: 8px; }
+.notices.open .notices-list { max-height: min(380px, 50vh); border-top: 0; border-bottom: 1px solid var(--edge-soft); }
+@keyframes bell-ring { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } }
+@media (max-width: 760px) { .notices { bottom: 72px; left: calc(var(--gap) + 140px) !important; right: auto !important; } }
+@media (prefers-reduced-motion: reduce) { .notices-head.urgent { animation: none !important; } }

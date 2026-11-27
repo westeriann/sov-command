@@ -159,7 +159,9 @@ export class HoloGlobe {
     const n = this.n, px = this.px!, r = this.radius();
     px.fill(0);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      const x = (i + 0.5 - n / 2) / r, y = -(j + 0.5 - n / 2) / r, q = x * x + y * y;
+      const dx = i + 0.5 - n / 2, dy = j + 0.5 - n / 2;
+      if (dx * dx + dy * dy >= this.frameR() ** 2) continue; // zoomed in, the globe is seen through a round lens, never a square
+      const x = dx / r, y = -dy / r, q = x * x + y * y;
       if (q >= 1) continue;
       const k = (j * n + i) * 3;
       px[k] = x; px[k + 1] = y; px[k + 2] = Math.sqrt(1 - q);
@@ -168,8 +170,10 @@ export class HoloGlobe {
     this.dirty = true;
   }
 
-  /** The globe's radius in canvas pixels. */
-  private radius() { return (this.n / 2 - 2) * this.zoom; }
+  /** The globe's radius in canvas pixels: a margin is left round it for its glow and the arcs above it. */
+  private radius() { return this.n * 0.4 * this.zoom; }
+  /** The round frame the globe is seen through (zoomed in, it fills it). */
+  private frameR() { return this.n * 0.46; }
 
   /** Work out where the sun is from the game clock; true if it moved enough to redraw. */
   private sunAt(t: number) {
@@ -303,13 +307,29 @@ export class HoloGlobe {
 
   private overlay(ctx: CanvasRenderingContext2D) {
     const n = this.n, s = n / 300;
+    // a soft halo of atmosphere round the planet, fading into the scene
+    const R = Math.min(this.radius(), this.frameR());
+    const halo = ctx.createRadialGradient(n / 2, n / 2, R * 0.96, n / 2, n / 2, Math.min(n / 2, R * 1.16));
+    halo.addColorStop(0, 'rgba(124,196,255,0.22)'); halo.addColorStop(1, 'rgba(124,196,255,0)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = halo; ctx.fillRect(0, 0, n, n);
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.arc(n / 2, n / 2, this.zoom > 1 ? this.frameR() : n / 2, 0, Math.PI * 2); ctx.clip();
+    this.overlayInside(ctx, n, s);
+    ctx.restore();
+  }
+
+  private overlayInside(ctx: CanvasRenderingContext2D, n: number, s: number) {
     ctx.lineWidth = Math.max(1, s * 0.8);
     ctx.strokeStyle = 'rgba(124,196,255,0.16)';
     for (let lat = -60; lat <= 60; lat += 30) this.line(ctx, (t) => [t * 360 - 180, lat]);
     for (let lon = -180; lon < 180; lon += 30) this.line(ctx, (t) => [lon, t * 180 - 90]);
-    // atmosphere
-    ctx.beginPath(); ctx.arc(n / 2, n / 2, this.radius(), 0, Math.PI * 2);
+    // atmosphere (zoomed in, the rim of the lens)
+    ctx.beginPath(); ctx.arc(n / 2, n / 2, Math.min(this.radius(), this.frameR()), 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(124,196,255,0.85)'; ctx.lineWidth = 1.4 * s; ctx.stroke();
+    this.names(ctx, s);
     const me = this.game.mine?.id;
     if (me === undefined) return;
     const capOf = (id: number) => this.pol.provinces.get(this.pol.nations.get(id)?.capital ?? -1)?.label;
@@ -353,6 +373,41 @@ export class HoloGlobe {
       ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1.2 * s;
       ctx.beginPath(); ctx.arc(X, Y, 10 * s, 0, Math.PI * 2); ctx.stroke();
     }
+  }
+
+  /** Every nation's name on the side facing you: the larger ones from afar, more as you zoom in. */
+  private names(ctx: CanvasRenderingContext2D, s: number) {
+    const tied = new Set([...this.cats].filter(([, c]) => TIES.includes(c)).map(([id]) => id));
+    const me = this.game.mine?.id;
+    const placed: [number, number, number, number][] = [];
+    // keep clear of the labels drawn with your ties (to the right of each capital)
+    for (const id of tied) {
+      const c = this.pol.provinces.get(this.pol.nations.get(id)?.capital ?? -1)?.label;
+      if (!c) continue;
+      const [X, Y, z] = this.project(c[0], c[1]);
+      const w = (this.pol.nations.get(id)?.name.length ?? 8) * 6.5 * s;
+      if (z > 0) placed.push([X + 6 * s + w / 2, Y - 4 * s, w, 14 * s]);
+    }
+    const list = [...this.pol.nations.values()].filter((x) => !this.game.nations.get(x.id)?.annexedBy).sort((a, b) => b.area - a.area);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const nat of list) {
+      if (tied.has(nat.id) || nat.id === me) continue; // drawn with their ties
+      if (nat.area * this.zoom * this.zoom < 250_000) continue;
+      const lp = this.pol.provinces.get(nat.label_province ?? nat.capital) ?? this.pol.provinces.get(nat.capital);
+      if (!lp) continue;
+      const [X, Y, z] = this.project(lp.label[0], lp.label[1]);
+      if (z < 0.2) continue;
+      const size = Math.round(Math.max(8, Math.min(13, 7 + Math.sqrt(nat.area / 1e6) * 3 * this.zoom)) * s);
+      ctx.font = `600 ${size}px "Exo 2", sans-serif`;
+      const label = (nat.short || nat.name).toUpperCase();
+      const w = ctx.measureText(label).width, h = size;
+      if (placed.some(([x, y, pw, ph]) => Math.abs(x - X) < (w + pw) / 2 + 2 && Math.abs(y - Y) < (h + ph) / 2)) continue;
+      placed.push([X, Y, w, h]);
+      ctx.globalAlpha = Math.min(1, (z - 0.2) * 3);
+      ctx.lineWidth = 3 * s; ctx.strokeStyle = 'rgba(4,14,28,0.75)'; ctx.strokeText(label, X, Y);
+      ctx.fillStyle = 'rgba(214,234,255,0.9)'; ctx.fillText(label, X, Y);
+    }
+    ctx.globalAlpha = 1; ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   }
 
   private unit(lon: number, lat: number): [number, number, number] {

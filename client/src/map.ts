@@ -242,12 +242,15 @@ export class GameMap {
           filter: ['==', ['get', 'k'], K_SEA],
           // sea zones: barely there, so they are not mistaken for shipping lanes
           paint: { 'line-color': '#7fa6b8', 'line-opacity': zoomFade(3, 4.5, 0, 0.12), 'line-width': 0.6, 'line-dasharray': [1, 4] },
+          layout: { 'line-join': 'round' },
         },
         {
           id: 'province-borders', type: 'line', source: 'borders', minzoom: 2,
           filter: ['==', ['get', 'k'], K_PROVINCE],
           // bold enough to read the jagged provinces against the political colours
           paint: { 'line-color': '#141a1e', 'line-opacity': zoomFade(2, 3.5, 0, 0.7), 'line-width': zoomFade(2, 6, 0.6, 1.7) },
+          // round joins: the jagged borders turn sharply, and pointed (mitre) corners left dark wedges there
+          layout: { 'line-join': 'round' },
         },
         {
           id: 'nation-casing', type: 'line', source: 'borders',

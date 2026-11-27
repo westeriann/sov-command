@@ -1,4 +1,5 @@
-// Notifications for your own nation: a collapsible list under the date, with
+// Notifications for your own nation: a bell by the "Back to my nation" button
+// (bottom left) that opens upward into the full list, with
 // urgent news (war on you, losses, strikes, revolts) in red and its own alarm;
 // and small alert icons in the command bar for standing problems that need
 // attention (at war, nothing being researched, blackouts, debt...).
@@ -169,15 +170,15 @@ export class Notices {
     const latest = this.list[0];
     const urgent = this.list.slice(0, Math.max(1, this.unread)).some((n) => n.level === 'urgent') && this.unread > 0;
     this.el.innerHTML = `
-      <button type="button" class="notices-head${urgent ? ' urgent' : ''}" data-n="toggle" aria-expanded="${this.open}">
-        ${icon('bell')}<span class="label">NOTIFICATIONS</span>${this.unread ? `<b class="badge">${this.unread}</b>` : ''}
-        <span class="latest">${!this.open && latest ? esc(latest.text) : ''}</span><i class="chev">${this.open ? '▴' : '▾'}</i>
+      <button type="button" class="notices-head${urgent ? ' urgent' : ''}" data-n="toggle" aria-expanded="${this.open}" aria-label="Notifications${this.unread ? `: ${this.unread} new` : ''}"${!this.open && latest ? ` data-tip="${attr(tip(`Notifications${this.unread ? ` · ${this.unread} new` : ''}`, latest.text, 'Click to open the list'))}"` : ''}>
+        ${icon('bell')}${this.open ? '<span class="label">NOTIFICATIONS</span>' : ''}${this.unread ? `<b class="badge">${this.unread}</b>` : ''}
+        ${this.open ? '<span class="latest"></span><i class="chev">▾</i>' : ''}
       </button>
       ${this.open ? `<ol class="notices-list" data-keep-scroll>
         ${this.list.length ? this.list.map((n) => `<li class="lv-${n.level}" data-key="${esc(n.key)}" role="button" tabindex="0" title="Open"><time class="mono">${date(n.at)}</time><span>${esc(n.text)}</span></li>`).join('')
           : '<li class="empty-row">Nothing yet. News about your nation appears here.</li>'}
       </ol><div class="notices-foot"><button type="button" class="link" data-n="clear">Clear</button></div>` : ''}`;
-    document.documentElement.style.setProperty('--notices-h', `${this.el.hidden ? 0 : this.el.offsetHeight + 8}px`);
+    document.documentElement.style.setProperty('--notices-h', '0px'); // down in the corner now: nothing above needs to make room
   }
 
   // ---- alert icons ----------------------------------------------------------------
