@@ -49,8 +49,8 @@ import {
   DECREE_DISCOUNT, HIGH_TAX, HIGH_TAX_SUPPORT, LAWS, LAW_IDS, LEGISLATURE, MAX_CAPITAL, WAR_SUPPORT, lawVote,
   type Demand, type DemandKind, type LawId, type Legislature, type PoliticsPrivate,
 } from '../../shared/politics.ts';
-import { ideologyGap } from '../../shared/society.ts';
-import { EVENTS, EVENT_DAYS, type EventKey, type PendingEvent } from '../../shared/events.ts';
+import { FACTIONS, PILLAR_COLLAPSE_CHANCE, PILLAR_LOYAL, PILLAR_REVOLT, PILLAR_REVOLT_CHANCE, ideologyGap, pillarStability } from '../../shared/society.ts';
+import { EVENTS, EVENT_DAYS, EVENT_PILLARS, type EventKey, type PendingEvent } from '../../shared/events.ts';
 import { ADVISER_AREAS, type AdviserArea } from '../../shared/protocol.ts';
 import { AUTONOMY_COST, CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST, PARTIES_PER_NATION, PARTY_POOL, type Party } from '../../shared/parties.ts';
 import { DEMIL_YEARS, MAX_REPARATIONS, REPARATION_YEARS, treatyCost, treatyText, type PeaceTreaty } from '../../shared/peace.ts';
@@ -501,10 +501,12 @@ export class World {
     // society: how well the government suits the people, what the factions think, propaganda at home
     if (n.soc) {
       e.stability += this.fit(n);
+      // the three pillars: each costs stability below 50, gives a bonus from 75, and its own penalty below 25
       const f = n.soc.factions;
-      if (f.military > 75) e.build += 0.1; else if (f.military < 25) e.landAttack -= 0.1;
-      if (f.business > 75) e.growth += 0.003; else if (f.business < 25) e.growth -= 0.006;
-      if (f.public > 75) e.stability += 4; else if (f.public < 25) e.stability -= 8;
+      for (const k of FACTIONS) e.stability += pillarStability(f[k]);
+      if (f.military >= PILLAR_LOYAL) e.build += 0.1; else if (f.military < PILLAR_REVOLT) e.landAttack -= 0.1;
+      if (f.business >= PILLAR_LOYAL) e.growth += 0.003; else if (f.business < PILLAR_REVOLT) e.growth -= 0.006;
+      if (f.public >= PILLAR_LOYAL) e.stability += 2; else if (f.public < PILLAR_REVOLT) e.stability -= 4;
       if (n.soc.propaganda.mode === 'home') e.stability += 4;
       // open societies get more out of trade
       e.growth += Math.max(0, n.soc.ideology.openness) * this.diplomacy.partners('trade', nation).length * 0.0006;
@@ -2168,9 +2170,11 @@ export class World {
         for (const [f, v] of Object.entries(LAWS[l].lean)) target[f as Faction] += (v as number) * 6;
         ide.liberty = Math.max(-1, Math.min(1, ide.liberty + (LAWS[l].liberty ?? 0) / 365));
       }
+      // policies pull on the pillars only slowly: events and how they are answered move them most
       for (const f of ['military', 'business', 'public'] as Faction[]) {
-        s.factions[f] += (Math.max(0, Math.min(100, target[f])) - s.factions[f]) * 0.02;
+        s.factions[f] += (Math.max(0, Math.min(100, target[f])) - s.factions[f]) * 0.006;
       }
+      this.pillarsDay(n);
       // propaganda costs money; abroad it unsettles the target and pulls its people toward ours
       if (s.propaganda.mode !== 'off') {
         e.treasury -= e.gdp * PROPAGANDA_COST / 365;
@@ -2239,6 +2243,55 @@ export class World {
   }
 
   /** Turmoil splits a nation: its provinces farthest from the capital break away. */
+  /** A pillar below 25 may rise against the government; with all three below 25 it can fall without a fight. */
+  private pillarsDay(n: NationState) {
+    const f = n.soc?.factions;
+    if (!f) return;
+    const name = this.defs.get(n.id)?.name ?? 'nation';
+    const angry = FACTIONS.filter((k) => f[k] < PILLAR_REVOLT);
+    const day = this.market.day;
+    if (angry.length === 3 && this.rand() < PILLAR_COLLAPSE_CHANCE) {
+      // nobody left to defend it: the regime simply falls
+      const next: Government = n.gov.government === 'democracy' ? 'autocracy' : 'democracy';
+      n.gov = { government: next, reformedAt: day };
+      if (n.pol) n.pol.laws = [];
+      n.econ.treasury -= n.econ.gdp * 0.03;
+      n.econ.stability = 40;
+      for (const k of FACTIONS) f[k] = 45;
+      this.effectCache.delete(n.id);
+      this.event('politics', n.id, `The government of the ${name} falls without a shot fired: business, the people and the army have all turned their backs on it. A ${GOVERNMENT_INFO[next].name.toLowerCase()} takes over, and every law is struck down.`);
+      this.touch(n);
+      return;
+    }
+    for (const k of angry) {
+      if (this.rand() >= PILLAR_REVOLT_CHANCE) continue;
+      if (k === 'military') {
+        // a coup: the army takes over
+        n.gov = { government: 'junta', reformedAt: day };
+        n.econ.stability = Math.max(20, n.econ.stability - 10);
+        f.military = 60; f.public = Math.max(0, f.public - 10);
+        this.effectCache.delete(n.id);
+        this.event('politics', n.id, `Coup in the ${name}: the army, long ignored, seizes power and declares a military junta.`);
+      } else if (k === 'public') {
+        // a popular uprising: the far provinces rise in arms
+        n.econ.stability = Math.max(0, n.econ.stability - 12);
+        f.public = 40;
+        if (Math.min(f.military, n.econ.stability) < 40) this.civilWar(n);
+        else this.event('politics', n.id, `Uprising in the ${name}: crowds fill the streets and the army only just holds the line (−12 stability).`);
+      } else {
+        // business: capital flight and a putsch in the boardrooms
+        n.econ.treasury -= n.econ.gdp * 0.04;
+        n.econ.gdp *= 0.985;
+        n.econ.stability = Math.max(0, n.econ.stability - 8);
+        f.business = 40;
+        if (n.gov.government === 'democracy' && n.pol) n.pol.support = Math.max(0, (n.pol.support ?? 50) - 20);
+        this.event('politics', n.id, `Business turns on the government of the ${name}: capital flees abroad, markets crash and its backers in parliament desert it (−4% of GDP from the treasury, −8 stability).`);
+      }
+      this.touch(n);
+      break;
+    }
+  }
+
   private civilWar(n: NationState) {
     const m = this.military, cap = m.provinces.get(this.defs.get(n.id)!.capital)?.label;
     const own = [...m.provinces.values()].filter((p) => p.kind === 'land' && p.owner === n.id && m.controller(p.id) === n.id && p.id !== this.defs.get(n.id)!.capital);
@@ -2807,14 +2860,15 @@ export class World {
       if (!human && this.rand() < 1 / 90) {
         const r = this.rand();
         let text: string;
-        if (r < 0.2) { e.gdp *= 1.005; text = 'an investment boom lifts the economy'; }
-        else if (r < 0.35) { e.stability -= 6; text = 'a general strike paralyses the country (−6 stability)'; }
+        const pillar = (k: 'military' | 'business' | 'public', v: number) => { if (n.soc) n.soc.factions[k] = Math.max(0, Math.min(100, n.soc.factions[k] + v)); };
+        if (r < 0.2) { e.gdp *= 1.005; pillar('business', 6); text = 'an investment boom lifts the economy'; }
+        else if (r < 0.35) { e.stability -= 6; pillar('public', -8); text = 'a general strike paralyses the country (−6 stability)'; }
         else if (r < 0.5) { e.gdp *= 0.993; e.stability -= 3; text = 'floods and storms damage cities and farmland'; }
-        else if (r < 0.65) { e.stability -= n.gov.government === 'democracy' ? 7 : 4; text = 'a corruption scandal shakes the government'; }
+        else if (r < 0.65) { e.stability -= n.gov.government === 'democracy' ? 7 : 4; pillar('public', -6); pillar('business', -3); text = 'a corruption scandal shakes the government'; }
         else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + this.techCost(TECH_BY_ID.get(cur)!.tier) * 0.15; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
         else if (r < 0.88 && e.capacity.food > 0) { e.capacity.food *= 0.94; e.stability -= 2; text = 'a severe drought withers the harvest (food output −6%)'; }
         else if (r < 0.94) { e.gdp *= 0.997; e.stability -= 2; text = 'a heatwave strains power grids and hospitals'; }
-        else { e.stability += 4; text = 'a national celebration lifts the public mood (+4 stability)'; }
+        else { e.stability += 4; pillar('public', 6); text = 'a national celebration lifts the public mood (+4 stability)'; }
         e.stability = Math.min(100, Math.max(0, e.stability));
         if (human) { this.event('politics', n.id, `${name}: ${text}.`); this.touch(n, false); }
       }
@@ -3184,15 +3238,17 @@ export class World {
     const fac = (k: 'military' | 'business' | 'public', v: number) => { if (f) f[k] = Math.max(0, Math.min(100, f[k] + v)); };
     const stab = (v: number) => { e.stability = Math.max(0, Math.min(100, e.stability + v)); };
     const k = `${ev.key}:${i}`;
+    // the pillars move by the table every answer shows (Business, People, Military)
+    for (const [f, v] of Object.entries(EVENT_PILLARS[k] ?? {})) fac(f as 'military' | 'business' | 'public', v);
     switch (k) {
-      case 'strike:0': e.treasury -= gdp * 0.003; stab(5); fac('public', 8); fac('business', -6); break;
-      case 'strike:1': stab(-4); fac('public', -12); fac('military', 5); break;
+      case 'strike:0': e.treasury -= gdp * 0.003; stab(5); break;
+      case 'strike:1': stab(-4); break;
       case 'strike:2': n.flags = { ...n.flags, slump: day + 365 }; e.gdp *= 0.997; stab(1); break;
       case 'scandal:0': pol.capital = Math.max(0, pol.capital - 20); stab(2); break;
       case 'scandal:1': if (this.rand() < 0.5) { stab(-8); pol.support -= 10; } break;
-      case 'scandal:2': pol.support -= 8; fac('public', -5); pol.capital += 10; break;
+      case 'scandal:2': pol.support -= 8; pol.capital += 10; break;
       case 'boom:0': e.gdp *= 1.006; stab(-2); break;
-      case 'boom:1': e.treasury += gdp * 0.005; fac('business', -5); break;
+      case 'boom:1': e.treasury += gdp * 0.005; break;
       case 'drought:0': e.treasury -= gdp * 0.003; break;
       case 'drought:1': e.capacity.food *= 0.94; stab(-2); break;
       case 'refugees:0': e.pop *= 1.004; stab(-2); for (const x of this.defs.get(n.id)?.neighbours ?? []) this.remember(x, n.id, 5); break;
@@ -3200,7 +3256,7 @@ export class World {
       case 'breakthrough:0': if (n.tech.current) n.tech.partial[n.tech.current] = (n.tech.partial[n.tech.current] ?? 0) + 500; else e.research += 500; break;
       case 'breakthrough:1': e.treasury += gdp * 0.0025; break;
       case 'gold_rush:0': e.treasury += gdp * 0.004; n.flags = { ...n.flags, boomtown: day + 60 }; break;
-      case 'gold_rush:1': e.treasury += gdp * 0.002; fac('business', -5); break;
+      case 'gold_rush:1': e.treasury += gdp * 0.002; break;
       case 'boomtown:0': stab(-2); break;
       case 'boomtown:1': e.treasury -= gdp * 0.0015; stab(3); break;
       case 'oil_find:0': e.treasury -= gdp * 0.002; e.capacity.oil *= 1.12; break;
@@ -3212,11 +3268,11 @@ export class World {
         for (const x of this.diplomacy.partners('trade', n.id)) { const t = this.nations.get(x); if (t && this.opinion(x, n.id).total > 0) { const g = t.econ.gdp * 0.0005; t.econ.treasury -= g; e.treasury += g; e.stock.food += e.capacity.food * 0.02; } }
         break;
       }
-      case 'coup_plot:0': fac('military', -15); stab(3); n.flags = { ...n.flags, purge: day + 120 }; break;
-      case 'coup_plot:1': e.treasury -= gdp * 0.003; fac('military', 15); break;
+      case 'coup_plot:0': stab(3); n.flags = { ...n.flags, purge: day + 120 }; break;
+      case 'coup_plot:1': e.treasury -= gdp * 0.003; break;
       case 'coup_plot:2': if (this.rand() < 0.35) { e.stability = 20; fac('military', -30); } break; // the politics day may then see a coup
-      case 'protests:0': pol.capital = Math.max(0, pol.capital - 15); fac('public', 10); stab(2); break;
-      case 'protests:1': stab(2); fac('public', -10); if (n.soc) n.soc.ideology.liberty = Math.max(-1, n.soc.ideology.liberty - 0.05); break;
+      case 'protests:0': pol.capital = Math.max(0, pol.capital - 15); stab(2); break;
+      case 'protests:1': stab(2); if (n.soc) n.soc.ideology.liberty = Math.max(-1, n.soc.ideology.liberty - 0.05); break;
       case 'protests:2': stab(-3); break;
       case 'campaign:0': n.campaign = (n.campaign ?? 0) + 0.05; pol.demand = { kind: 'lower_tax', text: `Cut taxes to ${Math.max(LIMITS.taxMin, n.policy.tax - 3)}% or less`, target: Math.max(LIMITS.taxMin, n.policy.tax - 3), since: day, until: day + 180, by: 'parliament' }; break;
       case 'campaign:1': n.campaign = (n.campaign ?? 0) + 0.04; pol.demand = { kind: 'welfare', text: `Raise welfare spending to ${e.budget.welfare + 5}% of the budget`, target: e.budget.welfare + 5, since: day, until: day + 180, by: 'parliament' }; break;
@@ -3228,7 +3284,7 @@ export class World {
         if (n.soc) n.soc.ideology.openness = Math.min(1, n.soc.ideology.openness + 0.04);
         break;
       }
-      case 'investment:1': fac('business', -5); stab(1); break;
+      case 'investment:1': stab(1); break;
       case 'storm_damage:0':
         for (const [p, list] of this.military.buildings) {
           if (this.military.provinces.get(p)?.owner !== n.id) continue;

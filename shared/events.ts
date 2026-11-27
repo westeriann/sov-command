@@ -155,3 +155,38 @@ export const EVENTS: Record<EventKey, EventDef> = {
 export const EVENT_DAYS = 30;
 
 export interface PendingEvent { key: EventKey; day: number; about?: number }
+
+/** How each answer moves the three pillars a government stands on (Business, People, Military).
+ * Events are the main way they move: policies only pull on them slowly. */
+export const EVENT_PILLARS: Record<string, Partial<Record<'business' | 'public' | 'military', number>>> = {
+  'strike:0': { public: 8, business: -6 }, 'strike:1': { public: -12, military: 5 }, 'strike:2': { business: -3, public: -2 },
+  'scandal:0': { public: 4, business: -2 }, 'scandal:2': { public: -5 },
+  'boom:0': { business: 6, public: -3 }, 'boom:1': { business: -5, public: 3 },
+  'drought:0': { public: 4 }, 'drought:1': { public: -6 },
+  'refugees:0': { business: 3, public: -4 }, 'refugees:1': { public: 3, business: -2, military: 2 },
+  'breakthrough:0': { military: 2 }, 'breakthrough:1': { business: 5 },
+  'gold_rush:0': { business: 6 }, 'gold_rush:1': { business: -5, public: 2 },
+  'boomtown:0': { public: -4, military: 2 }, 'boomtown:1': { public: 5 },
+  'oil_find:0': { business: -2, military: 3 }, 'oil_find:1': { business: 5 },
+  'famine:0': { public: 6 }, 'famine:1': { public: -6 }, 'famine:2': { public: -2 },
+  'coup_plot:0': { military: -15 }, 'coup_plot:1': { military: 15, public: -3 },
+  'protests:0': { public: 10, business: -3 }, 'protests:1': { public: -10, military: 4 }, 'protests:2': { public: 3, business: -2 },
+  'campaign:0': { business: 5 }, 'campaign:1': { public: 5 },
+  'investment:0': { business: 6, military: -2 }, 'investment:1': { business: -5, public: 2 },
+  'storm_damage:0': { public: 4 }, 'storm_damage:1': { public: -3 },
+  'spy_caught:0': { military: 4 }, 'spy_caught:1': { military: -2 },
+};
+
+// each option lists its pillar shifts exactly, in place of the old loose words
+{
+  const VAGUE = new Set(['business is annoyed', 'business is not', 'the military approves', 'the military is furious', 'the military is pleased', 'the public is angry', 'the public is pleased', 'the public sours']);
+  const NAME = { business: 'Business', public: 'People', military: 'Military' } as const;
+  for (const [key, def] of Object.entries(EVENTS)) {
+    def.options.forEach((o, i) => {
+      o.effects = o.effects.filter(([t]) => !VAGUE.has(t));
+      for (const [k, v] of Object.entries(EVENT_PILLARS[`${key}:${i}`] ?? {})) {
+        o.effects.push([`${NAME[k as keyof typeof NAME]} ${v > 0 ? '+' : '−'}${Math.abs(v)}`, v > 0 ? 'good' : 'bad']);
+      }
+    });
+  }
+}

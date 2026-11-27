@@ -160,3 +160,27 @@ test('a one-time sale ships the goods at once at the world price', () => {
   assert.ok(Math.abs(a.econ.stock.food - 30) < 1e-9 && Math.abs(b.econ.stock.food - 20) < 1e-9, 'the shipment moves');
   assert.ok(Math.abs(a.econ.treasury - cashA - 20 * price) < 1e-9 && Math.abs(cashB - b.econ.treasury - 20 * price) < 1e-9, 'paid at the world price');
 });
+
+test('the three pillars: below 50 costs stability, 75 helps; all three below 25 topples the government', async () => {
+  const { pillarStability } = await import('../../shared/society.ts');
+  assert.equal(pillarStability(80), 3);
+  assert.equal(pillarStability(60), 0);
+  assert.ok(pillarStability(40) < 0 && pillarStability(40) > pillarStability(30), 'the lower, the worse');
+  assert.equal(pillarStability(10), -8);
+  const w = setup([1]);
+  const n = w.nations.get(1)!;
+  n.gov.government = 'autocracy';
+  const before = n.gov.government;
+  const rand = (w as unknown as { rand: () => number }).rand;
+  (w as unknown as { rand: () => number }).rand = () => 0; // every chance comes up
+  n.soc!.factions = { military: 10, business: 10, public: 10 };
+  (w as unknown as { pillarsDay(n: unknown): void }).pillarsDay(n);
+  assert.notEqual(n.gov.government, before, 'the government falls without a fight');
+  assert.ok(n.soc!.factions.public >= 40, 'and the pillars reset');
+  // one angry pillar: the army takes power
+  n.gov.government = 'democracy';
+  n.soc!.factions = { military: 10, business: 60, public: 60 };
+  (w as unknown as { pillarsDay(n: unknown): void }).pillarsDay(n);
+  assert.equal(n.gov.government, 'junta', 'a coup');
+  (w as unknown as { rand: () => number }).rand = rand;
+});

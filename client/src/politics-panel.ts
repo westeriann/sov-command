@@ -2,7 +2,7 @@
 // or rule by decree), laws in force and on offer, what parliament or the elites
 // demand, and claims on other nations.
 import { DECREE_DISCOUNT, HIGH_TAX, HIGH_TAX_SUPPORT, LAWS, LAW_IDS, LEGISLATURE_TEXT, MAX_CAPITAL, WAR_SUPPORT, lawVote, type LawId } from '../../shared/politics';
-import { FACTIONS, FACTION_INFO, PROPAGANDA_COST, type PropagandaMode } from '../../shared/society';
+import { FACTIONS, FACTION_INFO, PILLAR_REVOLT, PROPAGANDA_COST, pillarStability, pillarState, type PropagandaMode } from '../../shared/society';
 import { GOVERNMENTS, GOVERNMENT_INFO, REFORM_COOLDOWN_DAYS, type Government } from '../../shared/research';
 import { ADVISER_AREAS, type AdviserArea, type Order } from '../../shared/protocol';
 import type { Change, Game } from './game';
@@ -87,10 +87,25 @@ export class PoliticsPanel {
         : `<div><span>Decrees</span><b>${Math.round((1 - DECREE_DISCOUNT) * 100)}% cheaper</b><em>but laws the public dislikes cost stability</em></div>`}
       <div><span>Laws in force</span><b>${p.laws.length}</b><em>of ${LAW_IDS.length}</em></div>
     </div>`;
-    const bar = (v: number) => `<div class="bar" role="img" aria-label="${Math.round(v)} of 100"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
-    const groups = `<span class="label">WHO HOLDS POWER</span>
-      <div class="bars">${FACTIONS.map((f) => `<span data-tip="${attr(tip(FACTION_INFO[f].name, `Wants ${FACTION_INFO[f].wants}`, [`Content (75+): ${FACTION_INFO[f].happy}`, 'good'], [`Angry (below 25): ${FACTION_INFO[f].angry}`, 'bad']))}">${FACTION_INFO[f].name}</span>${bar(factions[f])}<span class="mono">${Math.round(factions[f])}</span>`).join('')}</div>
-      <p class="hint">${esc(LEGISLATURE_TEXT[p.legislature])} Laws move these groups' mood for as long as they are in force. <a href="#" class="go" data-go="module:research">Reform the government</a> in R&amp;D.</p>`;
+    const groups = `<p class="hint">${esc(LEGISLATURE_TEXT[p.legislature])} Laws move the pillars' mood for as long as they are in force. <a href="#" class="go" data-go="module:research">Reform the government</a> in R&amp;D.</p>`;
+    // the three pillars: keep each above 50 to avoid stability losses, above 75 for a bonus; below 25 they may rise
+    const angry = FACTIONS.filter((f) => factions[f] < PILLAR_REVOLT).length;
+    const pillars = `<section class="pillars${angry === 3 ? ' collapse' : ''}" id="pol-pillars"><span class="label">THE THREE PILLARS · BUSINESS, PEOPLE, MILITARY</span>
+      <div class="pillar-list">${FACTIONS.map((f) => {
+        const v = factions[f], st = pillarState(v), sd = pillarStability(v), info = FACTION_INFO[f];
+        const t = tip(`${info.name}: ${Math.round(v)} of 100 · ${st.label}`, `Wants ${info.wants}`,
+          [`Stability ${sd > 0 ? '+' : sd < 0 ? '−' : '±'}${Math.abs(sd)} from this group now`, sd >= 0 ? 'good' : 'bad'],
+          [`75 and above (loyal): +3 stability and ${info.happy}`, 'good'],
+          '50 to 75 (content): no effect',
+          ['25 to 50 (uneasy): stability falls the lower it goes, to −6', 'bad'],
+          [`Below 25: −8 stability, ${info.angry}, and the risk of ${info.revolt}`, 'bad'],
+          'Moved mostly by events and how you answer them');
+        return `<div class="pillar ${st.level}" data-tip="${attr(t)}"><div class="pillar-head"><b>${info.name}</b><span class="mono">${Math.round(v)}</span></div>
+          <div class="pillar-bar" role="img" aria-label="${info.name} ${Math.round(v)} of 100, ${st.label}"><i style="width:${Math.max(0, Math.min(100, v))}%"></i><s style="left:25%"></s><s style="left:50%"></s><s style="left:75%"></s></div>
+          <div class="pillar-foot"><span>${st.label}</span><span class="mono">${sd > 0 ? `+${sd}` : sd < 0 ? `−${Math.abs(sd)}` : '±0'} stability</span></div></div>`;
+      }).join('')}</div>
+      <p class="hint">${angry === 3 ? '<b class="down">All three have turned against you: the government can fall at any moment, without a fight.</b> '
+        : angry ? `<b class="down">${FACTIONS.filter((f) => factions[f] < PILLAR_REVOLT).map((f) => FACTION_INFO[f].name).join(' and ')} could rise against you.</b> ` : ''}Keep each above 50 to avoid stability losses; above 75 each gives a bonus. Below 25 a group may revolt; with all three below 25 the government falls without a fight. Events and how you answer them move them most.</p></section>`;
     const d = p.demand, day = this.game.market?.day ?? 0;
     const demand = `<span class="label" id="pol-demand">${d ? `${BY_NAME[d.by].toUpperCase()} DEMANDS` : 'DEMANDS'}</span>
       ${d ? `<div class="demand-card${this.highlight === 'demand' ? ' glow' : ''}"><b>${esc(d.text)}</b>
@@ -115,6 +130,7 @@ export class PoliticsPanel {
       ? p.claims.map((c) => `<a href="#" class="go" data-go="diplo:${c}">${esc(this.pol.nations.get(c)?.name ?? `Nation ${c}`)}</a>`).join(', ')
       : 'none';
     this.set(`${head}<div class="econ-body">${kpis}
+      ${pillars}
       ${this.partiesHtml()}
       <div class="actions-row"><button type="button" class="claim" data-pl="appeal" ${p.capital < 50 ? 'disabled' : ''} data-tip="${attr(tip('National appeal', ['+6 stability', 'good'], ['+5 goodwill in parliament', 'good'], ['Costs 50 political capital', 'bad']))}">Address the nation · 50</button></div>
       <div class="econ-cols"><section>${demand}${groups}
@@ -148,12 +164,8 @@ export class PoliticsPanel {
         </div>
       </section>
       <section>
-        <span class="label">FACTIONS</span>
-        ${FACTIONS.map((f) => {
-          const v = Math.round(s.factions[f]);
-          const mood = v > 75 ? `<span class="up">pleased: ${FACTION_INFO[f].happy}</span>` : v < 25 ? `<span class="down">angry: ${FACTION_INFO[f].angry}</span>` : 'content';
-          return `<div class="faction"><b>${FACTION_INFO[f].name}</b><div class="bar"><i style="width:${v}%"></i></div><span class="mono">${v}</span><span class="hint">Wants ${FACTION_INFO[f].wants}. ${mood}.</span></div>`;
-        }).join('')}
+        <span class="label">WHAT EACH PILLAR WANTS</span>
+        ${FACTIONS.map((f) => `<p class="hint"><b>${FACTION_INFO[f].name}</b>: ${FACTION_INFO[f].wants}. <a href="#" class="go" data-go="politics:pillars">See its bar</a></p>`).join('')}
         <p class="hint">Stability under 15% with an angry public or army can end in civil war.</p>
       </section>
     </div>`;
