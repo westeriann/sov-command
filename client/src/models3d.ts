@@ -959,6 +959,7 @@ export class Models3D implements CustomLayerInterface {
       const lead = this.leadType(s.units);
       const n = Math.min(3, s.units.length);
       const dom = domainOf(lead);
+      this.anchor = { lon, lat, unit };
       if (dom === 'air') this.drawAir(lead, n, colour, t, seed);
       else if (dom === 'sea' || sea) this.drawSea(lead, n, colour, t, seed, ry, moving);
       else this.drawLand(lead, n, colour, t, seed, ry, moving, s.fighting);
@@ -972,6 +973,35 @@ export class Models3D implements CustomLayerInterface {
     return [...counts].sort((a, b) => b[1] * UNIT_SPECS[b[0]].attack - a[1] * UNIT_SPECS[a[0]].attack || UNIT_TYPES.indexOf(a[0]) - UNIT_TYPES.indexOf(b[0]))[0][0];
   }
 
+  /** The stack being drawn: where its counter stands and how many metres a model unit is. */
+  private anchor = { lon: 0, lat: 0, unit: 1 };
+
+  /**
+   * A formation slot whose ground suits the unit: land for armies, water for ships. The leader keeps its
+   * place under the counter; the others step in toward it when their slot is over the coast, and stay
+   * out of sight if there is no room at all, so no tank wades into the sea and no ship sits on a beach.
+   */
+  private fit(i: number, ry: number, sea: boolean): [number, number] | null {
+    const [sx, sz] = this.slot(i, ry);
+    if (i === 0) return [sx, sz];
+    const { lon, lat, unit } = this.anchor;
+    const kx = 111_320 * Math.max(0.2, Math.cos(lat * RAD));
+    const ok = (x: number, z: number) => {
+      // the middle of the model and its two ends (about half a unit along its heading)
+      for (const d of [0, 0.5, -0.5]) {
+        const px = x + Math.cos(ry) * d, pz = z - Math.sin(ry) * d;
+        const p = this.pol.provinceAt(lat - (pz * unit) / 110_540, lon + (px * unit) / kx);
+        if (!p || (p.kind === 'sea') !== sea) return false;
+      }
+      return true;
+    };
+    for (const k of [1, 0.75, 0.5]) if (ok(sx * k, sz * k)) return [sx * k, sz * k];
+    // try the other side of the column
+    const [mx, mz] = this.slot(i === 1 ? 2 : 1, ry);
+    for (const k of [1, 0.6]) if (ok(mx * k, mz * k)) return [(mx * k + sx * 0.15), (mz * k + sz * 0.15)];
+    return null;
+  }
+
   /** Formation slots behind the leader, in model units, rotated to the stack's heading. */
   private slot(i: number, ry: number): [number, number] {
     const pos: [number, number][] = [[0, 0], [-0.75, 0.55], [-0.75, -0.55]];
@@ -981,7 +1011,9 @@ export class Models3D implements CustomLayerInterface {
 
   private drawLand(lead: UnitType, n: number, colour: THREE.Color, t: number, seed: number, ry: number, moving: boolean, fighting: boolean) {
     for (let i = 0; i < n; i++) {
-      const [x, z] = this.slot(i, ry);
+      const at = this.fit(i, ry, false);
+      if (!at) continue;
+      const [x, z] = at;
       const bob = moving ? Math.abs(Math.sin(t * 9 + i * 1.3 + seed)) * 0.03 : 0;
       if (lead === 'armored') {
         const sweep = moving ? 0 : Math.sin(t * 0.45 + seed + i) * 0.7;
@@ -1012,7 +1044,9 @@ export class Models3D implements CustomLayerInterface {
   private drawSea(lead: UnitType, n: number, colour: THREE.Color, t: number, seed: number, ry: number, moving: boolean) {
     const kind: Kind = lead === 'carrier' ? 'carrier' : lead === 'submarines' ? 'submarine' : lead === 'destroyers' ? 'destroyer' : 'destroyer';
     for (let i = 0; i < n; i++) {
-      const [x, z] = this.slot(i, ry);
+      const at = this.fit(i, ry, true);
+      if (!at) continue;
+      const [x, z] = at;
       const roll = Math.sin(t * 1.1 + seed + i) * 0.06, pitch = Math.sin(t * 0.8 + seed * 0.3 + i) * 0.03;
       const heave = Math.sin(t * 1.3 + i) * 0.015 - (kind === 'submarine' ? 0.04 : 0);
       this.put(i === 0 ? kind : kind === 'carrier' ? 'destroyer' : kind, x, heave, z, ry, i ? 0.8 : 1, i ? 0.8 : 1, i ? 0.8 : 1, colour, roll, pitch);
