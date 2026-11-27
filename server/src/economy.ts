@@ -59,6 +59,7 @@ export interface NationEcon {
   history: HistoryPoint[];
   grid?: number; // base electricity grid, power units
   blackout?: number; // share of electricity demand unmet, 0..1
+  built?: Partial<Record<Commodity, number>>; // a year, from farms, fields and mines held (on top of capacity)
 }
 
 export interface MarketState {
@@ -164,7 +165,7 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     const e = n.econ;
     for (const c of COMMODITIES) {
       const use = ((usePerYear(c, e.gdp, e.pop) + (n.extraUse?.[c] ?? 0)) / 365) * thrift(c);
-      let net = (e.capacity[c] / 365) * utilisation(c) * (n.control ?? 1) * (c === 'food' ? (n.harvest ?? 1) * (1 + (n.foodBonus ?? 0)) : 1) - use;
+      let net = ((e.capacity[c] + (e.built?.[c] ?? 0)) / 365) * utilisation(c) * (n.control ?? 1) * (c === 'food' ? (n.harvest ?? 1) * (1 + (n.foodBonus ?? 0)) : 1) - use;
       e.trade[c] = 0;
       e.short[c] = 0;
       if (net < 0) {
@@ -310,7 +311,7 @@ export function privateEcon(e: NationEcon, tax: number, day: number, energy?: En
   const defence = (spending * (1 - ADMIN_SHARE) * e.budget.military) / 100;
   const oilUse = usePerYear('oil', e.gdp, e.pop) / 365;
   const goods = Object.fromEntries(COMMODITIES.map((c) => [c, {
-    prod: round(e.capacity[c], 2), use: round(usePerYear(c, e.gdp, e.pop), 2), stock: round(e.stock[c], 2),
+    prod: round(e.capacity[c] + (e.built?.[c] ?? 0), 2), use: round(usePerYear(c, e.gdp, e.pop), 2), stock: round(e.stock[c], 2),
     trade: round(e.trade[c], 2), short: round(e.short[c], 3),
   } satisfies CommodityStats])) as Record<Commodity, CommodityStats>;
   return {

@@ -31,7 +31,7 @@ import { EARNED_EMBLEMS } from '../../shared/flags.ts';
 import { HARVEST, WINTER_POWER, seasonAt } from '../../shared/seasons.ts';
 import { GOV_LIBERTY, PROPAGANDA_COST, type Faction, type Ideology, type PropagandaMode } from '../../shared/society.ts';
 import { specialtyBonus, specialtyOf, SPECIALTIES, type Specialty, type SpecialtyBonus } from '../../shared/specialties.ts';
-import { BUILDINGS, BUILDING_TYPES, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, REPAIR_COST_SHARE, REPAIR_TIME_SHARE, type BuildingType } from '../../shared/buildings.ts';
+import { BUILDINGS, BUILDING_TYPES, MIN_RESOURCE, buildGoods, buildingOutput, FACTORY_GROWTH, MAX_CONSTRUCTION, MAX_FACTORIES, POWER_FUEL, POWER_SHARE, REPAIR_COST_SHARE, REPAIR_TIME_SHARE, type BuildingType } from '../../shared/buildings.ts';
 import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
@@ -138,6 +138,9 @@ export interface WorldListener {
 }
 
 /** Province resource scores (0..100) feeding each good. */
+/** A province resource in words (what a producing building needs). */
+const RESOURCE_WORD: Record<string, string> = { farmland: 'good farmland', timber: 'forest', oil: 'oil', gas: 'natural gas', coal: 'coal', ore: 'metal ore', rare_earths: 'rare earths' };
+
 const RESOURCE_OF: Record<Commodity, string> = {
   food: 'farmland', timber: 'timber', oil: 'oil', gas: 'gas', coal: 'coal', metals: 'ore', rare_earths: 'rare_earths',
 };
@@ -192,7 +195,7 @@ export function nationDefsFrom(rawJson: unknown): { seed: number; nations: Natio
     provinces: raw.provinces.map((p) => ({
       id: p.id, kind: p.kind, label: p.label, terrain: p.terrain, river: p.river, adj: p.adj,
       owner: p.kind === 'land' ? p.nation : undefined, pop: p.pop ?? 0, name: p.name, elev: p.elev, coastal: p.coastal,
-      area: p.area, city: p.city, parent: p.parent,
+      area: p.area, city: p.city, parent: p.parent, res: p.res,
     })),
   };
 }
@@ -1189,13 +1192,18 @@ export class World {
         const here = this.military.buildings.get(p.id) ?? [];
         if (here.some((b) => b.type === order.building)) return fail('not_allowed', `There is already a ${spec.name.toLowerCase()} here.`);
         if (spec.coastal && !p.adj.some((q) => this.military.provinces.get(q)?.kind === 'sea')) return fail('not_allowed', 'A port needs a coast.');
+        if (spec.needs && (p.res?.[spec.needs] ?? 0) < MIN_RESOURCE) return fail('not_allowed', `${spec.name} need ${RESOURCE_WORD[spec.needs]} here (a score of ${MIN_RESOURCE} or more).`);
         const busy = [...this.military.buildings].filter(([q, list]) => this.military.provinces.get(q)?.owner === n.id && list.some((b) => b.progress < 1)).length;
         if (busy >= MAX_CONSTRUCTION) return fail('not_allowed', `At most ${MAX_CONSTRUCTION} projects at a time.`);
         // uranium (ours or a trade partner's) makes nuclear power much cheaper
         const cost = order.building === 'nuclear_plant' && this.hasAccess(n.id, 'uranium') ? spec.cost * 0.6
           : order.building === 'renewables' && this.hasLaw(n, 'green_energy') ? spec.cost * 0.5 : spec.cost;
-        if (n.econ.treasury < cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
-        n.econ.treasury -= cost;
+        // the goods it is built of come from our stocks; what we lack is bought on the world market
+        const goods = buildGoods(order.building);
+        const shortfall = (Object.entries(goods) as [Commodity, number][]).reduce((s, [c, q]) => s + Math.max(0, q - n.econ.stock[c]) * this.market.prices[c], 0);
+        if (n.econ.treasury < cost + shortfall - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
+        for (const [c, q] of Object.entries(goods) as [Commodity, number][]) n.econ.stock[c] = Math.max(0, n.econ.stock[c] - q);
+        n.econ.treasury -= cost + shortfall;
         this.military.buildings.set(p.id, [...here, { type: order.building, progress: 0 }]);
         if (actor === 'human') this.warChanged(); else this.warDirty = true; // AI projects go out with the daily update
         this.touch(n, false);
@@ -1797,6 +1805,7 @@ export class World {
     let weekly = false;
     while (this.market.day < today) {
       this.militaryDay();
+      this.builtOutput();
       // occupation costs the owner output, revenue and stability
       if (this.diplomacy.expire(this.market.day)) this.warChanged();
       this.effectCache.clear();
@@ -2662,14 +2671,28 @@ export class World {
     }
   }
 
+  /** Each nation's output from the farms, fields and mines it holds, a year by good. */
+  private builtOutput() {
+    const out = new Map<number, Partial<Record<Commodity, number>>>();
+    for (const [pid, list] of this.military.buildings) {
+      const p = this.military.provinces.get(pid);
+      if (!p) continue;
+      const holder = this.military.controller(pid);
+      if (holder === undefined) continue;
+      for (const b of list) {
+        const spec = BUILDINGS[b.type];
+        if (!spec?.produces || b.progress < 1 || b.damaged) continue;
+        const o = out.get(holder) ?? {};
+        o[spec.produces] = (o[spec.produces] ?? 0) + buildingOutput(b.type, spec.needs ? (p.res?.[spec.needs] ?? 0) : 50);
+        out.set(holder, o);
+      }
+    }
+    for (const n of this.nations.values()) n.econ.built = out.get(n.id) ?? {};
+  }
+
   private finished(owner: number | undefined, p: number, type: BuildingType) {
     const n = owner ? this.nations.get(owner) : undefined;
     if (!n) return;
-    if (type === 'mine') {
-      // the nation's main raw material
-      const main = COMMODITIES.reduce((a, c) => (n.econ.capacity[c] * this.market.prices[c] > n.econ.capacity[a] * this.market.prices[a] ? c : a));
-      n.econ.capacity[main] *= 1.04;
-    }
     if (n.controller === 'human') this.event('politics', n.id, `${this.defs.get(n.id)!.short}: ${BUILDINGS[type].name} completed in ${this.military.provinces.get(p)?.name ?? 'a province'}.`);
     this.warDirty = true;
   }

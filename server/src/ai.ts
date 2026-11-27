@@ -25,7 +25,11 @@ const LAW_TASTE: Record<Personality, LawId[]> = {
   idealist: ['press_freedom', 'research_grants', 'green_energy', 'free_trade', 'infrastructure_act'],
 };
 import { TECHS, TIER_COST, ready, type Branch, type TechId } from '../../shared/research.ts';
-import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
+import { BUILDINGS, MIN_RESOURCE, type BuildingType } from '../../shared/buildings.ts';
+import type { Commodity } from '../../shared/economy.ts';
+
+/** The building that produces each good. */
+const PRODUCER: Record<Commodity, BuildingType> = { food: 'farm', timber: 'logging_camp', oil: 'oil_well', gas: 'gas_well', coal: 'coal_mine', metals: 'mine', rare_earths: 'rare_earth_mine' };
 import { ROAD, roadCost } from '../../shared/roads.ts';
 import { ideologyGap } from '../../shared/society.ts';
 import { MISSILE_COST, STRIKERS, WARHEAD_COST } from '../../shared/military.ts';
@@ -609,7 +613,7 @@ export class AiBrain {
         if (pick) { orders.push({ kind: 'build', province: home.id, building: pick }); return orders; }
       }
     }
-    if (n.econ.treasury < n.econ.gdp * 0.03) return orders;
+    if (n.econ.treasury < n.econ.gdp * 0.04) return orders; // keep a reserve before building
     const own = [...m.provinces.values()].filter((p) => p.kind === 'land' && p.owner === me && m.controller(p.id) === me);
     if (!own.length) return orders;
     // now and then a road: the capital joined to its largest cities, one project at a time
@@ -629,9 +633,22 @@ export class AiBrain {
       const p = border.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'fort'));
       if (p) pick = [p.id, 'fort'];
     }
+    // the goods we import most (or are short of): a farm, camp, field or mine where the land is richest in it
+    if (!pick && r < 0.75) {
+      const e = n.econ;
+      const need = (Object.keys(PRODUCER) as Commodity[])
+        .map((c) => ({ c, gap: (e.short[c] > 0.005 ? 1e6 : 0) + Math.max(0, -e.trade[c]) * w.market.prices[c] }))
+        .filter((x) => x.gap > 0).sort((a, b) => b.gap - a.gap)[0];
+      const t = need ? PRODUCER[need.c] : undefined;
+      if (t) {
+        const res = BUILDINGS[t].needs!;
+        const p = own.filter((x) => (x.res?.[res] ?? 0) >= MIN_RESOURCE && !has(x.id, t)).sort((a, b) => (b.res?.[res] ?? 0) - (a.res?.[res] ?? 0))[0];
+        if (p) pick = [p.id, t];
+      }
+    }
     if (!pick && r < 0.45 && !has(cap, 'air_defense') && own.some((p) => p.id === cap)) pick = [cap, 'air_defense'];
     if (!pick && r < 0.55 && coastal.length) { const p = coastal.find((x) => !has(x.id, 'port')); if (p) pick = [p.id, 'port']; }
-    if (!pick && r < 0.65) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'mine')); if (p) pick = [p.id, 'mine']; }
+    if (!pick && r < 0.65) { const p = own.filter((x) => (x.res?.ore ?? 0) >= MIN_RESOURCE).sort((a, b) => (b.res?.ore ?? 0) - (a.res?.ore ?? 0)).find((x) => !has(x.id, 'mine')); if (p) pick = [p.id, 'mine']; }
     if (!pick) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'factory')); if (p) pick = [p.id, 'factory']; }
     if (!pick) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'renewables')); if (p) pick = [p.id, 'renewables']; }
     if (pick && BUILDINGS[pick[1]]) orders.push({ kind: 'build', province: pick[0], building: pick[1] });

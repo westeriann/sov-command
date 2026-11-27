@@ -71,3 +71,20 @@ test('roads always meet: they end at province anchors and pass through the ancho
   assert.deepEqual(b.pts[0], [3, 0], 'the new road starts where the old one ends');
   assert.ok(a.pts.some((q) => q[0] === 3 && q[1] === 0) && b.pts.some((q) => q[0] === 3 && q[1] === 0), 'both pass through the junction');
 });
+
+test('producers: a farm needs farmland, takes goods from stock (buying what is short), and grows food once built', () => {
+  const w = setup();
+  const n = w.nations.get(1)!;
+  const p1 = w.military.provinces.get(1)!, p2 = w.military.provinces.get(2)!;
+  p1.res = { farmland: 70 }; p2.res = { timber: 40 };
+  assert.equal(w.submit(1, { kind: 'build', province: 2, building: 'farm' }, 'human').ok, false, 'no farmland, no farm');
+  n.econ.stock.timber = 1000; n.econ.stock.metals = 0;
+  const cash = n.econ.treasury, timber = n.econ.stock.timber;
+  assert.equal(w.submit(1, { kind: 'build', province: 1, building: 'farm' }, 'human').ok, true);
+  assert.ok(n.econ.stock.timber < timber, 'timber taken from stock');
+  assert.ok(cash - n.econ.treasury > 2, 'the money, and the metals it lacked bought abroad');
+  const b = w.military.buildings.get(1)!.find((x) => x.type === 'farm')!;
+  b.progress = 1;
+  w.tick(Date.now() + realPerDay * 2);
+  assert.ok((n.econ.built?.food ?? 0) > 0, 'the farm grows food for the nation');
+});

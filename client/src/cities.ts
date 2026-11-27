@@ -156,6 +156,12 @@ const GLYPH: Record<BuildingType, string> = {
   nuclear_plant: 'M6 21c1-5 1-10-1-15h14c-2 5-2 10-1 15zM10 9h4v2h-4z',
   renewables: 'M11 21V11L5 8l1-2 6 3 1-7h2l-1 7 6-1v2l-6 2v10z',
   missile_defense: 'M5 21l3-9h2l-1 9zM14 21l-1-9h2l3 9zM8 11l4-9 4 9z',
+  farm: 'M2 20h20v-2H2zM4 17c1-4 3-6 5-7-1 3-1 5 0 7zM10 17c1-5 3-8 6-9-1 4-1 6 0 9zM16 17c1-3 3-5 5-5-1 2-1 3 0 5z',
+  logging_camp: 'M3 20l4-8 4 8zM9 20l5-12 5 12zM2 20h20v1H2zM12 21v-4h4v4z',
+  oil_well: 'M7 21l4-16h2l4 16h-2l-1-4h-4l-1 4zM10 15h4l-1-4h-2zM4 7l14-4 1 2-14 4z',
+  gas_well: 'M10 21V12h4v9zM6 21h12v-1H6zM12 3c2 3 4 4 4 6a4 4 0 0 1-8 0c0-2 2-3 4-6z',
+  coal_mine: 'M3 20V10l9-6 9 6v10h-5v-6H8v6zM9 16h6v4H9z',
+  rare_earth_mine: 'M12 3l7 5-3 12H8L5 8zM12 7l-3 3 3 7 3-7z',
 };
 
 function buildingIcon(type: BuildingType): ImageData {

@@ -894,6 +894,38 @@ export class Models3D implements CustomLayerInterface {
         this.put('radarBase', 0.25, 0, 0.1);
         this.put('radarDish', 0.25, 0.32, 0.1, t * 1.6);
         break;
+      // the producers, made of the same parts: fields and a barn, a sawmill in the trees, a nodding
+      // pumpjack, a gas flare, a dark coal pit and a red-earth quarry
+      case 'farm': {
+        const tones = ['#8fa64a', '#c9b45a', '#6f8f3a', '#b59a4c'];
+        for (let i = 0; i < 4; i++) this.put('solar', (i % 2) * 0.55 - 0.3, 0, Math.floor(i / 2) * 0.5 - 0.25, 0, 1.25, 0.25, 1.1, new THREE.Color(tones[(i + seed) % 4]));
+        this.put('depot', 0.55, 0, 0.5, 0.3, 0.45, 0.6, 0.45, new THREE.Color('#9c3b2e'));
+        break;
+      }
+      case 'logging_camp':
+        for (let i = 0; i < 5; i++) this.put('turbineMast', -0.5 + i * 0.25, 0, (i % 2) * 0.3 - 0.4, 0, 1.4, 0.55, 1.4, new THREE.Color('#2f5a2c'));
+        this.put('depot', 0.2, 0, 0.35, 0.2, 0.6, 0.55, 0.6, new THREE.Color('#7a5434'));
+        this.smoke(0.3, 0.45, 0.35, t, seed, '#b9b2a6', 0.5);
+        break;
+      case 'oil_well':
+        // the pumpjack nods
+        this.put('launcher', 0, 0, 0, 0.6, 0.9, 0.9, 0.9, new THREE.Color('#2b2b2e'), 0, Math.sin(t * 2 + seed) * 0.35);
+        this.put('depot', 0.55, 0, -0.3, 0, 0.35, 0.5, 0.35, new THREE.Color('#5a5f66'));
+        break;
+      case 'gas_well':
+        this.put('gasPlant', 0, 0, 0, 0, 0.55);
+        this.put('turbineMast', -0.45, 0, 0.2, 0, 1, 0.6, 1, new THREE.Color('#9aa1a8'));
+        this.put('flash', -0.45, 0.62 + Math.sin(t * 7 + seed) * 0.02, 0.2, 0, 0.07, 0.11, 0.07, new THREE.Color('#ffb347'));
+        break;
+      case 'coal_mine':
+        this.put('mine', 0, 0, 0, 0, 1, 1, 1, new THREE.Color('#3b3836'));
+        this.put('mineWheel', 0.22, 0.64, 0.22, Math.PI / 2, 1, 1, 1, WHITE, 0, t * 2.5);
+        this.smoke(-0.2, 0.6, -0.1, t, seed, '#4a4744', 0.6);
+        break;
+      case 'rare_earth_mine':
+        this.put('mine', 0, 0, 0, 0.8, 1, 0.8, 1, new THREE.Color('#b0603c'));
+        this.put('mineWheel', 0.22, 0.52, 0.22, Math.PI / 2, 0.8, 0.8, 0.8, WHITE, 0, t * 2);
+        break;
       case 'missile_defense':
         this.put('launcher', -0.2, 0, -0.15, 0.2, 1.2);
         this.put('launcher', -0.2, 0, 0.2, 0.2, 1.2);

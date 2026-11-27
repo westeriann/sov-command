@@ -1,4 +1,5 @@
 import { art } from './art-icons';
+import { buildInfo, buildTipLines } from './build-info';
 import { DEV_STOPS, nationDev } from './dev';
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO, TECHS, techCost } from '../../shared/research';
@@ -1077,8 +1078,8 @@ export class Hud {
         : `<span>${BUILDINGS[b.type].name}</span><div class="bar"><i style="width:${Math.round(b.progress * 100)}%"></i></div><span class="mono">${b.progress >= 1 ? 'ready' : `${Math.round(b.progress * 100)}%`}</span>`).join('')}</div>` : '<p class="hint">None yet.</p>'}
       ${mine && list.some((b) => b.damaged && b.repair === undefined) ? `<div class="actions-row">${list.filter((b) => b.damaged && b.repair === undefined).map((b) => `<button type="button" class="claim primary" data-act="repair" data-province="${p.id}" data-building="${b.type}" data-tip="${attr(tip(`Repair the ${BUILDINGS[b.type].name.toLowerCase()}`, ['Damaged by a hurricane: it does nothing until repaired', 'bad'], [`Costs $${(BUILDINGS[b.type].cost * REPAIR_COST_SHARE).toFixed(1)}bn`, 'bad'], `Takes about ${Math.ceil(BUILDINGS[b.type].days * REPAIR_TIME_SHARE)} game days`))}">Repair ${BUILDINGS[b.type].name.toLowerCase()}</button>`).join('')}</div>` : ''}
       ${mine ? `<div class="actions-row">${g.mine?.mil?.rally === p.id ? `<button type="button" class="claim" data-act="rally">Clear rally point</button>` : `<button type="button" class="claim" data-act="rally" data-province="${p.id}" title="New land units march here when they are ready">Set rally point here</button>`}</div>` : ''}
-      ${mine && missing.length ? `<div class="build-list">${missing.map((t) => `<button type="button" class="claim" data-act="build" data-province="${p.id}" data-building="${t}" data-tip="${attr(tip(BUILDINGS[t].name, ...effectLines(BUILDINGS[t].text), [`Costs $${BUILDINGS[t].cost}bn from the treasury`, 'bad'], `Takes ${BUILDINGS[t].days} game days to build`))}">
-        <b>${BUILDINGS[t].name}</b><span class="mono">$${BUILDINGS[t].cost}bn · ${BUILDINGS[t].days} days</span><span>${BUILDINGS[t].text}</span></button>`).join('')}</div>` : ''}`;
+      ${mine && missing.length ? `<div class="build-list">${missing.map((t) => { const info = buildInfo(t, p, g); return `<button type="button" class="claim" data-act="build" data-province="${p.id}" data-building="${t}" ${info.blocked ? 'disabled' : ''} data-tip="${attr(tip(BUILDINGS[t].name, ...effectLines(BUILDINGS[t].text), ...buildTipLines(t, p, g)))}">
+        <b>${BUILDINGS[t].name}</b><span class="mono">$${BUILDINGS[t].cost}bn · ${BUILDINGS[t].days} days</span><span>${info.blocked ?? info.output ?? BUILDINGS[t].text}</span></button>`; }).join('')}</div>` : ''}`;
   }
 
   /** Missile and nuclear strikes on enemy-held provinces. */

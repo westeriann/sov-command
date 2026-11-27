@@ -1,6 +1,7 @@
 // Build mode, started from the Eco lens: the lens steps aside, you click your
 // provinces on the map, and a small menu by each click offers what can be built
 // there. Back (or Esc) leaves build mode and returns to the Eco lens.
+import { buildInfo, buildTipLines } from './build-info';
 import type { Game } from './game';
 import type { Political, Province } from './political';
 import { BUILDINGS, BUILDING_TYPES, type BuildingType } from '../../shared/buildings';
@@ -90,9 +91,10 @@ export class BuildMode {
       <div class="bm-list">${options.map((t) => {
         const have = list.find((b) => b.type === t);
         const b = BUILDINGS[t];
-        const why = have ? (have.progress >= 1 ? 'Built' : `Building ${Math.round(have.progress * 100)}%`) : treasury < b.cost ? 'Not enough in the treasury' : '';
-        return `<button type="button" class="bm-item" data-bm-build="${t}" ${why ? 'disabled' : ''} data-tip="${attr(tip(b.name, ...effectLines(b.text), [`Costs $${b.cost}bn from the treasury`, 'bad'], `Takes ${b.days} game days to build`))}">
-          <b>${esc(b.name)}</b><span class="mono">${why || `$${b.cost}bn · ${b.days} days`}</span></button>`;
+        const info = buildInfo(t, p, g);
+        const why = have ? (have.progress >= 1 ? 'Built' : `Building ${Math.round(have.progress * 100)}%`) : info.blocked ? info.blocked : treasury < b.cost + info.buy ? 'Not enough in the treasury' : '';
+        return `<button type="button" class="bm-item" data-bm-build="${t}" ${why ? 'disabled' : ''} data-tip="${attr(tip(b.name, ...effectLines(b.text), ...buildTipLines(t, p, g)))}">
+          <b>${esc(b.name)}</b><span class="mono">${why || `$${b.cost}bn · ${b.days} days${info.output ? ` · ${info.output.replace(' a year', '/yr')}` : ''}`}</span></button>`;
       }).join('')}</div>`.replace(/\n\s+/g, ' ');
   }
 }

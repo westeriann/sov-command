@@ -60,6 +60,7 @@ export interface Province extends RouteNode {
   area?: number; // km2
   city?: boolean; // a city's own small province
   parent?: number; // the province a city stands in
+  res?: Record<string, number>; // resource scores 0..100 (farmland, timber, oil, gas, coal, ore, rare_earths)
 }
 
 export type MilEvent = { kind: 'occupied' | 'liberated' | 'destroyed' | 'battle' | 'bombed' | 'promoted'; province: number; nation: number; other?: number };

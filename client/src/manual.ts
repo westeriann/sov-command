@@ -2,8 +2,8 @@ import { art } from './art-icons';
 // The in-game manual: every system explained, with links that open the window,
 // map mode or place being described. Tables of units, buildings, technologies and
 // governments are built from the game's own data, so they never go out of date.
-import { BUILDINGS, BUILDING_TYPES } from '../../shared/buildings';
-import { COMMODITIES, COMMODITY_INFO } from '../../shared/economy';
+import { BUILDINGS, BUILDING_TYPES, MIN_RESOURCE, buildGoods } from '../../shared/buildings';
+import { COMMODITIES, COMMODITY_INFO, type Commodity } from '../../shared/economy';
 import { ENVOY_COST, ENVOY_DAYS, MAX_BLOC, MAX_CONTRACTS, MAX_ENVOYS, MAX_SPY_OPS, PACTS, PACT_INFO, PROPOSAL_DAYS, SPY_COST, SPY_MISSIONS, VOTE_DAYS } from '../../shared/diplomacy';
 import { DECREE_DISCOUNT, HIGH_TAX, HIGH_TAX_SUPPORT, LAWS, LAW_IDS, MAX_CAPITAL, WAR_SUPPORT } from '../../shared/politics';
 import { SPECIALTIES, SPECIALTY_LIST } from '../../shared/specialties';
@@ -113,9 +113,10 @@ const CHAPTERS: Chapter[] = [
       <p>Every province has a <b>development</b> score from 0 to 100: it weighs how crowded and urban a place is together with how rich its nation is per person, so a packed city in a poor nation is still poorly developed, rich farmland is fairly developed, and a rich city is the most; finished works there (factories, ports, power plants) add a little. It matters a lot for building (from half speed in the wilds to one and a half times in a big city) and a little for recruiting, which follows your nation's average. It leans politics too: cities and crowded country pull toward liberal, open policies, the remote countryside toward authoritarian ones that look after their own.</p>
       <p><b>Treasury</b>: taxes above spending pay down debt; below it, you borrow, and debt charges interest. <b>Stability</b> (approval) falls with high taxes, shortages, blackouts, debt, occupation and war; <r>below 25, coups and revolutions become possible</r>.</p>
       <h3>Buildings</h3>
-      <p>Build from a province's panel (click one of your provinces). Up to 4 projects at once, paid from the treasury:</p>
-      <table class="man-table"><thead><tr><th>Building</th><th>Cost</th><th>Days</th><th>Effect</th></tr></thead><tbody>
-        ${BUILDING_TYPES.map((b) => `<tr><td>${esc(BUILDINGS[b].name)}</td><td>$${BUILDINGS[b].cost}bn</td><td>${BUILDINGS[b].days}</td><td>${esc(BUILDINGS[b].text)}</td></tr>`).join('')}
+      <p>Build from a province's panel (click one of your provinces). Up to 4 projects at once. Each costs money from the treasury and the goods it is built of, from your stocks; whatever you lack is bought on the world market at once.</p>
+      <p><b>Producers</b> make the goods every society runs on: farms (food), logging camps (timber), metal mines, coal mines, oil and gas fields and rare earth mines. Each needs that resource in its province (a score of ${MIN_RESOURCE} or more; the province panel shows them) and makes more the richer it is. A captured producer works for whoever holds it; one a hurricane damages makes nothing until repaired.</p>
+      <table class="man-table"><thead><tr><th>Building</th><th>Cost</th><th>Built of</th><th>Days</th><th>Effect</th></tr></thead><tbody>
+        ${BUILDING_TYPES.map((b) => `<tr><td>${esc(BUILDINGS[b].name)}</td><td>$${BUILDINGS[b].cost}bn</td><td>${esc((Object.entries(buildGoods(b)) as [Commodity, number][]).map(([c, q]) => `${q} ${COMMODITY_INFO[c].unit} ${COMMODITY_INFO[c].name.toLowerCase()}`).join(', '))}</td><td>${BUILDINGS[b].days}</td><td>${esc(BUILDINGS[b].text)}</td></tr>`).join('')}
       </tbody></table>
       <p><b>Borders and refugees</b>: with open borders your nation takes in refugees fleeing war and occupation next door; closed borders keep them out. The Economy window shows who came and went.</p>`,
   },
