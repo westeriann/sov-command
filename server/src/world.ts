@@ -3354,6 +3354,13 @@ export class World {
       }
       return deal.tribute && deal.tribute > 0 && deal.tribute <= nb.econ.gdp * 0.05 ? null : 'Tribute must be at most 5% of their GDP.';
     }
+    if (deal.kind === 'sale') {
+      if (!COMMODITIES.includes(deal.good) || !(deal.amount > 0)) return 'Choose a good and an amount.';
+      const seller = deal.sell ? na : nb, buyer = deal.sell ? nb : na;
+      if (seller.econ.stock[deal.good] < deal.amount) return `${deal.sell ? 'You hold' : `The ${name} holds`} only ${Math.floor(seller.econ.stock[deal.good]).toLocaleString('en-US')} ${COMMODITY_INFO[deal.good].unit} in store.`;
+      if (buyer.econ.treasury - deal.amount * this.market.prices[deal.good] < -buyer.econ.gdp * 0.3) return deal.sell ? `The ${name} cannot pay for that much.` : 'Your treasury cannot pay for that much.';
+      return null;
+    }
     if (deal.kind === 'contract') {
       if (!COMMODITIES.includes(deal.good) || !(deal.amount > 0) || !CONTRACT_YEARS.includes(deal.years)) return 'Choose a good, an amount and a length.';
       if (d.contractsOf(a).length >= MAX_CONTRACTS) return `You already have ${MAX_CONTRACTS} supply contracts.`;
@@ -3420,6 +3427,14 @@ export class World {
         from.econ.treasury += deal.tribute!;
         this.event('diplomacy', from.id, `The ${B} pays the ${A} $${deal.tribute}bn in tribute.`);
       }
+    } else if (deal.kind === 'sale') {
+      // one shipment, at today's world price
+      const seller = deal.sell ? from : to, buyer = deal.sell ? to : from;
+      const q = Math.min(deal.amount, seller.econ.stock[deal.good]), pay = q * this.market.prices[deal.good];
+      seller.econ.stock[deal.good] -= q; buyer.econ.stock[deal.good] += q;
+      buyer.econ.treasury -= pay; seller.econ.treasury += pay;
+      this.event('diplomacy', from.id, `The ${this.defs.get(seller.id)!.name} sells the ${this.defs.get(buyer.id)!.name} ${Math.round(q).toLocaleString('en-US')} ${COMMODITY_INFO[deal.good].unit} of ${COMMODITY_INFO[deal.good].name.toLowerCase()} for $${pay.toFixed(1)}bn.`);
+      this.touch(seller, false); this.touch(buyer, false);
     } else if (deal.kind === 'contract') {
       const seller = deal.sell ? from.id : to.id, buyer = deal.sell ? to.id : from.id;
       const d = this.diplomacy;
@@ -3592,6 +3607,10 @@ function cleanDeal(d: unknown): Deal | null {
   if (x.kind === 'peace') return { kind: 'peace', terms: x.terms === 'cede' || x.terms === 'puppet' ? x.terms : 'white' };
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
   if (x.kind === 'gift') { const a = Math.round(num(x.amount) * 10) / 10; return a > 0 ? { kind: 'gift', amount: a } : null; }
+  if (x.kind === 'sale') {
+    const amount = num(x.amount);
+    return COMMODITIES.includes(x.good) && amount > 0 ? { kind: 'sale', good: x.good, amount, sell: !!x.sell } : null;
+  }
   if (x.kind === 'contract') {
     const amount = num(x.amount), years = num(x.years);
     return COMMODITIES.includes(x.good) && amount > 0 ? { kind: 'contract', good: x.good, amount, years, sell: !!x.sell } : null;

@@ -125,6 +125,7 @@ const CHAPTERS: Chapter[] = [
       <ul>
         <li>${L('market:local', 'Local market')}: what your nation makes and uses of each good, its surplus or shortfall, trade, stocks and the world price. Click a row to chart it over time.</li>
         <li>${L('market:world', 'World market')}: one market for every nation. Prices rise when the world uses more than it makes; charts show prices, world supply against demand, and an index of all goods.</li>
+        <li><b>Right-click a good</b> to trade it with another nation: sell or buy an amount once (one shipment now, at the world price) or on a 1, 2 or 5-year supply contract. Your trade partners are listed first; nations answer by what they need and what they think of you.</li>
       </ul>
       <h3>The goods</h3>
       <ul>

@@ -340,6 +340,11 @@ export class AiBrain {
     if (deal.kind === 'access') return op >= 25 && !w.military.enemiesOf(from).some((x) => w.diplomacy.has('trade', me, x));
     if (deal.kind === 'research') return op >= 5 && (them.tech.done.length >= n.tech.done.length * 0.5);
     if (deal.kind === 'guarantee') return op >= -25 && !(p === 'expansionist' && w.powerOf(me) > w.powerOf(from));
+    if (deal.kind === 'sale') {
+      const e = n.econ, g = deal.good;
+      if (deal.sell) return op >= -40 && (e.short[g] > 0.005 || e.stock[g] < deal.amount * 2); // they sell to us: welcome if we are short
+      return op >= -25 && e.short[g] < 0.005 && e.stock[g] > deal.amount * 2; // we sell: only what we can spare
+    }
     if (deal.kind === 'contract') {
       const e = n.econ, g = deal.good, yearly = deal.amount;
       const surplus = e.trade[g]; // exported last year: what we can spare

@@ -148,3 +148,15 @@ test('supply contracts ship goods daily at the agreed price; refused demands giv
   w.submit(2, { kind: 'answer', from: 1, deal: 'demand', accept: true }, 'human');
   assert.equal(w.military.provinces.get(4)!.owner, 1);
 });
+
+test('a one-time sale ships the goods at once at the world price', () => {
+  const w = setup();
+  const a = w.nations.get(1)!, b = w.nations.get(2)!;
+  a.econ.stock.food = 50; b.econ.stock.food = 0;
+  const price = w.market.prices.food, cashA = a.econ.treasury, cashB = b.econ.treasury;
+  assert.equal(w.submit(1, { kind: 'propose', target: 2, deal: { kind: 'sale', good: 'food', amount: 80, sell: true } }, 'human').ok, false, 'not more than you hold');
+  assert.equal(w.submit(1, { kind: 'propose', target: 2, deal: { kind: 'sale', good: 'food', amount: 20, sell: true } }, 'human').ok, true);
+  w.submit(2, { kind: 'answer', from: 1, deal: 'sale', accept: true }, 'human');
+  assert.ok(Math.abs(a.econ.stock.food - 30) < 1e-9 && Math.abs(b.econ.stock.food - 20) < 1e-9, 'the shipment moves');
+  assert.ok(Math.abs(a.econ.treasury - cashA - 20 * price) < 1e-9 && Math.abs(cashB - b.econ.treasury - 20 * price) < 1e-9, 'paid at the world price');
+});

@@ -37,6 +37,7 @@ export type Deal =
   | { kind: 'alliance' } | { kind: 'trade' } | { kind: 'nap' } | { kind: 'access' } | { kind: 'research' } | { kind: 'guarantee' }
   | { kind: 'peace'; terms: PeaceTerms; treaty?: PeaceTreaty } | { kind: 'bloc' }
   | { kind: 'contract'; good: Commodity; amount: number; years: number; sell: boolean } // sell: the proposer delivers
+  | { kind: 'sale'; good: Commodity; amount: number; sell: boolean } // one shipment now, at the world price; sell: the proposer delivers
   | { kind: 'gift'; amount: number } // $bn, always welcome
   | { kind: 'truce'; days: number } // at war: stop fighting where the lines stand, for a while
   | { kind: 'demand'; province?: number; tribute?: number }; // hand over a province, or pay $bn; refusing gives a claim
@@ -66,12 +67,13 @@ export const TRADE_DEAL_GROWTH = 0.0015;
 
 export const DEAL_NAMES: Record<DealKind, string> = {
   alliance: 'alliance', trade: 'trade agreement', peace: 'peace', bloc: 'bloc membership', nap: 'non-aggression pact', access: 'military access',
-  research: 'research cooperation', guarantee: 'guarantee of independence', contract: 'supply contract', gift: 'gift', demand: 'demand', truce: 'truce',
+  research: 'research cooperation', guarantee: 'guarantee of independence', contract: 'supply contract', sale: 'one-time sale', gift: 'gift', demand: 'demand', truce: 'truce',
 };
 
 export function dealText(d: Deal) {
   if (d.kind === 'peace') return d.terms === 'treaty' && d.treaty ? `peace: ${treatyText(d.treaty)}` : d.terms === 'cede' ? 'peace with territory ceded' : d.terms === 'puppet' ? 'peace as a vassal state' : 'white peace';
   if (d.kind === 'contract') return `${d.years}-year contract to ${d.sell ? 'sell' : 'buy'} ${d.good.replace('_', ' ')}`;
+  if (d.kind === 'sale') return `one shipment: ${d.sell ? 'sell' : 'buy'} ${d.good.replace('_', ' ')}`;
   if (d.kind === 'gift') return `a gift of $${d.amount}bn`;
   if (d.kind === 'truce') return `a ${d.days}-day truce`;
   if (d.kind === 'demand') return d.province !== undefined ? 'a demand for a province' : `a demand for $${d.tribute}bn in tribute`;

@@ -71,6 +71,9 @@ export class MarketPanel {
     return `<div class="chart-cell${this.big.has(key) ? ' big' : ''}" data-mk="chart" data-key="${key}" title="${this.big.has(key) ? 'Click to shrink' : 'Click to enlarge'}"><span class="label">${label}</span>${chart}</div>`;
   }
 
+  /** Right-clicking a good: trade it with another nation (set by the game). */
+  onTrade: (good: Commodity, x: number, y: number) => void = () => {};
+
   constructor(root: HTMLElement, private game: Game, private pol?: Political) {
     this.el = document.createElement('section');
     this.el.className = 'panel econ-window market-window';
@@ -86,6 +89,13 @@ export class MarketPanel {
       else if (a === 'tab') { this.tab = t.dataset.tab as Tab; this.render(); }
       else if (a === 'pick') { this.pick = t.dataset.good as Pick; this.render(); }
       else if (a === 'chart') { const k = t.dataset.key!; if (this.big.has(k)) this.big.delete(k); else this.big.add(k); this.render(); }
+    });
+    this.el.addEventListener('contextmenu', (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-good]');
+      const good = row?.dataset.good;
+      if (!good || good === 'power' || good === 'spec' || !this.game.mine) return;
+      e.preventDefault();
+      this.onTrade(good as Commodity, e.clientX, e.clientY);
     });
     game.on((c: Set<Change>) => { if (!this.el.hidden && (c.has('mine') || c.has('economy') || c.has('status'))) this.render(); });
   }

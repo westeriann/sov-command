@@ -1,4 +1,5 @@
 import { Capitals } from './capitals';
+import { TradeMenu } from './trade-menu';
 import { allDev } from './dev';
 import { BranchWindow } from './research-tree';
 import { installTableSort } from './sort-tables';
@@ -319,6 +320,8 @@ let soundRef: Sound | null = null;
   let rankings: RankingsPanel | null = null;
   let lobby: Lobby | null = null;
   const market = new MarketPanel(hudRoot, game, pol);
+  const tradeMenu = new TradeMenu(hudRoot, game, pol, (target, deal) => conn.send({ t: 'order', order: { kind: 'propose', target, deal } }));
+  market.onTrade = (good, x, y) => tradeMenu.open(good, x, y);
   const politics = new PoliticsPanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const espionage = new EspionagePanel(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }));
   const records = new RecordsPanel(hudRoot, game, pol);
