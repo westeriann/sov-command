@@ -1,5 +1,6 @@
-// Every window can be resized by dragging its edges or corners. Sizes are
-// remembered per window; double-click a window's title bar to reset it.
+// Every window can be resized by dragging its edges or corners, and moved by
+// dragging its title bar. Sizes and places are remembered per window;
+// double-click a window's title bar to put it back.
 const KEY = 'sov.windows';
 const EDGE = 7; // px from the border that counts as an edge
 const MIN_W = 360, MIN_H = 220;
@@ -42,12 +43,17 @@ export function installResizable(root: HTMLElement) {
   root.addEventListener('pointerdown', (e) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>(WINDOWS);
     if (!el || e.button !== 0 || window.innerWidth < 760) return;
-    const edge = edgeAt(el, e.clientX, e.clientY);
-    if (!edge) return;
+    let edge = edgeAt(el, e.clientX, e.clientY);
+    if (!edge) {
+      // the title bar (not its buttons) moves the whole window
+      const t = e.target as HTMLElement;
+      if (!t.closest('.econ-head') || t.closest('button, a, input, select, textarea, label, [role=tab]')) return;
+      edge = 'move';
+    }
     e.preventDefault();
     e.stopPropagation();
     drag = { el, edge, start: el.getBoundingClientRect(), x: e.clientX, y: e.clientY };
-    document.body.classList.add('resizing');
+    document.body.classList.add(edge === 'move' ? 'moving-window' : 'resizing');
     el.setPointerCapture(e.pointerId);
   }, true);
   window.addEventListener('pointermove', (e) => {
@@ -56,7 +62,13 @@ export function installResizable(root: HTMLElement) {
     const W = window.innerWidth, H = window.innerHeight;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     let { left, right, top, bottom } = start;
-    if (edge.includes('w')) left = Math.min(right - MIN_W, Math.max(0, left + dx));
+    if (edge === 'move') {
+      // keep at least a corner of it (and the whole title bar's height) on screen
+      const w = right - left, h = bottom - top;
+      left = Math.min(W - 120, Math.max(120 - w, left + dx));
+      top = Math.min(H - 48, Math.max(0, top + dy));
+      right = left + w; bottom = top + h;
+    } else if (edge.includes('w')) left = Math.min(right - MIN_W, Math.max(0, left + dx));
     if (edge.includes('e')) right = Math.max(left + MIN_W, Math.min(W, right + dx));
     if (edge.includes('n')) top = Math.min(bottom - MIN_H, Math.max(0, top + dy));
     if (edge.includes('s')) bottom = Math.max(top + MIN_H, Math.min(H, bottom + dy));
@@ -67,7 +79,7 @@ export function installResizable(root: HTMLElement) {
     const r = drag.el.getBoundingClientRect();
     saved[keyOf(drag.el)] = { left: r.left, right: window.innerWidth - r.right, top: r.top, bottom: window.innerHeight - r.bottom };
     save();
-    document.body.classList.remove('resizing');
+    document.body.classList.remove('resizing', 'moving-window');
     drag = null;
   });
   // double-click the title bar: back to the standard size

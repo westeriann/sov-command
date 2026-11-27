@@ -130,6 +130,7 @@ export interface DayInput {
   atWar?: boolean;
   tradeDeals?: number; // trade agreements in force
   bonusGrowth?: number; // technology and government
+  popGrowthMul?: number; // development: faster above the baseline, slower below
   bonusStability?: number;
   extraUse?: Partial<Record<Commodity, number>>; // per year, on top of normal use: armies' oil, power stations' fuel
   plantPower?: number; // share of electricity demand covered by power stations
@@ -263,7 +264,9 @@ export function runDay(nations: DayInput[], market: MarketState, day: number) {
     g = Math.min(0.12, Math.max(-0.15, g));
     e.growth = g;
     e.gdp *= 1 + g / 365;
-    const popGrowth = Math.min(0.03, Math.max(-0.005, 0.022 - 0.006 * Math.log10(gdppc / 1000) + (e.budget.welfare - 35) * 0.0002 - e.short.food * 0.05));
+    const base = 0.022 - 0.006 * Math.log10(gdppc / 1000) + (e.budget.welfare - 35) * 0.0002 - e.short.food * 0.05;
+    const mul = n.popGrowthMul ?? 1;
+    const popGrowth = Math.min(0.03, Math.max(-0.005, base > 0 ? base * mul : base / mul));
     e.pop *= 1 + popGrowth / 365;
     // output capacity follows the economy and infrastructure
     for (const c of COMMODITIES) e.capacity[c] *= 1 + (0.6 * g + (e.infra - 1) * 0.01) / 365;

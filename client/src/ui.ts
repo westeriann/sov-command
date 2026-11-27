@@ -1,7 +1,8 @@
 import { art } from './art-icons';
+import { MiniRankings } from './mini-rankings';
 import { terrainEffects } from '../../shared/military';
 import { buildInfo, buildTipLines } from './build-info';
-import { DEV_STOPS, nationDev } from './dev';
+import { DEV_STOPS, hubsOf, nationDev, provinceDev } from './dev';
 import { money } from '../../shared/economy';
 import { GOVERNMENT_INFO, TECHS, techCost } from '../../shared/research';
 import { maxSpeed } from '../../shared/settings';
@@ -20,7 +21,7 @@ import { DIPLO_CATS, type DiploCat } from './diplo-map';
 import { RESOURCE_NAMES, type Nation, type Political, type Province, type ResourceId } from './political';
 import { BIOME_INFO, formatLatLon, type BiomeId, type Sample, type World } from './world';
 import { attr, effectLines, tip } from './tooltip';
-import { buildSpeed, devLabel, development, MILITARY_WORKS } from '../../shared/development';
+import { buildSpeed, devLabel, popGrowthSpeed } from '../../shared/development';
 import { ASSET_BASE } from './config';
 import { SPECIALTIES, SPECIALTY_LIST, specialtyOf } from '../../shared/specialties';
 
@@ -280,7 +281,6 @@ export class Hud {
     const composition = landCells.filter(([, n]) => n / landTotal > 0.004).sort((a, b) => b[1] - a[1]);
     const landProvinces = [...this.pol.provinces.values()].filter((p) => p.kind === 'land').length;
     const worldPop = [...this.pol.nations.values()].reduce((s, n) => s + n.pop, 0);
-    const largest = [...this.pol.nations.values()].sort((a, b) => b.pop - a.pop).slice(0, 5);
 
     this.root.innerHTML = `
       <header class="panel top">
@@ -367,10 +367,7 @@ export class Hud {
           <div class="composition" aria-label="Land surface by terrain type">
             ${composition.map(([b, n]) => `<i style="flex:${n};background:${BIOME_INFO[b].color}" title="${BIOME_INFO[b].name} ${(n / landTotal * 100).toFixed(1)}%"></i>`).join('')}
           </div>
-          <span class="label">MOST POPULOUS</span>
-          <ol class="ranking">
-            ${largest.map((n) => `<li><button type="button" data-province="${n.capital}"><i style="background:${n.color}"></i>${esc(n.short)}<span class="mono">${people(n.pop)}</span></button></li>`).join('')}
-          </ol>
+          <div id="miniRank"></div>
         </div>
       </aside>
 
@@ -407,9 +404,11 @@ export class Hud {
 
     this.inspector = this.root.querySelector('#inspector')!;
     // the two right-hand sections fold: opening one closes the other
-    for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec')) {
-      d.addEventListener('toggle', () => { if (d.open) for (const o of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec')) if (o !== d) o.open = false; });
+    // (the rankings fold on their own)
+    for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec:not(.rank-sec)')) {
+      d.addEventListener('toggle', () => { if (d.open) for (const o of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec:not(.rank-sec)')) if (o !== d) o.open = false; });
     }
+    new MiniRankings(this.root.querySelector<HTMLElement>('#miniRank')!, this.game, this.pol);
     this.readout = this.root.querySelector('#readout')!;
     this.clock = this.root.querySelector('#clock')!;
     this.legend = this.root.querySelector('#legend')!;
@@ -917,7 +916,7 @@ export class Hud {
 
   /** Open one of the right-hand sections (your nation, or the selected province) and fold the other. */
   showSection(id: 'secNation' | 'secSelection') {
-    for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec')) d.open = d.id === id;
+    for (const d of this.root.querySelectorAll<HTMLDetailsElement>('.right .rp-sec:not(.rank-sec)')) d.open = d.id === id;
   }
 
   /** Redraw the province panel (e.g. after the unit selection changed). */
@@ -968,7 +967,7 @@ export class Hud {
     return `<span>GDP</span><span>${mine ? go('module:economy', money(e.gdp), 'Open Economy: budget, taxes and growth') : money(e.gdp)} · ${go('module:rankings', `#${rank}`, 'Open the rankings')}</span>
       <span>Growth</span><span class="${e.growth >= 0 ? 'up' : 'down'}">${mine ? go('side:focusSeg', growth, 'An Economy focus, trade deals, infrastructure and research raise growth') : growth}</span>
       <span>Per person</span><span>${go('module:rankings', `$${e.gdppc.toLocaleString('en-US')}`, 'Compare nations in the rankings')}</span>
-      ${(() => { const dv = nationDev(id, this.pol, this.game); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), 'People-weighted average of its provinces: crowding and cities together with wealth per person, and works built', 'Developed nations build faster, recruit a little faster and lean liberal'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}`;
+      ${(() => { const dv = nationDev(id, this.pol, this.game); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), 'Its provinces\' average, half by people and half by province: cities and their lights count most, together with wealth per person and works built', [`Population growth ${Math.round(popGrowthSpeed(dv) * 100)}% of normal`, dv >= 40 ? 'good' : 'bad'], '40 is the baseline: below it building and population growth slow, above it they speed up; developed nations also recruit a little faster and lean liberal'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}`;
   }
 
   private controllerHtml(n: Nation) {
@@ -1159,7 +1158,7 @@ export class Hud {
         <span>Population</span><span>${mineHere ? go('module:economy', people(p.pop ?? 0), 'Grows with prosperity and stability: see Economy') : people(p.pop ?? 0)}</span>
         <span>Area</span><span>${km2(p.area)}</span>
         ${(() => { const fx = terrainEffects(p.terrain); return `<span data-tip="${attr(tip(`Terrain: ${t.name}`, ...fx.map(([x, k]) => (k === 'none' ? x : [x, k] as [string, 'good' | 'bad'])), 'One terrain per province: it shapes every battle and march here'))}">Terrain</span><span>${esc(t.name)} · <span class="muted">${esc(fx.filter(([, k]) => k !== 'none').slice(0, 2).map(([x]) => x).join(', '))}</span></span>`; })()}
-        ${(() => { const dv = development({ ...p, gdppc: n ? this.game.economy.get(n.id)?.gdppc : undefined, built: (this.game.war.buildings[p.id] ?? []).filter((b) => b.progress >= 1 && !MILITARY_WORKS.has(b.type)).length }); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), [`Building here ${Math.round(buildSpeed(dv) * 100)}% of normal speed`, dv >= 50 ? 'good' : 'bad'], 'Grows with crowding and cities together with the nation\'s wealth per person, and with works built here; developed nations recruit a little faster', dv >= 50 ? 'Cities and crowded country lean liberal and open' : 'The remote countryside leans authoritarian and looks after its own'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}
+        ${(() => { const dv = provinceDev(p, this.game, hubsOf(this.game, this.pol)); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), [`Building here ${Math.round(buildSpeed(dv) * 100)}% of normal speed`, dv >= 40 ? 'good' : 'bad'], 'Development 40 is the baseline: below it building and population growth slow, above it they speed up', 'Cities count most (where the lights are at night), then the country around them and crowding, all together with the nation\'s wealth per person, plus works built here; developed nations recruit a little faster', dv >= 50 ? 'Cities and crowded country lean liberal and open' : 'The remote countryside leans authoritarian and looks after its own'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}
         <span>Mean elevation</span><span>${go('mode:elevation', describeElevation(p.elev), 'Show the elevation map')}</span>
         <span>Highest point</span><span>${go('mode:terrain', describeElevation(p.peak ?? p.elev), 'Show the terrain map')}</span>
         <span>Climate here</span><span>${go('mode:climate', `${s.temperature} °C · ${rainfallWord(s.rainfall)}`, 'Show the temperature map')}</span>

@@ -61,6 +61,7 @@ import { Lenses } from './lenses';
 import { diploColours } from './diplo-map';
 import { installMinimize } from './minimize';
 import { installResizable } from './resizable';
+import { installDraggable } from './draggable';
 import { installScreens } from './screens';
 import { diplomacyPiece, economyPiece, espionagePiece, forcesPiece, marketPiece, politicsPiece, rankingsPiece, recordsPiece, researchPiece } from './screen-pieces';
 import { installConfirmKeeper } from './confirm-keeper';
@@ -330,6 +331,8 @@ let soundRef: Sound | null = null;
   const lenses = new Lenses(hudRoot, game, pol, (order) => conn.send({ t: 'order', order }), {
     build: () => buildMode.start(),
     roads: () => roadTool?.start(),
+    go: (id) => flyToProvince(id),
+    buildAt: (id) => { lenses.toggle('eco'); buildAt(id); },
   });
   const buildMode = new BuildMode(hudRoot, game, pol, {
     build: (province, building) => { conn.send({ t: 'order', order: { kind: 'build', province, building } }); sound.play('confirm'); },
@@ -346,7 +349,7 @@ let soundRef: Sound | null = null;
   });
   installMinimize(hudRoot);
   installConfirmKeeper(document.body);
-  queueMicrotask(() => installResizable(hudRoot)); // after the windows exist
+  queueMicrotask(() => { installResizable(hudRoot); installDraggable(hudRoot); }); // after the windows exist
   // the left-hand tabs open as full Orbital screens, each with a working centrepiece
   // a research branch in a window of its own, opened from the pie
   const branchWindow = new BranchWindow(hudRoot, game, {
@@ -437,6 +440,7 @@ let soundRef: Sound | null = null;
     tax: (tax) => conn.send({ t: 'order', order: { kind: 'policy', policy: { tax } } }),
     borders: (open) => conn.send({ t: 'order', order: { kind: 'borders', open } }),
     buildAt: (id) => buildAt(id),
+    showProvince: (id) => { economy.close(); hud.setOpenPanel(null); flyToProvince(id); },
     goToNation: (id) => nationCard.show(id, lastPointer[0], lastPointer[1]),
   });
   document.addEventListener('economy-closed', () => hud.setOpenPanel(null));
@@ -653,7 +657,7 @@ let soundRef: Sound | null = null;
     citiesRef?.setSun(sun);
   };
   window.setInterval(followNight, 3000);
-  gameMap.map.on('moveend', () => { if (lightsMode) followNight(); });
+  gameMap.map.on('moveend', (e) => { if (lightsMode && !(e as { keyPan?: boolean }).keyPan) followNight(); });
   models.weather = () => ({ clouds: presence.clouds, flashes: presence.flashes, rainFrame: presence.rainFrame });
   models.brightness = (nation) => cities.brightness(nation);
   models.onSize = (px) => { forces?.setLift(px ? px * 0.8 + 12 : 0); map.setLayoutProperty('buildings', 'visibility', px && models3dOn ? 'none' : 'visible'); };
@@ -669,6 +673,13 @@ let soundRef: Sound | null = null;
   };
   hud.setModels(models3dOn);
   const goToProvince = (p: { label: [number, number] }) => select(p.label[1], p.label[0], true);
+  /** Select a province and fly in close enough to see the works there. */
+  const flyToProvince = (id: number) => {
+    const p = pol.provinces.get(id);
+    if (!p) return;
+    select(p.label[1], p.label[0]);
+    gameMap.map.flyTo({ center: p.label, zoom: Math.max(gameMap.map.getZoom(), 6.2) });
+  };
   const buildAt = (id: number) => {
     const p = pol.provinces.get(id);
     if (!p) return;

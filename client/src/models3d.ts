@@ -184,6 +184,27 @@ const GEOMETRY = {
   // three blades round the hub, turning about the X axis (into the wind)
   turbineRotor: () => build([0, 1, 2].map((i) => ({ g: box(0.012, 0.42, 0.03).translate(0, 0.21, 0).rotateX((i * Math.PI * 2) / 3), color: '#f2f2ee' }))),
   solar: () => build([...[-1, 0, 1].map((i) => part(box(0.5, 0.02, 0.16), '#2b3d5c', [0, 0.06, i * 0.2], [0.35, 0, 0]))]),
+  // a ploughed field in its crop colour (tinted per instance), with darker furrows
+  field: () => build([
+    part(box(0.5, 0.025, 0.42), PAINT, [0, 0.012, 0]),
+    ...[-0.15, -0.05, 0.05, 0.15].map((z) => part(box(0.46, 0.012, 0.018), '#bdb6a6', [0, 0.03, z])),
+  ]),
+  barn: () => build([
+    part(box(0.3, 0.2, 0.22), PAINT, [0, 0.1, 0]),
+    part(box(0.33, 0.03, 0.16), '#5c5a58', [0, 0.235, 0.055], [0.6, 0, 0]),
+    part(box(0.33, 0.03, 0.16), '#5c5a58', [0, 0.235, -0.055], [-0.6, 0, 0]),
+    part(cyl(0.06, 0.06, 0.36, 10), '#d8d4cc', [0.24, 0.18, 0.02]),
+    part(ball(0.06, 8), '#9aa1a8', [0.24, 0.36, 0.02]),
+  ]),
+  tree: () => build([
+    part(cyl(0.015, 0.02, 0.12, 5), '#5a3e28', [0, 0.06, 0]),
+    part(cone(0.09, 0.26, 7), PAINT, [0, 0.24, 0]),
+  ]),
+  logPile: () => build([
+    ...[[0, 0.03], [0.06, 0.03], [-0.06, 0.03], [0.03, 0.08], [-0.03, 0.08]].map(([z, y]) => part(cyl(0.03, 0.03, 0.34, 6), '#8a6440', [0, y, z], [0, 0, Math.PI / 2])),
+    part(box(0.26, 0.16, 0.2), '#7a5434', [0.05, 0.08, 0.3]),
+    part(box(0.28, 0.02, 0.22), '#4f4a44', [0.05, 0.17, 0.3]),
+  ]),
   mine: () => build([
     part(cone(0.42, 0.34, 7), '#7d7466', [-0.3, 0.17, 0.2]),
     part(box(0.36, 0.2, 0.3), '#958c80', [0.25, 0.1, -0.15]),
@@ -897,14 +918,14 @@ export class Models3D implements CustomLayerInterface {
       // the producers, made of the same parts: fields and a barn, a sawmill in the trees, a nodding
       // pumpjack, a gas flare, a dark coal pit and a red-earth quarry
       case 'farm': {
-        const tones = ['#8fa64a', '#c9b45a', '#6f8f3a', '#b59a4c'];
-        for (let i = 0; i < 4; i++) this.put('solar', (i % 2) * 0.55 - 0.3, 0, Math.floor(i / 2) * 0.5 - 0.25, 0, 1.25, 0.25, 1.1, new THREE.Color(tones[(i + seed) % 4]));
-        this.put('depot', 0.55, 0, 0.5, 0.3, 0.45, 0.6, 0.45, new THREE.Color('#9c3b2e'));
+        const tones = ['#8fa64a', '#d9c25e', '#6f9a3a', '#c4a050'];
+        for (let i = 0; i < 4; i++) this.put('field', (i % 2) * 0.55 - 0.28, 0, Math.floor(i / 2) * 0.48 - 0.24, 0, 1, 1, 1, new THREE.Color(tones[(i + seed) % 4]));
+        this.put('barn', 0.55, 0, 0.45, 0.3, 1, 1, 1, new THREE.Color('#a8432f'));
         break;
       }
       case 'logging_camp':
-        for (let i = 0; i < 5; i++) this.put('turbineMast', -0.5 + i * 0.25, 0, (i % 2) * 0.3 - 0.4, 0, 1.4, 0.55, 1.4, new THREE.Color('#2f5a2c'));
-        this.put('depot', 0.2, 0, 0.35, 0.2, 0.6, 0.55, 0.6, new THREE.Color('#7a5434'));
+        for (let i = 0; i < 7; i++) this.put('tree', -0.5 + i * 0.17, 0, (i % 2) * 0.22 - 0.4 + (i % 3) * 0.05, 0, 1.3, 1.3, 1.3, new THREE.Color(i % 2 ? '#3f7a38' : '#2f6430'));
+        this.put('logPile', 0.05, 0, 0.1, 0.2);
         this.smoke(0.3, 0.45, 0.35, t, seed, '#b9b2a6', 0.5);
         break;
       case 'oil_well':

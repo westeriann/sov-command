@@ -36,7 +36,7 @@ import { findRoute, type RouteNode } from '../../shared/military.ts';
 import { ASAT_COST, GENERAL_COST, MISSILE_COST, MISSILE_DAMAGE, MISSILE_RANGE, SATELLITE_COST, UNITS_PER_GENERAL, UNIT_TECH, WARHEAD_COST, distanceKm } from '../../shared/military.ts';
 import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import { ROAD, roadCost, roadDays } from '../../shared/roads.ts';
-import { buildSpeed, devLean, development, MILITARY_WORKS, recruitSpeed } from '../../shared/development.ts';
+import { buildSpeed, devLean, development, cityHubs, MILITARY_WORKS, nationDevelopment, popGrowthSpeed, recruitSpeed } from '../../shared/development.ts';
 import {
   GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, effectsOf, missing, ready, techCost,
   type Effects, type Government, type ResearchPrivate, type TechId,
@@ -1820,6 +1820,7 @@ export class World {
         blockade: Math.min(0.9, this.military.blockade(n.id) + this.embargoPressure(n.id)),
         tradeDeals: this.diplomacy.partners('trade', n.id).length - this.lanes.filter((l) => l.raided && (l.a === n.id || l.b === n.id)).length,
         bonusGrowth: this.effects(n.id).growth + this.eventGrowth(n),
+        popGrowthMul: popGrowthSpeed(this.avgDevelopment(n.id)),
         factoryGrowth: Math.min(MAX_FACTORIES, this.factories.get(n.id) ?? 0) * FACTORY_GROWTH,
         plantPower: this.plants.get(n.id)?.share ?? 0,
         thermalPlants: this.plants.get(n.id)?.thermal ?? 0,
@@ -2545,8 +2546,10 @@ export class World {
   devOf(p: { id: number; pop?: number; area?: number; city?: boolean; kind?: string; owner?: number }) {
     const e = p.owner !== undefined ? this.nations.get(p.owner)?.econ : undefined;
     const built = (this.military.buildings.get(p.id) ?? []).filter((b) => b.progress >= 1 && !MILITARY_WORKS.has(b.type)).length;
-    return development({ ...p, gdppc: e && e.pop > 0 ? (e.gdp * 1e9) / e.pop : undefined, built });
+    this.hubs ??= cityHubs(this.military.provinces.values());
+    return development({ ...p, gdppc: e && e.pop > 0 ? (e.gdp * 1e9) / e.pop : undefined, built, hub: this.hubs.has(p.id), blackout: e?.blackout }); 
   }
+  private hubs?: Set<number>;
 
   private cityIn = new Map<number, number>();
   /** Where roads meet in a province: its city if it has one, else its centre. */
@@ -2594,14 +2597,22 @@ export class World {
 
   /** A nation's average development, weighted by people (provinces it holds). */
   avgDevelopment(nation: number) {
-    let w = 0, t = 0;
-    for (const p of this.military.provinces.values()) {
-      if (p.kind !== 'land' || p.owner !== nation || this.military.controller(p.id) !== nation) continue;
-      const pop = Math.max(1, p.pop);
-      w += pop; t += pop * this.devOf(p);
+    if (this.devDay !== this.market.day) {
+      // once a game day for every nation at once: it is asked for often
+      this.devDay = this.market.day;
+      const lists = new Map<number, { dev: number; pop: number }[]>();
+      for (const p of this.military.provinces.values()) {
+        if (p.kind !== 'land' || p.owner === undefined || this.military.controller(p.id) !== p.owner) continue;
+        let l = lists.get(p.owner);
+        if (!l) lists.set(p.owner, l = []);
+        l.push({ dev: this.devOf(p), pop: p.pop });
+      }
+      this.devAvg = new Map([...lists].map(([id, l]) => [id, nationDevelopment(l)]));
     }
-    return w ? t / w : 30;
+    return this.devAvg.get(nation) ?? 30;
   }
+  private devDay = -1;
+  private devAvg = new Map<number, number>();
 
   /** Construction advances daily; finished buildings take effect. */
   private constructionDay() {

@@ -302,7 +302,8 @@ export class GameMap {
       queued = true;
       requestAnimationFrame(() => { queued = false; this.declutter(); });
     });
-    this.map.on('moveend', () => this.updateProvinceLabels());
+    // WASD pans in many small steps, each a whole move: the settling work waits until the keys are let go
+    this.map.on('moveend', (e) => { if ((e as { keyPan?: boolean }).keyPan) return; this.updateProvinceLabels(); this.settleTiles(); });
     this.map.on('pitchstart', (e) => { if ((e as { originalEvent?: Event }).originalEvent) this.autoTilt = false; });
     this.map.on('zoomend', () => this.followZoom());
     this.map.once('load', () => { this.loadedOnce = true; void this.enableRelief(); });
@@ -323,9 +324,10 @@ export class GameMap {
       if (x || y) {
         const len = Math.hypot(x, y);
         const speed = (fast ? 1500 : 650) * dt; // screen pixels a second, the same feel at any zoom
-        this.map.panBy([(x / len) * speed, (y / len) * speed], { animate: false });
+        this.map.panBy([(x / len) * speed, (y / len) * speed], { animate: false }, { keyPan: true });
       }
       frame = held.size ? requestAnimationFrame(step) : 0;
+      if (!frame) this.map.panBy([0, 0], { animate: false }); // one last, ordinary move: labels, lights and the rest catch up
     };
     window.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
@@ -410,6 +412,28 @@ export class GameMap {
     m._camera?.applyTerrainChange?.();
     this.map.triggerRepaint();
     return true;
+  }
+
+  /**
+   * With 3D relief on, the map is painted onto the ground as cached textures, refreshed a tile per
+   * frame and only while frames are being drawn. After a move (above all a zoom out, when many new
+   * tiles arrive) some could keep their old or empty picture until the mouse stirred a redraw. Once
+   * the province shapes have arrived, drop the cached textures and keep drawing for a moment.
+   */
+  private settleTimer = 0;
+  private settleTiles() {
+    window.clearTimeout(this.settleTimer);
+    const m = this.map as unknown as { terrain?: { tileManager?: { releaseAllRTT?: () => void } } | null };
+    let tries = 0;
+    const settle = () => {
+      if (this.map.isMoving()) return;
+      if (this.map.getSource('fills') && !this.map.isSourceLoaded('fills') && tries++ < 20) { this.settleTimer = window.setTimeout(settle, 150); return; }
+      m.terrain?.tileManager?.releaseAllRTT?.();
+      const until = performance.now() + 1200;
+      const pump = () => { this.map.triggerRepaint(); if (performance.now() < until && !this.map.isMoving()) requestAnimationFrame(pump); };
+      pump();
+    };
+    this.settleTimer = window.setTimeout(settle, 120);
   }
 
   private followZoom() {

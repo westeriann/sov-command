@@ -9,8 +9,9 @@ import { seasonAt } from '../../shared/seasons';
 export class Presence {
   constructor(private map: MLMap, private game: Game, private pol: Political) {
     // a light snow tint over the hemisphere in winter, beyond 40 degrees, where armies slow and invaders freeze
+    // (only closer in: from far out a pale cap over half the globe looks like the map failed to load)
     map.addSource('winter', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'winter', type: 'fill', source: 'winter', paint: { 'fill-color': '#eaf3f8', 'fill-opacity': 0.13, 'fill-antialias': false } });
+    map.addLayer({ id: 'winter', type: 'fill', source: 'winter', paint: { 'fill-color': '#eaf3f8', 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 2.5, 0, 4.5, 0.12] as never, 'fill-antialias': false } });
     window.setInterval(() => this.renderWinter(), 5000);
     this.renderWinter();
     map.addSource('lanes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });

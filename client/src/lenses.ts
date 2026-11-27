@@ -9,6 +9,7 @@ import { TECHS } from '../../shared/research';
 import type { Change, Game } from './game';
 import type { Political } from './political';
 import { attr, tip } from './tooltip';
+import { ProvinceList } from './province-list';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 type Lens = 'military' | 'eco';
@@ -18,13 +19,17 @@ export class Lenses {
   private el: HTMLElement;
   private open: Lens | null = null;
   private html = '';
+  private ecoTab: 'overview' | 'provinces' = 'overview';
+  private plist: ProvinceList;
 
   constructor(root: HTMLElement, private game: Game, private pol: Political, private order: (o: Order) => void,
-    private tools: { build?: () => void; roads?: () => void } = {}) {
+    private tools: { build?: () => void; roads?: () => void; go?: (province: number) => void; buildAt?: (province: number) => void } = {}) {
     this.el = document.createElement('section');
     this.el.className = 'panel lens';
     this.el.hidden = true;
     root.appendChild(this.el);
+    this.plist = new ProvinceList(game, pol, { go: (id) => this.tools.go?.(id), build: (id) => this.tools.buildAt?.(id) }, true);
+    this.plist.wire(this.el);
     root.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-lens]');
       if (b) { this.toggle(b.dataset.lens as Lens); return; }
@@ -33,11 +38,12 @@ export class Lenses {
       const k = a.dataset.ln;
       const e2 = this.game.mine?.econ;
       if (k === 'close') this.toggle(this.open!);
+      else if (k === 'ecotab') { this.ecoTab = a.dataset.tab as 'overview' | 'provinces'; this.render(); }
       else if (k === 'buildmode' || k === 'roads') { this.toggle(this.open!); (k === 'roads' ? this.tools.roads : this.tools.build)?.(); }
       else if (k === 'recruit') this.order({ kind: 'recruit', unit: a.dataset.unit as UnitType });
       else if (k === 'tax' && e2) this.order({ kind: 'policy', policy: { tax: Math.max(LIMITS.taxMin, Math.min(LIMITS.taxMax, (this.game.mine!.tax ?? 25) + Number(a.dataset.d))) } });
     });
-    game.on((c: Set<Change>) => { if (this.open && (c.has('mine') || c.has('units') || c.has('war') || c.has('economy'))) queueMicrotask(() => this.render()); });
+    game.on((c: Set<Change>) => { if (this.open === 'eco' && this.ecoTab === 'provinces' && this.game.mine && (this.plist.busy(this.el) || this.plist.refresh(this.el))) return; if (this.open && (c.has('mine') || c.has('units') || c.has('war') || c.has('economy'))) queueMicrotask(() => this.render()); });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.open) { this.toggle(this.open); } });
   }
 
@@ -55,7 +61,8 @@ export class Lenses {
 
   private render() {
     const mine = this.game.mine;
-    const body = !mine ? '<p class="hint">Take command of a nation first.</p>' : this.open === 'military' ? this.military() : this.eco();
+    const ecoTabs = this.open === 'eco' && mine ? `<div class="mk-tabs" role="tablist"><button type="button" role="tab" data-ln="ecotab" data-tab="overview" aria-selected="${this.ecoTab === 'overview'}">Overview</button><button type="button" role="tab" data-ln="ecotab" data-tab="provinces" aria-selected="${this.ecoTab === 'provinces'}">Provinces</button></div>` : '';
+    const body = !mine ? '<p class="hint">Take command of a nation first.</p>' : this.open === 'military' ? this.military() : ecoTabs + (this.ecoTab === 'provinces' ? this.plist.html() : this.eco());
     // the forces count moves from above the lens buttons to the top of the open lens
     const forces = document.getElementById('forcesSummary')?.textContent ?? '';
     const html = `<div class="row-between"><span class="label">LENS · ${this.open === 'military' ? 'MILITARY' : 'ECONOMY'}</span><button type="button" class="link" data-ln="close">Close</button></div>${mine && forces ? `<p class="lens-forces mono"><span class="tag">FORCES</span> ${esc(forces)}</p>` : ''}${body}`;

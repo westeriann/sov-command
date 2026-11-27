@@ -117,7 +117,7 @@ export class Seas {
         'icon-size': ['interpolate', ['linear'], ['zoom'], 4.6, 0.5, 7.5, 1.1] as never, 'icon-allow-overlap': true, 'icon-ignore-placement': true },
       paint: { 'icon-opacity': ['interpolate', ['linear'], ['zoom'], 4.6, 0, 5.4, 0.55] as never },
     }, map.getLayer('lanes') ? 'lanes' : undefined);
-    map.on('moveend', () => this.scatter());
+    map.on('moveend', (e) => { if (!(e as { keyPan?: boolean }).keyPan) this.scatter(); });
     window.setInterval(() => this.tick(), 450);
     window.setInterval(() => this.life(), 6000);
   }

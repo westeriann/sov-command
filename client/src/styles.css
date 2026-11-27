@@ -97,6 +97,8 @@ input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color:
   top: 92px; right: var(--gap); width: 320px; max-height: calc(100% - 92px - 80px); overflow-y: auto;
   display: flex; flex-direction: column; gap: 16px; padding: 16px; background: var(--glass-strong);
 }
+/* sections never squash into each other: the panel scrolls instead */
+.right > * { flex-shrink: 0; }
 #inspector { display: flex; flex-direction: column; gap: 12px; }
 .rp-sec { border-bottom: 1px solid var(--edge-soft); padding-bottom: 6px; }
 .rp-sec > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 6px 0; user-select: none; }
@@ -560,3 +562,30 @@ th.sortable-head { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable-head:hover { color: var(--cyan); }
 th.sort-desc::after { content: ' ▼'; font-size: 0.75em; color: var(--cyan); }
 th.sort-asc::after { content: ' ▲'; font-size: 0.75em; color: var(--cyan); }
+
+/* clickable project rows: they take you to the site */
+.projects tr.go-row { cursor: pointer; }
+.projects tr.go-row:hover { background: rgba(95, 212, 234, 0.08); }
+.projects tr.go-row:hover th { color: var(--cyan); }
+
+/* mini rankings in the world panel */
+.rank-sec { border-bottom: 0; }
+.mini-rank-pick select { width: 100%; margin: 2px 0 8px; }
+.ranking em { font-style: normal; width: 1.4em; color: var(--muted); font-size: 11px; text-align: right; flex: none; }
+.ranking li.mine button { background: rgba(95, 212, 234, 0.1); }
+.ranking li.gap { text-align: center; color: var(--muted); font-size: 11px; line-height: 1; }
+
+/* windows move by their title bars */
+.econ-head, .nc-head, .uc-head { cursor: grab; }
+.econ-head :is(button, a, input, select, label), .nc-head :is(button, a), .uc-head :is(button, a) { cursor: pointer; }
+body.moving-window, body.moving-window * { cursor: grabbing !important; user-select: none; }
+
+/* province list (Economy > Provinces, Eco lens > Provinces) */
+.plist-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 4px; }
+.plist-filters input[type=search] { flex: 1 1 160px; min-width: 120px; }
+.plist-filters select { flex: 0 1 auto; max-width: 190px; }
+.plist.compact .plist-filters select { max-width: 150px; font-size: 12px; }
+.plist-table td, .plist-table th { white-space: nowrap; }
+.plist-table td:nth-last-child(2) { white-space: normal; }
+.plist-count { margin: 4px 0; }
+.plist.compact .table-wrap { max-height: 46vh; overflow-y: auto; }
