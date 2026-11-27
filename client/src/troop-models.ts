@@ -89,7 +89,11 @@ function animate(el: HTMLElement, domain: 'land' | 'sea' | 'air') {
     }
     // wheels turn while rolling in, then stop; soldiers stride in, then stand
     model.querySelectorAll('.wheel').forEach((w) => go(w, [{ transform: 'rotate(0)' }, { transform: 'rotate(360deg)' }], { duration: 450, delay: lag, iterations: 4 }));
-    model.querySelectorAll('.leg-a, .leg-b').forEach((l, k) => go(l, [{ transform: 'rotate(-16deg)' }, { transform: 'rotate(16deg)' }], { duration: 450, delay: lag, iterations: 4, direction: k % 2 ? 'alternate-reverse' : 'alternate' }));
+    // four strides, each leg swinging out and back through its own stance, then standing as drawn (feet apart), not crossed
+    model.querySelectorAll('.leg-a, .leg-b').forEach((l, k) => {
+      const out = k % 2 ? 16 : -16;
+      go(l, [{ transform: 'rotate(0)' }, { transform: `rotate(${out}deg)` }, { transform: 'rotate(0)' }, { transform: `rotate(${-out}deg)` }, { transform: 'rotate(0)' }], { duration: 900, delay: lag, iterations: 2 });
+    });
     // idle: turrets traverse, guns lift, rotors and propellers turn, the periscope rises, engines glow
     model.querySelectorAll('.turret').forEach((g, k) => go(g, [{ transform: 'rotate(0)' }, { transform: 'rotate(-4deg)', offset: 0.3 }, { transform: 'rotate(3deg)', offset: 0.6 }, { transform: 'rotate(0)' }], { duration: 6000, delay: lag + 1800, iterations: Infinity, easing: 'ease-in-out', direction: k ? 'reverse' : 'normal' }));
     model.querySelectorAll<SVGGraphicsElement>('.barrel').forEach((g) => {

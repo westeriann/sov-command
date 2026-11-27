@@ -13,6 +13,8 @@ export class EventDialog {
   private el: HTMLElement;
   private shownFor = ''; // the event we last showed, so setting it aside sticks
   onShow: () => void = () => {};
+  /** You answered: a different sound from the one that announced it. */
+  onChoose: () => void = () => {};
 
   constructor(root: HTMLElement, private game: Game, private pol: Political, private order: (o: Order) => void) {
     this.el = document.createElement('div');
@@ -24,7 +26,7 @@ export class EventDialog {
       if (!t) return;
       if (t.dataset.ev === 'later') { this.el.hidden = true; return; }
       const ev = this.game.mine?.event;
-      if (ev) this.order({ kind: 'choose', event: ev.key, option: Number(t.dataset.ev) });
+      if (ev) { this.order({ kind: 'choose', event: ev.key, option: Number(t.dataset.ev) }); this.onChoose(); }
       this.el.hidden = true;
     });
     game.on((c: Set<Change>) => {

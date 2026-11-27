@@ -549,7 +549,7 @@ let soundRef: Sound | null = null;
     if (!alerts || !document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
     try { new Notification(title, { body, tag: 'sovereign' }); } catch { /* not allowed here */ }
   };
-  new Notices(hudRoot, game, pol, sound, {
+  const notices = new Notices(hudRoot, game, pol, sound, {
     openModule: (id) => { if (!hudRoot.querySelector(`.left [data-module="${id}"].active`)) hudRoot.querySelector<HTMLElement>(`.left [data-module="${id}"]`)?.click(); },
     goToNation: (id) => { const n = pol.nations.get(id); const p = n && pol.provinces.get(n.capital); if (p) select(p.label[1], p.label[0], true); },
     goToProvince: (id) => { const p = pol.provinces.get(id); if (p) select(p.label[1], p.label[0], true); },
@@ -589,6 +589,7 @@ let soundRef: Sound | null = null;
       gameMap.setOccupied(new Map(Object.entries(game.war.occupied).map(([p, n]) => [Number(p), n])), moved);
     }
   });
+  eventDialog.onChoose = () => { sound.play('deal_signed'); notices.quietUntil = performance.now() + 4000; }; // a stamp, then the outcome arrives quietly
   const map = gameMap.map;
   roadTool = new RoadTool(hudRoot, map, game, pol, {
     build: (path, pts) => { conn.send({ t: 'order', order: { kind: 'road', path, pts } }); sound.play('confirm'); },
@@ -710,6 +711,7 @@ let soundRef: Sound | null = null;
   });
   map.on('mouseout', () => { hud.hover(null); hoverCard.hide(); });
   map.on('movestart', () => hoverCard.hide());
+  let lastMoodSound = -Infinity;
   map.on('click', (e) => {
     if (roadTool?.active) return; // the road tool works on press and drag
     // a hurricane: its card (the click goes no further)
@@ -733,7 +735,8 @@ let soundRef: Sound | null = null;
     if (clicked) {
       const capitals = new Set([...pol.nations.values()].map((n) => n.capital));
       const mood = provinceMood(clicked, game, capitals.has(clicked.id));
-      sound.play(mood.cue, 0.8);
+      // the sound only now and then: about one click in five, and never twice within half a minute
+      if (performance.now() - lastMoodSound > 30_000 && Math.random() < 0.2) { lastMoodSound = performance.now(); sound.play(mood.cue, 0.8); }
       scenes.play(mood.scene, e.lngLat.wrap().lng, e.lngLat.lat);
     }
   });

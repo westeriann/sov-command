@@ -780,7 +780,7 @@ export class Hud {
   private renderComms() {
     const list = this.root.querySelector<HTMLElement>('#commsList')!;
     const form = this.root.querySelector<HTMLElement>('#chatForm')!;
-    this.root.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === this.commsTab)));
+    this.comms.querySelectorAll<HTMLButtonElement>('.comms-tabs [role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === this.commsTab)));
     const chatOpen = !this.comms.hidden && this.commsTab === 'chat';
     if (chatOpen) this.game.unreadChat = 0;
     const unread = this.game.unreadChat;

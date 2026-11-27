@@ -26,10 +26,10 @@ const RAD = Math.PI / 180;
 
 /** Zoom where models start to appear, and where they are fully grown. */
 export const MODELS_FROM = 3.3;
-/** A building's size on the ground, metres: big enough to read from the zoom models appear at. */
 const CLIP = 0.12;          // how far two core buildings' footprints may overlap, as a share of their size
 const SPACING_CELL = 12000; // metres: grid cell for the spacing check
-const BUILDING_M = 9000;
+/** A building's size on the ground, metres: big enough to read from the zoom models appear at. */
+const BUILDING_M = 9650;
 const MODELS_FULL = 3.8;
 
 // ---- geometry -------------------------------------------------------------------

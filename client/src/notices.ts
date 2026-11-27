@@ -33,6 +33,8 @@ export const icon = (name: string) => `<svg viewBox="0 0 16 16" aria-hidden="tru
 export interface NoticeActions { openModule(id: string): void; goToNation(id: number): void; goToProvince(id: number): void }
 
 export class Notices {
+  /** Until this moment (performance.now()), routine dispatches arrive without their own sound: you just chose, and heard that. */
+  quietUntil = 0;
   private list: Notice[] = [];
   private seen = new Set<string>();
   private unread = 0;
@@ -135,7 +137,7 @@ export class Notices {
       : has(/price|shortage|embargo|market/i) ? 'market_alert'
       : has(/report|agents|spy|envoy|intelligence/i) ? 'dispatch'
       : worst === 'important' ? 'alert' : 'notice';
-    this.sound.play(cue);
+    if (!(performance.now() < this.quietUntil && (cue === 'alert' || cue === 'notice' || cue === 'dispatch'))) this.sound.play(cue);
     const top = fresh.find((n) => n.level === worst)!;
     if (worst !== 'info') this.notify(worst === 'urgent' ? 'Sovereign Command: URGENT' : 'Sovereign Command', top.text);
     if (worst === 'urgent') { this.el.classList.remove('flash'); void this.el.offsetWidth; this.el.classList.add('flash'); }

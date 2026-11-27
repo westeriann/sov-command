@@ -38,6 +38,9 @@ export function reveal(win: HTMLElement, selector: string) {
 export function installScreens(root: HTMLElement, defs: { sel: string; make: () => Piece }[], onOpen?: (open: boolean) => void) {
   const wired = new WeakSet<HTMLElement>();
   const stages = new WeakMap<HTMLElement, { stage: HTMLElement; piece: Piece }>();
+  // where you had scrolled the right-hand wing (or the body inside it) to: each redraw
+  // builds the wing anew, so it is put back there afterwards instead of jumping to the top
+  const scrolled = new WeakMap<HTMLElement, { wing: number; body: number }>();
 
   const syncOpen = () => {
     const open = [...root.querySelectorAll<HTMLElement>('.econ-window.screen')].some((w) => !w.hidden);
@@ -52,7 +55,6 @@ export function installScreens(root: HTMLElement, defs: { sel: string; make: () 
     const body = kids.find((k) => k.classList.contains('econ-body'));
     if (!body) return;
     const st = stages.get(win)!;
-    const scroll = body.scrollTop;
     const grid = document.createElement('div');
     grid.className = 'scr-grid';
     const left = document.createElement('div');
@@ -64,7 +66,8 @@ export function installScreens(root: HTMLElement, defs: { sel: string; make: () 
     for (const k of kids) if (k !== head) right.append(k);
     grid.append(left, st.stage, right);
     win.append(grid);
-    body.scrollTop = scroll;
+    const at = scrolled.get(win);
+    if (at) { right.scrollTop = at.wing; body.scrollTop = at.body; }
     try { st.piece.update(win); } catch (e) { console.error('screen centrepiece', e); }
   };
 
@@ -81,6 +84,12 @@ export function installScreens(root: HTMLElement, defs: { sel: string; make: () 
     stage.append(holder, Object.assign(document.createElement('i'), { className: 'scr-base' }));
     if (piece.caption) stage.append(Object.assign(document.createElement('p'), { className: 'scr-caption', textContent: piece.caption }));
     stages.set(win, { stage, piece });
+    win.addEventListener('scroll', (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.classList?.contains('scr-right') && !(t.classList?.contains('econ-body') && t.closest('.scr-right'))) return;
+      const wing = win.querySelector<HTMLElement>('.scr-right'), body = wing?.querySelector<HTMLElement>('.econ-body');
+      scrolled.set(win, { wing: wing?.scrollTop ?? 0, body: body?.scrollTop ?? 0 });
+    }, true);
     new MutationObserver((list) => {
       if (list.some((m) => m.type === 'attributes')) syncOpen();
       if (list.some((m) => m.type === 'childList')) restructure(win);
