@@ -1,6 +1,6 @@
 // The R&D window: the technology tree and the research queue.
 import {
-  BRANCHES, BRANCH_NAMES, ERA_NAMES, MAX_RESEARCH_QUEUE, MAX_TIER, TECHS, TECH_BY_ID, TIER_COST, pathCost, pathTo, prerequisites, ready,
+  BRANCHES, BRANCH_NAMES, ERA_NAMES, MAX_RESEARCH_QUEUE, MAX_TIER, TECHS, TECH_BY_ID, pathCost, techCost, pathTo, prerequisites, ready,
   type Branch, type Government, type Tech, type TechId,
 } from '../../shared/research';
 import type { Game } from './game';
@@ -74,11 +74,12 @@ export class ResearchPanel {
     const rate = Math.max(0.1, r.rate);
     const time = (days: number) => { const s = days * secsPerDay; return s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`; };
     const span = (pts: number) => { const d = pts / rate; return d < 400 ? `~${Math.ceil(d)} days` : `~${(d / 365).toFixed(1)} years`; };
+    const tierCost = (tier: number) => techCost(tier, this.game.settings);
     const cur = r.current ? TECH_BY_ID.get(r.current) : undefined;
     const done = new Set<string>(r.done), queue = r.queue ?? [];
     const lined = new Set<string>([...r.done, ...queue, ...(cur ? [cur.id] : [])]);
     const era = Math.max(0, ...r.done.map((id) => TECH_BY_ID.get(id)?.tier ?? 0));
-    const left = pathCost(TECHS.filter((t) => !done.has(t.id)));
+    const left = pathCost(TECHS.filter((t) => !done.has(t.id)), this.game.settings);
 
     const card = (t: Tech, showBranch = false) => {
       const isDone = done.has(t.id), active = r.current === t.id, slot = queue.indexOf(t.id);
@@ -86,7 +87,7 @@ export class ResearchPanel {
       const path = canQueue ? [] : pathTo(t, lined);
       const room = MAX_RESEARCH_QUEUE - queue.length;
       const needs = prerequisites(t);
-      const cost = TIER_COST[t.tier];
+      const cost = tierCost(t.tier);
       const tipText = tip(t.name, ...effectLines(t.text), `${ERA_NAMES[t.tier]} · tier ${t.tier} · ${cost.toLocaleString('en-US')} research points (${span(cost)})`,
         needs.length ? `Needs ${needs.map((p) => p.name).join(', ')}` : null);
       const needLine = needs.length ? `<span class="needs">Needs ${needs.map((p) => `<i class="${done.has(p.id) ? 'ok' : lined.has(p.id) ? 'lined' : 'no'}">${esc(p.name)}</i>`).join(' · ')}</span>` : '';
@@ -96,7 +97,7 @@ export class ResearchPanel {
           : slot >= 0 ? `<div class="actions-row"><em>Queued #${slot + 1}</em><button type="button" class="claim" data-r="unqueue" data-tech="${t.id}">Remove</button></div>`
           : `<div class="actions-row">${canStart ? `<button type="button" class="claim primary" data-r="tech" data-tech="${t.id}">Research now</button>` : ''}
              ${canQueue ? `<button type="button" class="claim" data-r="queue" data-tech="${t.id}" ${room > 0 ? '' : 'disabled'}>Queue</button>`
-               : `<button type="button" class="claim" data-r="path" data-tech="${t.id}" ${path.length <= room ? '' : 'disabled'} data-tip="${attr(tip('Queue the whole path', ...path.map((p) => p.name), `${pathCost(path).toLocaleString('en-US')} points, ${span(pathCost(path))}`))}">Queue with ${path.length - 1} before it</button>`}</div>`}
+               : `<button type="button" class="claim" data-r="path" data-tech="${t.id}" ${path.length <= room ? '' : 'disabled'} data-tip="${attr(tip('Queue the whole path', ...path.map((p) => p.name), `${pathCost(path, this.game.settings).toLocaleString('en-US')} points, ${span(pathCost(path, this.game.settings))}`))}">Queue with ${path.length - 1} before it</button>`}</div>`}
       </div>`;
     };
 
@@ -125,9 +126,9 @@ export class ResearchPanel {
     this.panel.innerHTML = `${head}
       <div class="econ-body">
         <div class="econ-kpis">
-          <div><span>Researching</span><b>${cur ? esc(cur.name) : '—'}</b><em>${cur ? `${Math.round((r.progress / TIER_COST[cur.tier]) * 100)}% · ${span(TIER_COST[cur.tier] - r.progress)} (${time((TIER_COST[cur.tier] - r.progress) / rate)})` : 'choose a technology below'}</em></div>
+          <div><span>Researching</span><b>${cur ? esc(cur.name) : '—'}</b><em>${cur ? `${Math.round((r.progress / tierCost(cur.tier)) * 100)}% · ${span(tierCost(cur.tier) - r.progress)} (${time((tierCost(cur.tier) - r.progress) / rate)})` : 'choose a technology below'}</em></div>
           <div><span>Research rate</span><b>${r.rate}</b><em>points a day · raise the research budget in Economy</em></div>
-          <div><span>Queue</span><b>${queue.length} / ${MAX_RESEARCH_QUEUE}</b><em>${queue.length ? `${queue.slice(0, 6).map((q, i) => `${i + 1}. ${esc(TECH_BY_ID.get(q)?.name ?? q)}`).join(' → ')}${queue.length > 6 ? ` → +${queue.length - 6} more` : ''} · ${span(pathCost(queue.map((q) => TECH_BY_ID.get(q)!).filter(Boolean)))}` : cur ? 'nothing lined up: research stops after this one' : 'line up technologies below'}</em></div>
+          <div><span>Queue</span><b>${queue.length} / ${MAX_RESEARCH_QUEUE}</b><em>${queue.length ? `${queue.slice(0, 6).map((q, i) => `${i + 1}. ${esc(TECH_BY_ID.get(q)?.name ?? q)}`).join(' → ')}${queue.length > 6 ? ` → +${queue.length - 6} more` : ''} · ${span(pathCost(queue.map((q) => TECH_BY_ID.get(q)!).filter(Boolean), this.game.settings))}` : cur ? 'nothing lined up: research stops after this one' : 'line up technologies below'}</em></div>
           <div><span>Technologies</span><b>${r.done.length} / ${TECHS.length}</b><em>${era ? `reached era ${era}, ${esc(ERA_NAMES[era])}` : 'bonuses are permanent'} · the rest ${span(left)} at this rate</em></div>
         </div>
         <div class="chips tech-tabs" role="group" aria-label="Branches">${tabs}</div>

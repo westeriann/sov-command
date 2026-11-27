@@ -266,6 +266,11 @@ table.goods th, table.league th, .market-table th, .ledger th { font: 500 9px va
 .splash-tip b { color: var(--cyan); font-family: var(--f-mono); }
 .menu-body { background: var(--glass-strong); border: 1px solid var(--edge); border-radius: 18px; box-shadow: 0 0 40px rgba(124, 196, 255, 0.12), 0 14px 40px rgba(0, 0, 0, 0.6); backdrop-filter: blur(10px); }
 .menu-body h2 { font: 700 20px var(--f-display); color: #fff; letter-spacing: 0.14em; }
+.ng-card { border-color: var(--edge-soft); border-radius: 12px; background: rgba(124, 196, 255, 0.04); border-left: 3px solid rgba(124, 196, 255, 0.35); }
+.ng-card:hover:not(.soon) { background: rgba(124, 196, 255, 0.1); }
+.ng-card.on { border-color: var(--cyan); border-left-color: var(--cyan); background: rgba(124, 196, 255, 0.14); box-shadow: 0 0 18px rgba(124, 196, 255, 0.15); }
+.ng-card b { color: #fff; }
+.ng-card em { color: var(--cyan); }
 .menu-brand { position: relative; }
 .menu-brand .logo, .main-menu .logo { filter: drop-shadow(0 0 22px rgba(124, 196, 255, 0.4)); }
 

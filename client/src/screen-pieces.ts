@@ -5,7 +5,7 @@ import type { Political } from './political';
 import { proxy, reveal, type Piece } from './screens';
 import { BUDGET_KEYS, COMMODITIES, COMMODITY_INFO, money, type Budget } from '../../shared/economy';
 import { UNIT_SPECS, UNIT_TYPES, type Domain } from '../../shared/military';
-import { BRANCHES, BRANCH_SHORT, TECHS, TECH_BY_ID, TIER_COST, prerequisites, ready } from '../../shared/research';
+import { BRANCHES, BRANCH_SHORT, TECHS, TECH_BY_ID, prerequisites, ready, techCost } from '../../shared/research';
 import { CHAMBER, blocsFor, chamberLegend, chamberSvg, memberName, memberPick, type Bloc } from './chamber';
 import { threatStackHtml } from './threat-stack';
 import { MAX_SPY_OPS } from '../../shared/diplomacy';
@@ -345,7 +345,7 @@ export function researchPiece(game: Game): Piece {
       }).join('');
       const sectors = BRANCHES.map((b, bi) => { const [x, y] = pt(200, 200, 204, mid(bi)); return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="br">${esc(BRANCH_SHORT[b].toUpperCase())}</text>`; }).join('');
       const cur = r.current ? TECHS.find((t) => t.id === r.current) : undefined;
-      const prog = cur ? Math.min(1, r.progress / TIER_COST[cur.tier]) : 0;
+      const prog = cur ? Math.min(1, r.progress / techCost(cur.tier, game.settings)) : 0;
       const sel = pick ? TECHS.find((t) => t.id === pick) : undefined;
       const ss = sel ? state(sel.id) : '';
       el.innerHTML = `<svg viewBox="-10 -10 420 420" class="orbit" role="img" aria-label="Research orbit">

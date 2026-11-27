@@ -2,6 +2,10 @@
 
 import { BRANCHES, BRANCH_NAMES, BRANCH_SHORT, ERA_NAMES, MAX_TIER, TECH_DEFS, TIER_COST, type Branch, type TechDef } from './tech-tree';
 export { BRANCHES, BRANCH_NAMES, BRANCH_SHORT, ERA_NAMES, MAX_TIER, TIER_COST, type Branch };
+import { MODE_INFO, type GameSettings } from './settings';
+
+/** Research points a technology of this tier costs under a game's settings (Dash: half; unknown: the full Marathon pace). */
+export const techCost = (tier: number, settings?: Pick<GameSettings, 'mode'> | null) => Math.round(TIER_COST[tier] * (settings ? MODE_INFO[settings.mode]?.research ?? 1 : 1));
 
 /** Bonuses from technology and government. All additive shares (0.1 = +10%). */
 export interface Effects {
@@ -86,7 +90,7 @@ export function pathTo(t: Tech, have: { has(id: string): boolean }): Tech[] {
   return out;
 }
 /** Research points still to spend on a list of technologies. */
-export const pathCost = (ts: Tech[]) => ts.reduce((a, t) => a + TIER_COST[t.tier], 0);
+export const pathCost = (ts: Tech[], settings?: Pick<GameSettings, 'mode'> | null) => ts.reduce((a, t) => a + techCost(t.tier, settings), 0);
 
 export type Government = 'democracy' | 'autocracy' | 'junta' | 'technocracy';
 export const GOVERNMENTS: Government[] = ['democracy', 'autocracy', 'junta', 'technocracy'];

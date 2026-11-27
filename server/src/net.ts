@@ -135,6 +135,7 @@ export class Hub implements WorldListener {
         t: 'welcome',
         you: { ...user, nation: mine?.id ?? null, admin: this.accounts.isAdmin(user.name) || undefined, achievements: this.accounts.achievements(user.id) as never },
         clock: { ...this.world.clock, serverNow: Date.now() },
+        settings: this.world.settings,
         nations: this.world.allPublic(),
         mine: mine ? this.world.privateView(mine) : null,
         events, chat,

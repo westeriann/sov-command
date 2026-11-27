@@ -512,6 +512,20 @@ a.claim.go-btn { text-decoration: none; display: inline-flex; align-items: cente
 .menu-btn:hover, .menu-btn:focus-visible { background: linear-gradient(180deg, #3a3326, #231d14); border-left-color: #f0d48a; transform: translateX(4px); outline: none; }
 .menu-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
 .menu-row .text-input { flex: 1; min-width: 200px; }
+.ng-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin: 10px 0 4px; }
+.ng-grid section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ng-cards { display: flex; flex-direction: column; gap: 8px; }
+.ng-card { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 10px 12px; border: 1px solid #4b4234; border-radius: 6px; background: rgba(240, 212, 138, 0.03); color: inherit; font: inherit; cursor: pointer; }
+.ng-card b { font: 600 14px var(--f-display, sans-serif); letter-spacing: 0.06em; }
+.ng-card em { font-style: normal; font-size: 11px; color: #f0d48a; }
+.ng-card span { font-size: 12px; opacity: 0.8; line-height: 1.4; }
+.ng-card.on { border-color: #f0d48a; background: rgba(240, 212, 138, 0.1); }
+.ng-card.soon { opacity: 0.45; cursor: default; border-style: dashed; }
+.ng-rule { display: flex; flex-direction: column; gap: 6px; }
+.ng-rule > span { font-size: 12px; opacity: 0.85; }
+.ng-seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.ng-summary { margin: 12px 0 4px; font-size: 12px; opacity: 0.85; }
+#ngNation { width: 100%; }
 .opt-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
 .opt-grid section { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .opt-grid .slider { width: 100%; }
@@ -521,7 +535,7 @@ body.menu-open #hud > *:not(.manual-backdrop):not(.panel.fatal) { visibility: hi
   .menu-shell { grid-template-columns: 1fr; }
   .menu-brand { align-items: center; text-align: center; }
   .main-menu h1 { font-size: 30px; }
-  .opt-grid { grid-template-columns: 1fr; }
+  .opt-grid, .ng-grid { grid-template-columns: 1fr; }
 }
 .main-menu .motto { margin: 10px 0 0; max-width: 460px; color: #e8cf8f; font: italic 400 16px/1.4 var(--f-body, Georgia, serif); letter-spacing: 0.04em; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); }
 .splash-tip { display: flex; gap: 10px; align-items: baseline; max-width: min(560px, 86vw); margin: 18px 0 0; padding: 10px 14px; text-align: left; font-size: 14px; line-height: 1.5; color: var(--fg);

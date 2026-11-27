@@ -5,6 +5,7 @@ import type { ChatChannel, ClientMsg, ServerMsg } from '../../../shared/protocol
 import { getMeta, setMeta } from '../../../server/src/schema';
 import { World, nationDefsFrom } from '../../../server/src/world';
 import { MemoryDB } from './memdb';
+import { normalizeSettings, type NewGame } from '../../../shared/settings';
 import { migrate } from '../../../server/src/schema';
 
 const ME = { id: 1, name: 'Commander', guest: false };
@@ -96,17 +97,24 @@ async function start(base: string) {
   db = new MemoryDB(saved);
   migrate(db);
   setMeta(db, 'mapStamp', stamp);
-  if ((await get('ironman-next')) === '1') { setMeta(db, 'ironman', '1'); await store(null, 'ironman-next'); }
+  // a new game from the create-game screen: its choices apply to the world about to be made
+  let next: NewGame | undefined;
+  try { next = JSON.parse((await get('new-game')) ?? 'null') ?? undefined; } catch { next = undefined; }
+  if (next) await store(null, 'new-game');
+  if ((await get('ironman-next')) === '1') { setMeta(db, 'ironman', '1'); await store(null, 'ironman-next'); } // older builds' new game
+  if (next?.ironman) setMeta(db, 'ironman', '1');
   // the world waits while the tab is closed: pick the clock up where it stopped
   const clock = getMeta(db, 'clock');
   const last = getMeta(db, 'lastGame');
   if (clock && last) {
     setMeta(db, 'clock', JSON.stringify({ openedReal: Date.now(), openedGame: Number(last), speed: JSON.parse(clock).speed }));
   }
-  const speed = clock ? JSON.parse(clock).speed : BASE_SPEED * DEFAULT_X;
+  const startX = Math.max(1, Math.min(20, Math.round(Number(next?.speed) || DEFAULT_X)));
+  const speed = clock ? JSON.parse(clock).speed : BASE_SPEED * startX;
   world = new World(db, seed, nations, {
     speed, startGame: Date.UTC(2026, 0, 1), aiBudgetPerTick: 150,
     autopilotAfterMs: 1e15, releaseAfterMs: 1e15, seasonMs: 28 * 86_400_000, singlePlayer: true,
+    settings: normalizeSettings(next),
   }, provinces);
   world.achievements = {
     list: (u) => (db.prepare('select key from achievements where user_id = ?').all(u) as { key: string }[]).map((r) => r.key),
@@ -126,6 +134,8 @@ async function start(base: string) {
     war: (war) => post({ t: 'war', war }),
   };
   world.setPresence(ME.id, true);
+  // chosen on the create-game screen: lead it from the first moment
+  if (next?.nation !== undefined && !world.nationOf(ME.id)) world.claim(ME, Number(next.nation));
   setInterval(() => { if (paused !== null) return; try { world.tick(); } catch (e) { console.error('tick failed', e); } }, 1000);
   setInterval(() => void save(), 20_000);
   postMessage({ t: 'ready' });
@@ -143,7 +153,7 @@ function handle(msg: ClientMsg) {
       const { events, chat } = world.recent(ME.id);
       post({
         t: 'welcome', you: { ...ME, nation: mine?.id ?? null, achievements: world.achievements.list(ME.id) as never },
-        clock: { ...world.clock, serverNow: Date.now() }, nations: world.allPublic(), mine: mine ? world.privateView(mine) : null,
+        clock: { ...world.clock, serverNow: Date.now() }, settings: world.settings, nations: world.allPublic(), mine: mine ? world.privateView(mine) : null,
         events, chat, online: 1, economy: world.economyUpdate(), war: world.warState(), units: world.unitsFor(ME.id),
       });
       if (restarted) { restarted = false; post({ t: 'error', code: 'not_allowed', message: 'The map has been updated, so a new world has started. Your earlier game could not carry over.' }); }
@@ -199,7 +209,7 @@ onmessage = (e: MessageEvent) => {
       post({ t: 'clock', clock: { ...world.clock, serverNow: Date.now() } });
     }
   }
-  else if (d.t === 'reset') void store(null).then(() => store(d.ironman ? '1' : null, 'ironman-next')).then(() => postMessage({ t: 'reset-done' }));
+  else if (d.t === 'reset') void store(null).then(() => store(JSON.stringify(d.game ?? {}), 'new-game')).then(() => postMessage({ t: 'reset-done' }));
   else if (d.t === 'slots') void slots().then((list) => postMessage({ t: 'slots', list, ironman: ironman() }));
   else if (d.t === 'save-slot' && world) {
     if (ironman()) { postMessage({ t: 'slots', list: [], ironman: true, error: 'Ironman games keep a single autosave.' }); return; }

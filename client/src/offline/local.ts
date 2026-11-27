@@ -1,6 +1,7 @@
 // Single-player: the game interface talks to the world in a Web Worker
 // instead of a server. Same messages, no network.
 import type { ClientMsg, ServerMsg } from '../../../shared/protocol';
+import type { NewGame } from '../../../shared/settings';
 import type { Game } from '../game';
 import { Connection } from '../net';
 
@@ -57,10 +58,10 @@ export class LocalConnection extends Connection {
 
   stop() { /* the world keeps running in this tab */ }
 
-  /** Start over: delete the saved world and reload. Ironman: one autosave, no loading other saves. */
-  newGame(ironman = false) {
+  /** Start over with the create-game screen's choices: delete the saved world and reload. */
+  newGame(game: NewGame) {
     this.worker.addEventListener('message', (e) => { if (e.data?.t === 'reset-done') location.reload(); });
-    this.worker.postMessage({ t: 'reset', ironman });
+    this.worker.postMessage({ t: 'reset', game });
   }
 
   /** Save slots: list them, save the world under a name, load one (reloads the page), delete one. */

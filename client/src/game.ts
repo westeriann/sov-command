@@ -8,6 +8,7 @@ import type {
   ChatLine, ClockInfo, EconomyUpdate, Me, NationPrivate, NationPublic, ServerMsg, WarState, WorldEvent,
 } from '../../shared/protocol';
 import { GAME_SPEED, gameNow as offlineNow } from './config';
+import { DEFAULT_SETTINGS, normalizeSettings, type GameSettings } from '../../shared/settings';
 
 export type Status = 'offline' | 'connecting' | 'online';
 export type Change = 'status' | 'me' | 'nations' | 'mine' | 'events' | 'chat' | 'online' | 'error' | 'economy' | 'units' | 'war';
@@ -26,6 +27,8 @@ export class Game {
   unreadChat = 0;
   lastError: string | null = null;
   economy = new Map<number, EconomyPublic>();
+  /** The map and mode this world was made with. */
+  settings: GameSettings = { ...DEFAULT_SETTINGS };
   market: MarketSnapshot | null = null;
   season: SeasonInfo | null = null;
   world: WorldState | null = null;
@@ -90,6 +93,7 @@ export class Game {
       case 'welcome':
         this.me = msg.you;
         this.clock = msg.clock;
+        this.settings = normalizeSettings(msg.settings);
         this.offset = msg.clock.serverNow - Date.now();
         this.nations = new Map(msg.nations.map((n) => [n.id, n]));
         this.mine = msg.mine;

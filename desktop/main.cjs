@@ -7,7 +7,7 @@ const { app, BrowserWindow, Menu, ipcMain, protocol, shell } = require('electron
 const { spawn } = require('node:child_process');
 const os = require('node:os');
 const { readFile } = require('node:fs/promises');
-const { existsSync } = require('node:fs');
+const { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
 
 // The game is served from app://game/ so module workers, fetch() and saved
@@ -24,15 +24,33 @@ const HOST_DIR = app.isPackaged ? path.join(process.resourcesPath, 'host') : pat
 const HOST_PORT = 8787;
 let host = null; // the hosted world server, while running
 
-/** Start the bundled world server; resolves with its port once it listens. */
-function startHost() {
-  if (host) return Promise.resolve(host.port);
+/**
+ * Start the bundled world server; resolves with its port once it listens.
+ * With a new game from the create-game screen, the last hosted world is set aside
+ * (kept as hosted-world-previous) and a fresh one is made with those choices;
+ * without, the last hosted world carries on with the choices it was made with.
+ */
+async function startHost(game) {
+  if (host && !game) return host.port;
   if (!existsSync(path.join(HOST_DIR, 'server.mjs'))) return Promise.reject(new Error('This build cannot host games (the server is missing).'));
   const dataDir = path.join(app.getPath('userData'), 'hosted-world');
+  const choicesFile = path.join(dataDir, 'host.json');
+  if (game) {
+    await stopHostAndWait(); // its files stay locked until it has exited
+    const previous = `${dataDir}-previous`;
+    if (existsSync(dataDir)) { rmSync(previous, { recursive: true, force: true }); renameSync(dataDir, previous); }
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(choicesFile, JSON.stringify(game));
+  }
+  let choices = {};
+  try { choices = JSON.parse(readFileSync(choicesFile, 'utf8')); } catch { /* a world from before the create-game screen */ }
+  const speed = Math.max(1, Math.min(20, Number(choices.speed) || 1));
   const child = spawn(process.execPath, [path.join(HOST_DIR, 'server.mjs')], {
     env: {
       ...process.env, ELECTRON_RUN_AS_NODE: '1', SOV_HOST: '1', PORT: String(HOST_PORT),
       WORLD_DIR: path.join(HOST_DIR, 'site', 'world'), STATIC_DIR: path.join(HOST_DIR, 'site'), DB_FILE: path.join(dataDir, 'world.db'),
+      GAME_SPEED: String(8640 * speed), GAME_SETTINGS: JSON.stringify({ map: choices.map, mode: choices.mode }),
+      AUTOPILOT_MIN: String(choices.autopilotMin ?? 60), RELEASE_DAYS: String(choices.releaseDays ?? 7),
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
@@ -46,6 +64,18 @@ function startHost() {
     });
     child.stderr.on('data', (b) => { log += b; });
     child.on('exit', (code) => { clearTimeout(timer); host = null; if (code) reject(new Error(`The server stopped (${code}).\n${log.slice(-600)}`)); });
+  });
+}
+
+/** Stop the hosted world and wait for its process to end. */
+function stopHostAndWait() {
+  if (!host) return Promise.resolve();
+  const { child } = host;
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(t); resolve(); };
+    const t = setTimeout(done, 10_000);
+    child.once('exit', done);
+    stopHost();
   });
 }
 
@@ -121,12 +151,18 @@ if (!app.requestSingleInstanceLock()) {
       console.error(`Game files not found in ${GAME_DIR}. Run \`npm run game\` in desktop/ first.`);
     }
     protocol.handle('app', serve);
-    ipcMain.handle('host:start', async () => {
-      const port = await startHost();
+    ipcMain.handle('host:start', async (_e, game) => {
+      const port = await startHost(game && typeof game === 'object' ? game : undefined);
       return { port, url: `http://localhost:${port}/`, addresses: lanAddresses().map((a) => `http://${a}:${port}/`) };
     });
     ipcMain.handle('host:stop', () => { stopHost(); return true; });
     ipcMain.handle('host:status', () => (host ? { port: host.port, addresses: lanAddresses().map((a) => `http://${a}:${host.port}/`) } : null));
+    // whether there is a hosted world to carry on, and what it was made with
+    ipcMain.handle('host:last', () => {
+      const dataDir = path.join(app.getPath('userData'), 'hosted-world');
+      if (!existsSync(path.join(dataDir, 'world.db'))) return null;
+      try { return JSON.parse(readFileSync(path.join(dataDir, 'host.json'), 'utf8')); } catch { return {}; }
+    });
     ipcMain.handle('app:single', (e) => { e.sender.loadURL('app://game/index.html'); return true; });
     Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([
       { role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },

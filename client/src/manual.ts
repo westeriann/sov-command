@@ -13,7 +13,8 @@ import { EVENTS, EVENT_DAYS, type EventKey } from '../../shared/events';
 import { AUTONOMY_COST, CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST } from '../../shared/parties';
 import { MAX_NETWORKS, NETWORK_GROWTH } from '../../shared/diplomacy';
 import { UNIT_ROLE, UNIT_SPECS, UNIT_TYPES } from '../../shared/military';
-import { BRANCHES, BRANCH_NAMES, ERA_NAMES, GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, MAX_TIER, REFORM_DAYS, TECHS, TIER_COST } from '../../shared/research';
+import { BRANCHES, BRANCH_NAMES, ERA_NAMES, GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, MAX_TIER, REFORM_DAYS, TECHS, TIER_COST, techCost } from '../../shared/research';
+import { GAME_MODES, MODE_INFO } from '../../shared/settings';
 
 /**
  * Link targets, as data-go values:
@@ -224,15 +225,15 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'research', title: 'Research and government', html: () => `
-      <p>Open ${L('module:research', 'R&amp;D')} (<kbd>R</kbd>). Points come from the research budget. The tree holds ${TECHS.length} technologies in ${BRANCHES.length} branches over ${MAX_TIER} eras, from today's drones to a spacefaring civilisation: no nation learns it all quickly, and the far end is the long game.</p>
+      <p>Open ${L('module:research', 'R&amp;D')} (<kbd>R</kbd>). Points come from the research budget. The tree holds ${TECHS.length} technologies in ${BRANCHES.length} branches over ${MAX_TIER} eras, from today's drones to a spacefaring civilisation: no nation learns it all quickly, and the far end is the long game. In the <b>Dash</b> game mode every technology costs half as much.</p>
       <ul>
         <li><b>Available</b> lists everything you can start now. Each branch's tab shows its whole line, era by era.</li>
         <li>A technology needs every one it names, often from another branch. Press <b>Research now</b> to start one, <b>Queue</b> to line it up (up to ${MAX_RESEARCH_QUEUE}), or <b>Queue with … before it</b> to line up the whole path to a far technology at once. The next in the queue starts by itself.</li>
         <li>Bonuses are permanent and grow each era. Each branch ends in a <b>capstone</b> with a great deal more.</li>
         <li>Research partners who already know a technology cut its cost by a fifth. Spies can steal it, and a technology lead makes your own agents a little likelier to succeed.</li>
       </ul>
-      <table class="man-table"><thead><tr><th>Era</th><th>Points each</th><th>Technologies</th></tr></thead><tbody>
-        ${Array.from({ length: MAX_TIER }, (_, i) => i + 1).map((k) => `<tr><td>${k}. ${esc(ERA_NAMES[k])}</td><td>${TIER_COST[k].toLocaleString('en-US')}</td><td>${TECHS.filter((t) => t.tier === k).length}</td></tr>`).join('')}
+      <table class="man-table"><thead><tr><th>Era</th><th>Points each (Marathon)</th><th>Dash</th><th>Technologies</th></tr></thead><tbody>
+        ${Array.from({ length: MAX_TIER }, (_, i) => i + 1).map((k) => `<tr><td>${k}. ${esc(ERA_NAMES[k])}</td><td>${TIER_COST[k].toLocaleString('en-US')}</td><td>${techCost(k, { mode: 'dash' }).toLocaleString('en-US')}</td><td>${TECHS.filter((t) => t.tier === k).length}</td></tr>`).join('')}
       </tbody></table>
       <h3>Branches</h3>
       <table class="man-table"><tbody>${BRANCHES.map((b) => `<tr><td>${esc(BRANCH_NAMES[b])}</td><td>${TECHS.filter((t) => t.branch === b).length} technologies; ends in <b>${esc(TECHS.find((t) => t.branch === b && t.capstone)?.name ?? '')}</b></td></tr>`).join('')}</tbody></table>
@@ -283,9 +284,17 @@ const CHAPTERS: Chapter[] = [
   },
   {
     id: 'music', title: 'Menu, music and settings', html: () => `
-      <p>The <b>main menu</b> (${art('menu')} in the top bar, or <kbd>Esc</kbd> with nothing open) holds single player, save and load, a new campaign (optionally <b>Ironman</b>: one autosave, no going back), multiplayer, options for graphics, sound, interface and game speed, this manual and the credits. Single player pauses while it is open, and <kbd>Space</kbd> pauses it at any time.</p>
+      <p>The <b>main menu</b> (${art('menu')} in the top bar, or <kbd>Esc</kbd> with nothing open) holds single player, save and load, a new campaign, multiplayer, options for graphics, sound, interface and game speed, this manual and the credits. Single player pauses while it is open, and <kbd>Space</kbd> pauses it at any time.</p>
+      <h3>Creating a game</h3>
+      <p><b>New campaign</b> (and, in the desktop app, <b>Host a new world</b>) opens the create-game screen. What you choose there is kept with the world, so a save or a hosted world always plays as it began.</p>
+      <ul>
+        <li><b>Map</b>: the Earth. Custom maps will join the list in a later version.</li>
+        <li><b>Game mode</b>: ${GAME_MODES.map((k) => `<b>${MODE_INFO[k].name}</b> (${esc(MODE_INFO[k].tagline.toLowerCase())}): ${esc(MODE_INFO[k].text)}`).join(' ')}</li>
+        <li><b>Your nation</b> (single player): lead one from the first moment, or choose on the map once the world opens.</li>
+        <li><b>Rules</b>: the starting speed, and in single player <b>Ironman</b> (one autosave, no going back). A hosted world also sets how long a leader may be away before advisers take over, and before the nation goes back to the AI.</li>
+      </ul>
       <h3>Multiplayer</h3>
-      <p>In the desktop app, <b>Host a game</b> runs a shared world on your computer: friends on your network join at the address it shows, in the game or a browser (for friends elsewhere, forward port 8787). Or join any world server by its address. In a shared world, pick a nation from the menu; <kbd>Space</kbd> votes to pause, and the world pauses when every leader online agrees (for up to ten minutes).</p>
+      <p>In the desktop app, <b>Host a new world</b> (or <b>Continue my hosted world</b>) runs a shared world on your computer: friends on your network join at the address it shows, in the game or a browser (for friends elsewhere, forward port 8787). Or join any world server by its address. In a shared world, pick a nation from the menu; <kbd>Space</kbd> votes to pause, and the world pauses when every leader online agrees (for up to ten minutes).</p>
       <p>${L('module:records', 'Records')} (<kbd>V</kbd>) holds the ledger of every nation, sortable, and the full log of dispatches, filtered by kind.</p>
       <p>The ${L('do:music', 'music player')} (${art('music')} in the top bar) plays the game's own soundtrack, any tracks placed in the game's <code>music</code> folder, and music files you add yourself. Sound effects are switched with <b>Sound on/off</b>.</p>
       <p>View settings on the left: borders, rivers, names, grid lines, colour-blind friendly colours, tilt, relief and 3D models. If the map runs slowly, turning off 3D models helps most.</p>`,

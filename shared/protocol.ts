@@ -13,6 +13,7 @@ import type { EventKey, PendingEvent } from './events';
 import type { Party } from './parties';
 import type { WarGoal } from './military';
 import type { Government, ResearchPrivate, TechId } from './research';
+import type { GameSettings } from './settings';
 import type { BuildingState, BuildingType } from './buildings';
 import type { Specialty } from './specialties';
 import type { FlagSpec } from './flags';
@@ -259,6 +260,7 @@ export type ServerMsg =
       t: 'welcome';
       you: Me;
       clock: ClockInfo;
+      settings?: GameSettings; // the map and mode the world was made with
       nations: NationPublic[];
       mine: NationPrivate | null;
       events: WorldEvent[];

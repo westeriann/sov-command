@@ -11,6 +11,7 @@ import { apiHandler } from './http.ts';
 import { staticHandler } from './static.ts';
 import { Hub } from './net.ts';
 import { loadNationDefs, World } from './world.ts';
+import { normalizeSettings, type GameSettings } from '../../shared/settings.ts';
 
 const env = (k: string, d: string) => process.env[k] ?? d;
 const config = {
@@ -25,10 +26,12 @@ const config = {
   allowedOrigins: env('ALLOWED_ORIGINS', '').split(',').map((s) => s.trim()).filter(Boolean),
   backupHours: Number(env('BACKUP_HOURS', '6')), // 0 turns automatic backups off
   backupKeep: Number(env('BACKUP_KEEP', '28')),
+  // a new world's map and mode (GAME_MODE=dash: research at half cost); a world already in the database keeps its own
+  settings: normalizeSettings({ map: env('GAME_MAP', 'earth'), mode: env('GAME_MODE', 'marathon') }),
   staticDir: env('STATIC_DIR', ''), // production: the built website (client/dist), served from this same port
 };
 
-export function start(cfg = config) {
+export function start(cfg: Omit<typeof config, 'settings'> & { settings?: GameSettings } = config) {
   const db = openDb(cfg.dbFile);
   const { seed, nations, provinces } = loadNationDefs(cfg.worldDir);
   const world = new World(db, seed, nations, {
@@ -38,6 +41,7 @@ export function start(cfg = config) {
     autopilotAfterMs: cfg.autopilotAfterMs,
     releaseAfterMs: cfg.releaseAfterMs,
     seasonMs: cfg.seasonMs,
+    settings: cfg.settings,
   }, provinces);
   const accounts = new Accounts(db);
   world.achievements = { list: (u) => accounts.achievements(u), award: (u, k) => accounts.award(u, k) };

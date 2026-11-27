@@ -180,3 +180,23 @@ test('a technology with several prerequisites waits for all of them, and the who
   assert.equal(n.tech.current, 'automation');
   assert.deepEqual(n.tech.queue, ['logistics_ai', 'e_smart_ports']);
 });
+
+test('a Dash world researches at half the cost; a world keeps the mode it was made with', () => {
+  const db = openDb(':memory:');
+  const w = new World(db, 1, defs, { ...opts, settings: { map: 'earth', mode: 'dash' } }, provinces);
+  assert.equal(w.settings.mode, 'dash');
+  assert.equal(w.techCost(1), TIER_COST[1] / 2, 'half the points');
+  w.claim({ id: 1, name: 'alice', guest: false }, 1);
+  const n = w.nations.get(1)!;
+  assert.equal(w.submit(1, { kind: 'research', tech: 'drones' }, 'human').ok, true);
+  const days = Math.ceil(TIER_COST[1] / 2 / w.researchRate(n)) + 2;
+  for (let d = 30; d < days + 30; d += 30) w.tick(Date.now() + realPerDay * Math.min(d, days));
+  assert.ok(n.tech.done.includes('drones'), `done in about half the Marathon time (${days} days)`);
+  w.persistAll();
+  // reopened with different settings, it stays a Dash world
+  const again = new World(db, 1, defs, { ...opts, settings: { map: 'earth', mode: 'marathon' } }, provinces);
+  assert.equal(again.settings.mode, 'dash');
+  // a world made before there were settings plays at the full pace
+  assert.equal(setup().settings.mode, 'marathon');
+  assert.equal(setup().techCost(1), TIER_COST[1]);
+});

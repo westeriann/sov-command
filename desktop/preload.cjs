@@ -3,8 +3,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('sovDesktop', {
-  host: () => ipcRenderer.invoke('host:start'),
+  host: (game) => ipcRenderer.invoke('host:start', game), // game: the create-game screen's choices for a new world
   stopHost: () => ipcRenderer.invoke('host:stop'),
   hosting: () => ipcRenderer.invoke('host:status'),
+  lastHosted: () => ipcRenderer.invoke('host:last'),
   singlePlayer: () => ipcRenderer.invoke('app:single'),
 });

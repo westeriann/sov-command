@@ -1,6 +1,6 @@
 import { art } from './art-icons';
 import { money } from '../../shared/economy';
-import { GOVERNMENT_INFO, TECHS, TIER_COST } from '../../shared/research';
+import { GOVERNMENT_INFO, TECHS, techCost } from '../../shared/research';
 import { HARVEST, SEASON_NAMES, coldLand, seasonAt } from '../../shared/seasons';
 import { historyHtml } from './rankings-panel';
 import { flagSvg } from '../../shared/flags';
@@ -671,7 +671,7 @@ export class Hud {
       set('war', `${wars.length} · ${worst > 0 ? '+' : ''}${worst}`, worst < -20 ? 'live bad' : 'live warn');
     }
     const r = mine.research, cur = r?.current ? TECHS.find((t) => t.id === r.current) : undefined;
-    set('research', cur ? `${Math.round(((r!.progress ?? 0) / TIER_COST[cur.tier]) * 100)}% ${esc(cur.name.split(' ')[0].toUpperCase())}` : 'IDLE', cur ? 'live' : 'live warn');
+    set('research', cur ? `${Math.round(((r!.progress ?? 0) / techCost(cur.tier, this.game.settings)) * 100)}% ${esc(cur.name.split(' ')[0].toUpperCase())}` : 'IDLE', cur ? 'live' : 'live warn');
     const cover = e.energy.demand > 0 ? e.energy.supply / e.energy.demand : 1;
     set('power', `${Math.round(Math.min(1, cover) * 100)}%`, cover < 0.99 ? 'live bad' : 'live');
     set('support', mine.politics?.support !== undefined && (mine.politics.legislature === 'parliament' || mine.politics.legislature === 'council') ? `${mine.politics.support}%` : 'DECREE', 'live');

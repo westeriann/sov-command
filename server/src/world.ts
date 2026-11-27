@@ -38,7 +38,7 @@ import { MISSILE_SHIELD_KM } from '../../shared/buildings.ts';
 import { ROAD, roadCost, roadDays } from '../../shared/roads.ts';
 import { buildSpeed, devLean, development, MILITARY_WORKS, recruitSpeed } from '../../shared/development.ts';
 import {
-  GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, TIER_COST, effectsOf, missing, ready,
+  GOVERNMENTS, GOVERNMENT_INFO, MAX_RESEARCH_QUEUE, REFORM_COOLDOWN_DAYS, REFORM_DAYS, TECHS as TECHS_LIST, TECH_BY_ID, effectsOf, missing, ready, techCost,
   type Effects, type Government, type ResearchPrivate, type TechId,
 } from '../../shared/research.ts';
 import {
@@ -56,6 +56,7 @@ import { AUTONOMY_COST, CAMPAIGN_COST, CAMPAIGN_DAYS, COALITION_COST, PARTIES_PE
 import { DEMIL_YEARS, MAX_REPARATIONS, REPARATION_YEARS, treatyCost, treatyText, type PeaceTreaty } from '../../shared/peace.ts';
 import { COUNTER_INTEL_COST, MAX_NETWORKS, NETWORK_COST, NETWORK_GROWTH } from '../../shared/diplomacy.ts';
 import { EQUIP_PER_BN, WAR_GOALS } from '../../shared/military.ts';
+import { normalizeSettings, type GameSettings } from '../../shared/settings.ts';
 
 /** New players cannot be attacked by the AI for this long after claiming a nation. */
 const NEWCOMER_PROTECTION_MS = 2 * 3_600_000;
@@ -122,6 +123,7 @@ export interface WorldOptions {
   releaseAfterMs: number; // real ms offline before the nation returns to the AI
   seasonMs?: number; // real length of a season (default 28 days)
   singlePlayer?: boolean; // the world runs in the player's own window: advisers may help them govern
+  settings?: GameSettings; // how a new world is made (an existing one keeps its own)
 }
 
 export interface WorldListener {
@@ -269,6 +271,8 @@ export class World {
   season: { number: number; startedAt: number; endsAt: number; scores: Record<number, number>; history: { d: number; s: Record<number, number>; p?: Record<number, number> }[]; dominance: number };
   private power = new Map<number, number>();
   listener: WorldListener | null = null;
+  /** The map and mode this world was made with. */
+  readonly settings: GameSettings;
   /** Set by the server: achievements are kept on the account, not the nation. */
   achievements: { list(userId: number): string[]; award(userId: number, key: string): boolean } = { list: () => [], award: () => false };
 
@@ -281,7 +285,10 @@ export class World {
     if (!storedSeed) {
       setMeta(db, 'seed', String(seed));
       setMeta(db, 'clock', JSON.stringify({ openedReal: Date.now(), openedGame: opts.startGame, speed: opts.speed }));
+      setMeta(db, 'settings', JSON.stringify(normalizeSettings(opts.settings)));
     }
+    // worlds made before there were settings play as they always have: the Earth, at the full pace
+    this.settings = normalizeSettings(JSON.parse(getMeta(db, 'settings') ?? '{}'));
     this.clock = JSON.parse(getMeta(db, 'clock')!);
     this.worldStart = Number(getMeta(db, 'start') ?? this.clock.openedGame);
     setMeta(db, 'start', String(this.worldStart));
@@ -535,6 +542,9 @@ export class World {
       blackout: Math.round((e.blackout ?? 0) * 1000) / 1000, militaryOil: Math.round((this.extraUse(n).oil ?? 0) * 1000) / 1000,
     };
   }
+
+  /** Research points a technology of this tier costs in this world (Dash: half). */
+  techCost(tier: number) { return techCost(tier, this.settings); }
 
   /** Research points a nation earns per game day: its research spending as a share of GDP, scaled a little by size. */
   researchRate(n: NationState) {
@@ -1880,7 +1890,7 @@ export class World {
           if (op.mission === 'steal') {
             const mineKnown = new Set(n.tech.done), theirs = new Set(t.tech.done);
             const pick = TECHS_LIST.find((x) => theirs.has(x.id) && !mineKnown.has(x.id) && ready(x, mineKnown));
-            if (pick) { n.tech.partial[pick.id] = (n.tech.partial[pick.id] ?? 0) + TIER_COST[pick.tier] * 0.4; this.report(n, `Our agents in the ${T} stole research on ${pick.name}.`); }
+            if (pick) { n.tech.partial[pick.id] = (n.tech.partial[pick.id] ?? 0) + this.techCost(pick.tier) * 0.4; this.report(n, `Our agents in the ${T} stole research on ${pick.name}.`); }
             else this.report(n, `Our agents found nothing worth stealing in the ${T}.`);
           } else if (op.mission === 'sabotage') {
             const own = [...this.military.buildings.keys()].filter((p) => this.military.provinces.get(p)?.owner === t.id);
@@ -2615,14 +2625,14 @@ export class World {
       const human = n.controller === 'human';
       const cur = n.tech.current;
       const rate = this.researchRate(n);
-      if (!cur) n.econ.research = Math.min(TIER_COST[6], n.econ.research + rate); // nothing under way: bank the points
+      if (!cur) n.econ.research = Math.min(this.techCost(6), n.econ.research + rate); // nothing under way: bank the points
       if (cur) {
         const t = TECH_BY_ID.get(cur)!;
         const fromBank = Math.min(n.econ.research, rate * 0.5);
         n.econ.research -= fromBank;
         const p = (n.tech.partial[cur] ?? 0) + rate + fromBank;
         const shared = this.diplomacy.partners('research', n.id).some((x) => this.nations.get(x)?.tech.done.includes(cur));
-        if (p >= TIER_COST[t.tier] * (shared ? 0.8 : 1)) {
+        if (p >= this.techCost(t.tier) * (shared ? 0.8 : 1)) {
           n.tech.done.push(cur);
           delete n.tech.partial[cur];
           n.tech.current = undefined;
@@ -2704,7 +2714,7 @@ export class World {
         else if (r < 0.35) { e.stability -= 6; text = 'a general strike paralyses the country (−6 stability)'; }
         else if (r < 0.5) { e.gdp *= 0.993; e.stability -= 3; text = 'floods and storms damage cities and farmland'; }
         else if (r < 0.65) { e.stability -= n.gov.government === 'democracy' ? 7 : 4; text = 'a corruption scandal shakes the government'; }
-        else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + TIER_COST[TECH_BY_ID.get(cur)!.tier] * 0.15; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
+        else if (r < 0.8 && cur) { n.tech.partial[cur] = (n.tech.partial[cur] ?? 0) + this.techCost(TECH_BY_ID.get(cur)!.tier) * 0.15; text = `a research breakthrough speeds up ${TECH_BY_ID.get(cur)!.name}`; }
         else if (r < 0.88 && e.capacity.food > 0) { e.capacity.food *= 0.94; e.stability -= 2; text = 'a severe drought withers the harvest (food output −6%)'; }
         else if (r < 0.94) { e.gdp *= 0.997; e.stability -= 2; text = 'a heatwave strains power grids and hospitals'; }
         else { e.stability += 4; text = 'a national celebration lifts the public mood (+4 stability)'; }

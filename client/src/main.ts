@@ -50,6 +50,7 @@ import { PoliticsPanel } from './politics-panel';
 import { EspionagePanel } from './espionage-panel';
 import { RecordsPanel } from './records-panel';
 import { MainMenu } from './menu';
+import type { NewGame } from '../../shared/settings';
 import { HoverCard } from './hover-card';
 import { Lenses } from './lenses';
 import { diploColours } from './diplo-map';
@@ -79,7 +80,7 @@ async function start() {
   const desktop = navigator.userAgent.includes('Electron');
   let menuPause = (_on: boolean) => {};
   let menuContinue = () => {};
-  let menuNewGame = (_ironman: boolean) => {};
+  let menuNewGame = (_game: NewGame) => {};
   let connRef: Connection | null = null;
   let gameRef: Game | null = null;
   let polRef: Political | null = null;
@@ -89,7 +90,7 @@ async function start() {
 let soundRef: Sound | null = null;
   const mainMenu = new MainMenu(hudRoot, {
     offline: OFFLINE, desktop,
-    continue: () => menuContinue(), newGame: (iron) => menuNewGame(iron), manual: () => menuManual(), pause: (on) => menuPause(on),
+    continue: () => menuContinue(), newGame: (g) => menuNewGame(g), settings: () => gameRef?.settings, manual: () => menuManual(), pause: (on) => menuPause(on),
     slots: OFFLINE ? (msg) => (connRef as LocalConnection).slots(msg) : undefined,
     lobby: () => (gameRef ? [...gameRef.nations.values()].filter((n) => !n.annexedBy).map((n) => ({ id: n.id, name: polRef?.nations.get(n.id)?.name ?? `Nation ${n.id}`, player: n.player, online: n.online, gdp: gameRef!.economy.get(n.id)?.gdp ?? 0 })) : []),
     claim: (id) => connRef?.claimNation(id),
@@ -756,7 +757,7 @@ let soundRef: Sound | null = null;
     if (b) { b.setAttribute('aria-pressed', String(userPaused)); b.innerHTML = art(userPaused ? 'play' : 'pause'); }
   };
   hudRoot.addEventListener('click', (e) => { if (localWorld && (e.target as HTMLElement).closest('[data-act="pause"]')) togglePause(); });
-  menuNewGame = (iron) => (conn as LocalConnection).newGame(iron);
+  menuNewGame = (g) => (conn as LocalConnection).newGame(g);
   document.addEventListener('keydown', (ev) => {
     if (ev.key !== ' ' || mainMenu.isOpen || (ev.target as HTMLElement).closest('input, select, textarea, button')) return;
     ev.preventDefault();
@@ -792,11 +793,7 @@ let soundRef: Sound | null = null;
     hudRoot.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act="newgame"]');
       if (!b) return;
-      // pages in some viewers cannot show confirm(): ask on the button itself
-      if (b.dataset.confirm === '1') { (conn as LocalConnection).newGame(); return; }
-      b.dataset.confirm = '1';
-      b.textContent = 'Click again to delete this world';
-      setTimeout(() => { b.dataset.confirm = ''; b.textContent = 'New game'; }, 5000);
+      mainMenu.open('newgame'); // the create-game screen: map, mode, nation and rules
     });
   } else if (await serverAvailable()) {
     const token = loadToken();
