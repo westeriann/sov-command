@@ -7,7 +7,7 @@ import type { BuildingState, BuildingType } from '../../shared/buildings.ts';
 import { ROAD, roadKey, type RoadState } from '../../shared/roads.ts';
 import { WINTER_ATTRITION, coldLand, seasonAt, seasonSlow } from '../../shared/seasons.ts';
 import {
-  BEACHHEAD, EQUIP_CAP, EQUIP_PER_BN, GENERAL_BONUS, SUPPLY_HOPS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, UNIT_SPECS, bestRoute, distanceKm, domainOf, legDays,
+  BEACHHEAD, EQUIP_CAP, EQUIP_PER_BN, GENERAL_BONUS, SUPPLY_HOPS, NO_SUPPLY_LOSS, STRIKERS, NO_SUPPLY_POWER, RIVER_DEFENSE, TERRAIN_DEFENSE, TERRAIN_ATTACK, TERRAIN_ARMOR, ARMOR_UNITS, UNIT_SPECS, bestRoute, distanceKm, domainOf, legDays,
   type Domain, type General, type Mission, type QueueItem, type RouteNode, type UnitType, type UnitView, type War,
 } from '../../shared/military.ts';
 
@@ -591,8 +591,11 @@ export class Military {
         domainOf(u.type) === 'sea' ? 'naval' : domainOf(u.type) === 'air' ? 'air' : role === 'attack' ? 'landAttack' : 'landDefense');
       // the best general on each side lifts that whole side
       const command = (units: Unit[]) => 1 + GENERAL_BONUS * Math.max(0, ...units.map((u) => u.general?.skill ?? 0));
+      // the ground: defenders dig in, attackers are blunted, armour thrives on open ground and founders in rough
+      const ground = (u: Unit, role: 'attack' | 'defense') => !land || domainOf(u.type) !== 'land' ? 1
+        : (role === 'attack' ? TERRAIN_ATTACK[prov.terrain] ?? 1 : 1) * (ARMOR_UNITS.includes(u.type) ? TERRAIN_ARMOR[prov.terrain] ?? 1 : 1);
       const power = (units: Unit[], role: 'attack' | 'defense') => units.reduce((sum, u) =>
-        sum + (u.strength / 100) * UNIT_SPECS[u.type][role] * (role === 'defense' ? terrain : 1) * supply.get(u.nation)! * tech(u, role)
+        sum + (u.strength / 100) * UNIT_SPECS[u.type][role] * (role === 'defense' ? terrain : 1) * ground(u, role) * supply.get(u.nation)! * tech(u, role)
           * (u.supplied === false ? NO_SUPPLY_POWER : 1)
           // storming ashore: only marines fight at full strength in their first two days on the beach
           * (role === 'attack' && u.landedAt !== undefined && this.now - u.landedAt < 2 * DAY && u.type !== 'marines' ? BEACHHEAD : 1), 0) * command(units)

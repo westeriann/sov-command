@@ -149,3 +149,19 @@ test('a military focus builds units sooner', () => {
   };
   assert.ok(days('military') < days('economy'));
 });
+
+test('terrain: tanks hit hard on open ground and founder in the mountains', () => {
+  const fight = (terrain: string) => {
+    const w = setup();
+    w.military.provinces.get(5)!.terrain = terrain;
+    w.submit(1, { kind: 'war', target: 2 }, 'human');
+    const tank = w.military.spawn(1, 'armored', 5);
+    const inf = w.military.spawn(2, 'infantry', 5, 100);
+    let t = Date.now();
+    for (let d = 0; d < 2; d++) { t += realPerDay; w.tick(t); }
+    return { tankLeft: w.military.units.get(tank.id)?.strength ?? 0, infLeft: w.military.units.get(inf.id)?.strength ?? 0 };
+  };
+  const open = fight('steppe'), hills = fight('mountain_wet');
+  assert.ok(open.infLeft < hills.infLeft, `defenders suffer more on the steppe (${open.infLeft.toFixed(1)}) than in the mountains (${hills.infLeft.toFixed(1)})`);
+  assert.ok(open.tankLeft > hills.tankLeft, `tanks suffer less on the steppe (${open.tankLeft.toFixed(1)}) than in the mountains (${hills.tankLeft.toFixed(1)})`);
+});

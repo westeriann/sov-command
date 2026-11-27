@@ -86,7 +86,8 @@ export class BuildMode {
     const g = this.game, list = g.war.buildings[p.id] ?? [];
     const coastal = p.adj.some((q) => this.pol.provinces.get(q)?.kind === 'sea');
     const treasury = g.mine?.econ?.treasury ?? 0;
-    const options = BUILDING_TYPES.filter((t) => !BUILDINGS[t].coastal || coastal);
+    // producers only where there is something to produce
+    const options = BUILDING_TYPES.filter((t) => (!BUILDINGS[t].coastal || coastal) && (!BUILDINGS[t].needs || ((p.res as Record<string, number> | undefined)?.[BUILDINGS[t].needs!] ?? 0) > 0));
     this.menu.innerHTML = `<header class="row-between"><span class="label">BUILD IN ${esc(p.name.toUpperCase())}</span><button type="button" class="link" data-bm-close aria-label="Close">×</button></header>
       <div class="bm-list">${options.map((t) => {
         const have = list.find((b) => b.type === t);

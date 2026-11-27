@@ -559,6 +559,16 @@ export class GameMap {
       return (p) => { const o = owner(p); return o !== undefined ? colours.get(o) : undefined; };
     }
     if (mode === 'diplomatic') return (p) => { const o = owner(p); return o !== undefined ? this.diplo.get(o) : undefined; };
+    if (mode === 'terrain') {
+      // one terrain per province, painted on the province shapes so it sits exactly on the photo
+      const cols = new Map<string, [number, number, number]>();
+      return (p) => {
+        if (p.kind !== 'land') return undefined;
+        let c = cols.get(p.terrain);
+        if (!c) { c = hex(BIOME_INFO[p.terrain as keyof typeof BIOME_INFO]?.color ?? '#888888'); cols.set(p.terrain, c); }
+        return c;
+      };
+    }
     if (mode === 'development') return (p) => { const v = this.devValues.get(p.id); return v !== undefined ? ramp(DEV_STOPS, v) : undefined; };
     if (mode === 'wealth') {
       const logStops = WEALTH_STOPS.map(([v, c]) => [Math.log10(v), c] as [number, string]);

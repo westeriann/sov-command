@@ -72,6 +72,28 @@ export const TERRAIN_SLOW: Record<string, number> = {
 export const TERRAIN_DEFENSE: Record<string, number> = {
   mountain_wet: 1.7, mountain_dry: 1.7, ice: 1.5, temperate_forest: 1.3, boreal: 1.3, rainforest: 1.4, lake: 1.2,
 };
+/** Attackers' power by terrain: rough, closed or frozen ground blunts any assault. */
+export const TERRAIN_ATTACK: Record<string, number> = {
+  mountain_wet: 0.8, mountain_dry: 0.82, rainforest: 0.82, boreal: 0.9, temperate_forest: 0.9, ice: 0.8, tundra: 0.9, lake: 0.85, desert_sand: 0.95,
+};
+/** Armour (tanks and mechanized) by terrain, attacking or defending: at home on open ground, lost in forest, jungle and mountains. */
+export const TERRAIN_ARMOR: Record<string, number> = {
+  grassland: 1.15, steppe: 1.2, savanna: 1.1, desert_rock: 1.1, desert_sand: 0.9, shrubland: 1.05,
+  temperate_forest: 0.75, boreal: 0.75, rainforest: 0.6, mountain_wet: 0.6, mountain_dry: 0.65, tundra: 0.85, ice: 0.6, lake: 0.7,
+};
+export const ARMOR_UNITS: UnitType[] = ['armored', 'mechanized'];
+
+/** A province's terrain effects in words, for its panel. */
+export function terrainEffects(terrain: string): [string, 'good' | 'bad' | 'none'][] {
+  const pct = (x: number) => `${x >= 1 ? '+' : '−'}${Math.round(Math.abs(x - 1) * 100)}%`;
+  const d = TERRAIN_DEFENSE[terrain] ?? 1, a = TERRAIN_ATTACK[terrain] ?? 1, m = TERRAIN_ARMOR[terrain] ?? 1, s = TERRAIN_SLOW[terrain] ?? 1.2;
+  const out: [string, 'good' | 'bad' | 'none'][] = [];
+  if (d !== 1) out.push([`Defenders ${pct(d)}`, 'good']);
+  if (a !== 1) out.push([`Attackers ${pct(a)}`, 'bad']);
+  if (m !== 1) out.push([`Tanks and mechanized ${pct(m)}`, m > 1 ? 'good' : 'bad']);
+  out.push([s <= 1 ? 'Easy going for armies' : `Armies move ${s.toFixed(1)}× slower`, s <= 1 ? 'good' : 'bad']);
+  return out;
+}
 export const RIVER_DEFENSE = 1.25; // attacker crossing a major river (class 4+)
 export const RIVER_DELAY_DAYS = 1;
 

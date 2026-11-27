@@ -67,7 +67,7 @@ const CHAPTERS: Chapter[] = [
       <ul>
         <li>${L('mode:political', 'Political')}: who owns what. Occupied land shows the occupier's colour.</li>
         <li>${L('mode:wealth', 'Wealth per person')}: income per head, poor to rich.</li>
-        <li>${L('mode:satellite', 'Satellite only')}, ${L('mode:terrain', 'Terrain types')} and ${L('mode:elevation', 'Elevation')}: the land itself.</li>
+        <li>${L('mode:satellite', 'Satellite only')}, ${L('mode:terrain', 'Terrain types')} (one per province) and ${L('mode:elevation', 'Elevation')}: the land itself.</li>
         <li>${L('mode:climate', 'Temperature')}: mean temperature, hot deserts to frozen poles; mountain tops are colder.</li>
         <li>${L('mode:lights', 'Night lights')}: the planet at night. Cities glow by how well their nation is powered; blackouts go dark.</li>
       </ul>
@@ -156,6 +156,7 @@ const CHAPTERS: Chapter[] = [
       <h3>Fighting</h3>
       <ul>
         <li>Battles happen daily where enemies meet. Terrain, rivers, forts, generals, air support and supply all count.</li>
+        <li><b>Terrain</b>: every province has one (the Terrain types map shows them, province by province). Mountains, forest, jungle and ice favour defenders and blunt attackers; tanks and mechanized divisions are strongest on open grassland, steppe and rock desert and weakest in forest, jungle and mountains; rough ground slows every march. The province panel lists its terrain's effects.</li>
         <li><r>Units cut off from your territory or a port lose strength and fight weaker.</r></li>
         <li><r>Winter in cold lands slows armies by half and wears down troops on foreign soil.</r></li>
         <li>Missiles, nuclear warheads (after Nuclear deterrent), satellites and anti-satellite strikes live in ${L('module:air', 'Air command')}.</li>

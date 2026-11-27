@@ -1,4 +1,5 @@
 import { art } from './art-icons';
+import { terrainEffects } from '../../shared/military';
 import { buildInfo, buildTipLines } from './build-info';
 import { DEV_STOPS, nationDev } from './dev';
 import { money } from '../../shared/economy';
@@ -1070,7 +1071,9 @@ export class Hud {
     const nuked = g.war.nuked.includes(p.id);
     if (!list.length && !mine && !nuked) return '';
     const coastal = p.adj.some((q) => this.pol.provinces.get(q)?.kind === 'sea');
-    const missing = BUILDING_TYPES.filter((t) => !list.some((b) => b.type === t) && (!BUILDINGS[t].coastal || coastal));
+    // producers only where there is something to produce (none of the resource: not offered at all)
+    const has = (t: BuildingType) => !BUILDINGS[t].needs || ((p.res as Record<string, number> | undefined)?.[BUILDINGS[t].needs!] ?? 0) > 0;
+    const missing = BUILDING_TYPES.filter((t) => !list.some((b) => b.type === t) && (!BUILDINGS[t].coastal || coastal) && has(t));
     return `<span class="label">BUILDINGS</span>
       ${nuked ? '<p class="hint down">Struck by a nuclear weapon: a third of its people are gone.</p>' : ''}
       ${list.length ? `<div class="bars">${list.map((b) => b.damaged
@@ -1155,6 +1158,7 @@ export class Hud {
       <div class="kv mono">
         <span>Population</span><span>${mineHere ? go('module:economy', people(p.pop ?? 0), 'Grows with prosperity and stability: see Economy') : people(p.pop ?? 0)}</span>
         <span>Area</span><span>${km2(p.area)}</span>
+        ${(() => { const fx = terrainEffects(p.terrain); return `<span data-tip="${attr(tip(`Terrain: ${t.name}`, ...fx.map(([x, k]) => (k === 'none' ? x : [x, k] as [string, 'good' | 'bad'])), 'One terrain per province: it shapes every battle and march here'))}">Terrain</span><span>${esc(t.name)} · <span class="muted">${esc(fx.filter(([, k]) => k !== 'none').slice(0, 2).map(([x]) => x).join(', '))}</span></span>`; })()}
         ${(() => { const dv = development({ ...p, gdppc: n ? this.game.economy.get(n.id)?.gdppc : undefined, built: (this.game.war.buildings[p.id] ?? []).filter((b) => b.progress >= 1 && !MILITARY_WORKS.has(b.type)).length }); return `<span data-tip="${attr(tip(`Development ${dv} of 100`, devLabel(dv), [`Building here ${Math.round(buildSpeed(dv) * 100)}% of normal speed`, dv >= 50 ? 'good' : 'bad'], 'Grows with crowding and cities together with the nation\'s wealth per person, and with works built here; developed nations recruit a little faster', dv >= 50 ? 'Cities and crowded country lean liberal and open' : 'The remote countryside leans authoritarian and looks after its own'))}">Development</span><span><span class="dev-bar"><i style="width:${dv}%"></i></span> ${dv} · ${devLabel(dv)}</span>`; })()}
         <span>Mean elevation</span><span>${go('mode:elevation', describeElevation(p.elev), 'Show the elevation map')}</span>
         <span>Highest point</span><span>${go('mode:terrain', describeElevation(p.peak ?? p.elev), 'Show the terrain map')}</span>
