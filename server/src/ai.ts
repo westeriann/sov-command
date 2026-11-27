@@ -26,6 +26,7 @@ const LAW_TASTE: Record<Personality, LawId[]> = {
 };
 import { TECHS, TIER_COST, ready, type Branch, type TechId } from '../../shared/research.ts';
 import { BUILDINGS, type BuildingType } from '../../shared/buildings.ts';
+import { ROAD, roadCost } from '../../shared/roads.ts';
 import { ideologyGap } from '../../shared/society.ts';
 import { MISSILE_COST, STRIKERS, WARHEAD_COST } from '../../shared/military.ts';
 
@@ -603,12 +604,16 @@ export class AiBrain {
         if (pick) { orders.push({ kind: 'build', province: home.id, building: pick }); return orders; }
       }
     }
-    if (n.econ.treasury < n.econ.gdp * 0.05 || this.random() > 0.15) return orders;
+    if (n.econ.treasury < n.econ.gdp * 0.03) return orders;
     const own = [...m.provinces.values()].filter((p) => p.kind === 'land' && p.owner === me && m.controller(p.id) === me);
     if (!own.length) return orders;
-    // a modest building programme: grows with the economy, not without limit
+    // now and then a road: the capital joined to its largest cities, one project at a time
+    if (!atWar && this.random() < 0.12) { const road = this.roadOrder(n, own); if (road) { orders.push(road); return orders; } }
+    if (this.random() > 0.3) return orders;
+    // a building programme that grows with the economy (and so develops the land), not without limit
     const count = own.reduce((s, p) => s + (m.buildings.get(p.id)?.length ?? 0), 0);
-    if (count >= 4 + Math.floor(Math.sqrt(n.econ.gdp / 20))) return orders;
+    if (count >= 6 + Math.floor(Math.sqrt(n.econ.gdp / 8))) return orders;
+    if (own.filter((p) => m.buildings.get(p.id)?.some((b) => b.progress < 1)).length >= 3) return orders; // three sites at once at most
     const has = (p: number, t: BuildingType) => !!m.buildings.get(p)?.some((b) => b.type === t);
     const cap = w.defs.get(me)!.capital;
     const border = own.filter((p) => p.adj.some((q) => m.provinces.get(q)?.kind === 'land' && m.provinces.get(q)!.owner !== me));
@@ -623,8 +628,51 @@ export class AiBrain {
     if (!pick && r < 0.55 && coastal.length) { const p = coastal.find((x) => !has(x.id, 'port')); if (p) pick = [p.id, 'port']; }
     if (!pick && r < 0.65) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'mine')); if (p) pick = [p.id, 'mine']; }
     if (!pick) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'factory')); if (p) pick = [p.id, 'factory']; }
+    if (!pick) { const p = own.sort((a, b) => b.pop - a.pop).find((x) => !has(x.id, 'renewables')); if (p) pick = [p.id, 'renewables']; }
     if (pick && BUILDINGS[pick[1]]) orders.push({ kind: 'build', province: pick[0], building: pick[1] });
     return orders;
+  }
+
+  /**
+   * A road to build: from the largest of our cities not yet joined to the capital by road
+   * (finished or under way), along our own land to the nearest place already joined.
+   */
+  private roadOrder(n: NationState, own: { id: number; pop: number; adj: number[]; city?: boolean }[]): Order | undefined {
+    const m = this.world.military, me = n.id;
+    if (m.roads.some((r) => r.owner === me && r.progress < 1)) return; // one road at a time
+    if (m.roads.filter((r) => r.owner === me).length >= 4 + Math.floor(own.length / 25)) return; // enough for a country this size
+    const cap = this.world.defs.get(me)!.capital;
+    const mine = new Set(own.map((p) => p.id));
+    if (!mine.has(cap)) return;
+    // what the capital reaches by road already
+    const legs = new Map<number, number[]>();
+    for (const r of m.roads) if (r.owner === me) for (let i = 1; i < r.path.length; i++) {
+      const [a, b] = [r.path[i - 1], r.path[i]];
+      legs.set(a, [...(legs.get(a) ?? []), b]); legs.set(b, [...(legs.get(b) ?? []), a]);
+    }
+    const joined = new Set([cap]), stack = [cap];
+    while (stack.length) { const q = stack.pop()!; for (const x of legs.get(q) ?? []) if (!joined.has(x)) { joined.add(x); stack.push(x); } }
+    const target = own.filter((p) => !joined.has(p.id) && (p.city || p.pop > 2e6)).sort((a, b) => b.pop - a.pop)[0];
+    if (!target) return;
+    // shortest way over our own land to anywhere joined
+    const prev = new Map<number, number>([[target.id, -1]]), queue = [target.id];
+    let end: number | undefined;
+    while (queue.length && end === undefined) {
+      const q = queue.shift()!;
+      for (const x of m.provinces.get(q)?.adj ?? []) {
+        if (prev.has(x) || !mine.has(x)) continue;
+        prev.set(x, q);
+        if (joined.has(x)) { end = x; break; }
+        queue.push(x);
+      }
+    }
+    if (end === undefined) return;
+    const path: number[] = [];
+    for (let q: number = end; q !== -1; q = prev.get(q)!) path.push(q);
+    if (path.length < 2 || path.length - 1 > ROAD.maxLegs) return;
+    if (n.econ.treasury < roadCost(path.length - 1) + n.econ.gdp * 0.02) return;
+    const pts = path.map((q) => this.world.roadAnchor(q)).filter((x): x is [number, number] => !!x);
+    return { kind: 'road', path, pts };
   }
 
   /** What to build next: mostly land, a quarter air, some ships if we have a coast. */

@@ -57,3 +57,17 @@ test('troops move faster along a finished road', () => {
   const off = legTime(false), on = legTime(true);
   assert.ok(on < off * 0.7, `road leg ${on} vs ${off}`);
 });
+
+test('roads always meet: they end at province anchors and pass through the anchor where they share a province', () => {
+  const w = setup();
+  // a freehand road that stops short of the province centres
+  assert.equal(w.submit(1, { kind: 'road', path: [1, 2], pts: [[0.6, 0.4], [2.4, -0.3]] }, 'human').ok, true);
+  const a = w.military.roads[0];
+  assert.deepEqual(a.pts[0], [0, 0], 'starts at its first province');
+  assert.deepEqual(a.pts[a.pts.length - 1], [3, 0], 'ends at its last province');
+  // a second road from province 2 onward meets the first at province 2's anchor
+  assert.equal(w.submit(1, { kind: 'road', path: [2, 3], pts: [[3.5, 0.5], [5.5, 0.2]] }, 'human').ok, true);
+  const b = w.military.roads[1];
+  assert.deepEqual(b.pts[0], [3, 0], 'the new road starts where the old one ends');
+  assert.ok(a.pts.some((q) => q[0] === 3 && q[1] === 0) && b.pts.some((q) => q[0] === 3 && q[1] === 0), 'both pass through the junction');
+});

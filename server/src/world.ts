@@ -1220,7 +1220,7 @@ export class World {
         const cost = roadCost(legs);
         if (n.econ.treasury < cost - n.econ.gdp * 0.3) return fail('no_funds', 'The treasury cannot borrow any more.');
         n.econ.treasury -= cost;
-        this.military.roads.push({ id: this.military.nextRoad++, owner: n.id, path, pts, progress: 0 });
+        this.military.roads.push({ id: this.military.nextRoad++, owner: n.id, path, pts: this.joinRoad(path, pts), progress: 0 });
         if (actor === 'human') this.warChanged(); else this.warDirty = true;
         this.touch(n, false);
         return ok;
@@ -2537,6 +2537,50 @@ export class World {
     const e = p.owner !== undefined ? this.nations.get(p.owner)?.econ : undefined;
     const built = (this.military.buildings.get(p.id) ?? []).filter((b) => b.progress >= 1 && !MILITARY_WORKS.has(b.type)).length;
     return development({ ...p, gdppc: e && e.pop > 0 ? (e.gdp * 1e9) / e.pop : undefined, built });
+  }
+
+  private cityIn = new Map<number, number>();
+  /** Where roads meet in a province: its city if it has one, else its centre. */
+  roadAnchor(pid: number): [number, number] | undefined {
+    if (!this.cityIn.size) for (const p of this.military.provinces.values()) if (p.city && p.parent !== undefined) this.cityIn.set(p.parent, p.id);
+    const p = this.military.provinces.get(this.cityIn.get(pid) ?? pid) ?? this.military.provinces.get(pid);
+    return p?.label ? [p.label[0], p.label[1]] : undefined;
+  }
+
+  /**
+   * A new road's line, made to join the network: it starts and ends at the anchors of its
+   * end provinces, and wherever it shares a province with another road both pass through
+   * that province's anchor, so roads always meet instead of passing close by.
+   */
+  joinRoad(path: number[], pts: [number, number][]): [number, number][] {
+    const out = pts.slice();
+    const d2 = (a: [number, number], b: [number, number]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+    /** Put the anchor into a line where it fits best (its nearest point), unless it is there already. */
+    const through = (line: [number, number][], at: [number, number], end?: 'start' | 'end') => {
+      if (line.some((q) => d2(q, at) < 1e-6)) return;
+      if (end === 'start') { if (line.length && d2(line[0], at) < 0.04) line[0] = at; else line.unshift(at); return; }
+      if (end === 'end') { if (line.length && d2(line[line.length - 1], at) < 0.04) line[line.length - 1] = at; else line.push(at); return; }
+      let best = 0;
+      for (let i = 1; i < line.length; i++) if (d2(line[i], at) < d2(line[best], at)) best = i;
+      if (d2(line[best], at) < 0.04 && best > 0 && best < line.length - 1) line[best] = at;
+      else line.splice(Math.max(1, Math.min(line.length - 1, best + (best < line.length - 1 && d2(line[best + 1], at) < d2(line[Math.max(0, best - 1)], at) ? 1 : 0))), 0, at);
+    };
+    const first = this.roadAnchor(path[0]), last = this.roadAnchor(path[path.length - 1]);
+    if (first) through(out, first, 'start');
+    if (last) through(out, last, 'end');
+    for (const q of path) {
+      const others = this.military.roads.filter((r) => r.path.includes(q));
+      if (!others.length) continue;
+      const at = this.roadAnchor(q);
+      if (!at) continue;
+      if (q !== path[0] && q !== path[path.length - 1]) through(out, at);
+      // the older road bends through the junction too
+      for (const r of others) {
+        const i = r.path.indexOf(q);
+        through(r.pts, at, i === 0 ? 'start' : i === r.path.length - 1 ? 'end' : undefined);
+      }
+    }
+    return out.slice(0, ROAD.maxPts + path.length * 2);
   }
 
   /** A nation's average development, weighted by people (provinces it holds). */

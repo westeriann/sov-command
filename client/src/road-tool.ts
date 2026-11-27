@@ -224,7 +224,13 @@ export class RoadTool {
     ] });
   }
 
-  private label(q: number): Pt { const l = this.pol.provinces.get(q)!.label; return [l[0], l[1]]; }
+  /** Where a road meets a province: its city if it has one, else its centre (as the server joins them). */
+  private label(q: number): Pt {
+    if (!this.cityIn) { this.cityIn = new Map(); for (const p of this.pol.provinces.values()) if (p.city && p.parent !== undefined) this.cityIn.set(p.parent, p.id); }
+    const l = (this.pol.provinces.get(this.cityIn.get(q) ?? q) ?? this.pol.provinces.get(q)!).label;
+    return [l[0], l[1]];
+  }
+  private cityIn: Map<number, number> | null = null;
 
   /** The shortest way from a to b through our own provinces (excluding a). */
   private route(a: number, b: number): number[] | null {
@@ -254,18 +260,20 @@ export class RoadTool {
     return step > 1 ? out.filter((_, i) => i % step === 0 || i === out.length - 1) : out;
   }
 
-  /** A gently curving line through the points (Chaikin), so roads do not look ruled. */
+  /** A gently curving line through every point (Catmull-Rom), so roads do not look ruled and still meet exactly where they join. */
   private smooth(pts: Pt[]): Pt[] {
-    let line = pts;
-    for (let k = 0; k < 2 && line.length > 2; k++) {
-      const next: Pt[] = [line[0]];
-      for (let i = 0; i < line.length - 1; i++) {
-        const [a, b] = [line[i], line[i + 1]];
-        next.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    if (pts.length < 3) return pts;
+    const out: Pt[] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+      for (let k = 0; k < 4; k++) {
+        const t = k / 4, t2 = t * t, t3 = t2 * t;
+        const f = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+        out.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
       }
-      next.push(line[line.length - 1]);
-      line = next;
     }
-    return line;
+    out.push(pts[pts.length - 1]);
+    return out;
   }
+
 }
